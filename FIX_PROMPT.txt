@@ -1,0 +1,51 @@
+ПРОМТТ: Пошаговое исправление прототипа Grafnot (без регрессий). Разбивка на запросы: fix-stages/STAGE_01..15.txt (один файл = один запрос, выполнять по порядку 01→15).
+Контекст: D:\Opencode\HumanAComputer\grafnot-prototype\ — React 19 + TS strict + Vite + Tiptap + d3-force, только localStorage, бэкенда нет. База: README 24.09.2026, VISION_COMPLETE.txt, аудит 02.10.2026.
+Цель: устранить проблемы архитектуры/данных/UI/a11y/тестов, не сломав 127 unit + 61 e2e, вес JS gzip <=240 КБ.
+
+Жесткие ограничения (нарушение = провал):
+- Windows + PowerShell 5.1: без && / ||, пути с пробелами в кавычках. Файлы только UTF-8 без BOM. Temp: C:\Users\ushuz\AppData\Local\Temp\opencode.
+- Нет новых npm-зависимостей в бандле. Tiptap + d3-force остаются, lazy-чанк — только если вес не растет.
+- Стор аддитивно: SCHEMA_VERSION + migrate(), без потери полей. Ключи: grafnot-store-<id>, префы grafnot-<name>[:<id>], реестр grafnot-profiles-v1. Bare-ключи только legacy-миграция.
+- i18n x3 (RU/EN/KZ), только буквальный tr('key'). Переиспользуй: useListNav, useListState, listPrefs, <Hi>, useArmConfirm, Modal.
+- Preview только node.exe напрямую (vite preview --port 5199), убивать по реальному PID, не оставлять сирот на :5199. Сиды e2e с учетом гейта 20 и сброса grafnot-store-v2 + grafnot-profiles-v1.
+- После КАЖДОГО шага: npm test, npx tsc -b, npm run e2e, npm run check:weight, oxlint (0 errors), npm run check:i18n (не плодить dead keys). README.md обоих уровней в sync с кодом.
+
+Как работать: строго по шагам P0→P2, один шаг = одно изменение + отчет (что изменено + как проверено) + стоп до следующей команды. Исключение: однострочные переименования без логики (шаги 9+10) — одним шагом с одним прогоном гейтов. Шаги со схемой данных (1,7,8) — строго по одному. Не батчить остальное.
+
+P0 — данные и падения:
+1. src/store.ts:187-287,294-302 — migrate() с ветвлением по schemaVersion, без Date.now() в id (crypto.randomUUID + счетчик), trash сохраняет linkedIds/calcs/text, readStore с try. Убрать мутабельный migrationDropped:292 в явный return/context. Перед сменой формата id проверить e2e/check6.cjs на зависимость от паттерна n${Date.now()}/t/p/ct/g; найденную зависимость обновить в том же шаге.
+2. src/App.tsx:198-210,140-144 — saveStore debounced 300-500 мс + бэкап last-good + обязательный flush при beforeunload/visibilitychange (хука в src сейчас нет; без него закрытие вкладки в окне debounce теряет правки). Notify с clearTimeout на unmount/close. Убрать setClock:208 из save-эффекта.
+3. src/profiles.ts:52-67 + src/App.tsx:364-369 — removeProfileData возвращает результат, UI показывает ошибку, не считает удаление успешным при неснятых ключах.
+4. src/App.tsx:90-99 — settleStore не меняет activeId молча: битЫй activeId → '' + тост, без автопромоута notes[0].
+5. src/App.tsx:54-99,102 — вынести freshStore/ensureRegistry/settleStore из UI в storage/, инициализатор useState без IO-побочек (StrictMode-safe).
+6. src/App.tsx:158,271,288,299,502,531 — единый newId(prefix) без коллизий.
+7. src/useListState.ts:40-41,65 + src/App.tsx:66 — лимиты и lang строго через prefKeyFor/profileId, без bare-ключей.
+8. src/App.tsx:334-345,182-210 — enterProfile атомарно (один set), без записи стора под чужим profileId.
+8b. Смена профиля глазами пользователя: confirm перед setProfileId(null) (src/App.tsx:996-1006), т.к. main с key={profileId} (src/App.tsx:751) полностью перемонтируется без предупреждения.
+
+P0 — невидимые баги UI:
+9. danger-arm: код ставит danger-arm (src/App.tsx:914,932, src/MapPage.tsx:377, src/ProfilePicker.tsx:104), CSS знает только .g-danger-arm (src/index.css:362). Унифицировать на g-danger-arm, проверить armed визуально.
+10. Шапка src/App.tsx:695-703 — убрать кнопку панелей из g-top-actions (title resetTip vs aria-label panelToggle расходятся). Тоггл оставить только в HomePage через onToggleRight (src/App.tsx:767, src/HomePage.tsx:491-492), где панель реально есть.
+11. src/widgets.tsx:56-72 — Modal: Esc + trap + возврат фокуса. Убрать дергающий autoFocus на мобиле (src/TaskDialog.tsx:41, src/LinkDialog.tsx:53, src/MapPage.tsx:486).
+
+P1 — perf и консистентность:
+12. src/App.tsx:563-600,135-154 — поиск и селекторы (activeNote/openCount/uniqueTitle) в useMemo, slice(0,7) после индекса. src/useListState.ts:43-44 — memo select/slice, при росте — виртуализация.
+13. src/graphLayout.ts:28,50-56,46-48 — map вместо nodes.find в цикле, тики в worker/memo, детерминизм для e2e сохранить.
+14. Списки: единый контракт лимита (показано X из Y, без скрытого контента): src/NotesPage.tsx:76,122, src/TasksPage.tsx:104,187, src/PromptPage.tsx:678,744, src/MapPage.tsx:496,525. LinkDialog: поиск title+text + пагинация вместо slice(0,8) (src/LinkDialog.tsx:32-35). pickNotes slice(0,8) → «показать ещё» (src/PromptPage.tsx:418-420). ungrouped/orphans/similar без молчаливых срезов (src/MapPage.tsx:419, src/HomePage.tsx:579,47-53).
+15. Pro-замок MAP_UNLOCK=20 (src/App.tsx:52,170-173): добавить превью закрытой карты + объяснение «почему 20» + прогресс, а не только тост. Мобильный таббар аналогично.
+16. Тосты src/App.tsx:142-143, src/widgets.tsx:9-23 — очередь вместо затирания (max 3 видимых + счетчик), читаемый тайминг, не перекрывать bottombar (src/index.css:210-211).
+17. Граф src/MapPage.tsx:138,155-159,213-218,71-79,190-198 — click vs drag >4px с гистерезисом, хит-зона без ложных соседей, зум кнопками ×1.25/×0.8 + wheel, узлы доступны с клавиатуры (role/tabindex).
+18. Удаление везде один паттерн: immediate × (src/NotesPage.tsx:112-119, src/TasksPage.tsx:172-181) → arm-confirm как в src/MapPage.tsx:326-331. Пустые состояния везде с CTA как src/NotesPage.tsx:44-54.
+19. Термины/сниппеты: Заготовки vs Шаблоны (src/i18n.ts:227 vs 112,189) — один термин; превью 120 vs 140 vs 70 (src/MapPage.tsx:393, src/LinkDialog.tsx:73, src/NotesPage.tsx:107, src/promptUtils.ts:168) — одна константа; <Hi> не резать до подсветки (src/widgets.tsx:31-44).
+
+P1 — a11y/CSS/i18n:
+20. TagDot rgb(v,v,v) (src/PromptPage.tsx:32-36) + outline #8b94a3 — пересчитать контраст на обеих темах, значение не только цифрой. aria на RU/EN/KZ (src/HomePage.tsx:365,461,469,392,477, src/TasksPage.tsx:175, src/widgets.tsx:16,66). .g-tdel только :hover (src/index.css:110-111) → видимость на таче.
+21. Адаптив <760px (src/index.css:229,219-241,280-283): сайдбар не display:none а rail/шторка, g-cal-grid без горизонтального уезда, правая панель не падает вниз (src/HomePage.tsx:491-607).
+22. Плейсхолдер src/HomePage.tsx:258-260 через extension.options → API-команда Tiptap; src/PromptPage.tsx:300 убрать хардкод RU. tr fallback (src/i18n.ts:253-256) → «—» + лог, вычистить ~50 mock-ключей (src/i18n.ts:31-65) сканером.
+
+P2 — тесты/гейты/доки:
+23. Покрыть: export .md (src/App.tsx:461), duplicate (src/App.tsx:448), RU/EN/KZ тоггл, fill&copy (src/PromptPage.tsx:67,72 + src/widgets.tsx:191), мобильный замок, quota-UI без спама.
+24. e2e только preview :5199 (e2e/check6.cjs:3) — явный precheck; сиды 20/21 (e2e/check6.cjs:230,812) вынести в константу от MAP_UNLOCK. Вес 224.3/240 (scripts/check-weight.js:7) — разбить Tiptap/d3 в lazy, цель initial <200 КБ. oxlint в CI (.github отсутствует).
+25. Sync README: 88 vs 127 unit, 58 vs 61 e2e, байты App 33274 vs 38742, i18n 29272 vs 30319, store 11675 vs 13509 — генерировать скриптом. Долги: корзина 30 дней (src/store.ts:57), история версий, config/*.md, лицензия, словарь 57→2000+ (src/promptData.ts:21,26).
+
+Приемка шага: diff минимален, файл:строка в отчете, все 6 гейтов зеленые, e2e без флаков (waitForFunction activeElement, учет ре-рендера и getByRole exact). Не чинить «работает не трогай» пропуском — фиксировать как долг с причиной.

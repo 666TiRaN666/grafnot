@@ -1,0 +1,16 @@
+ЭТАП 04/15: Разгрузка App.tsx — хранилище из UI (P5+P8) — один запрос
+Контекст: grafnot-prototype/. App.tsx God-object, но на этом этапе только вынос без смены логики.
+Цель: freshStore/ensureRegistry/settleStore вне UI, enterProfile атомарен, StrictMode-safe.
+
+Файлы:
+- src/App.tsx:54-99 (вынести), :102-114 (инициализаторы useState с IO), :334-345 + :182-210 (enterProfile + save-эффекты)
+
+Шаги:
+1. Создать src/storage/profileBoot.ts (или storage/): перенести freshStore/ensureRegistry/settleStore 1:1, без изменения логики. App импортирует их.
+2. Убрать IO-побочки из инициализаторов useState: ensureRegistry вызывается один раз идемпотентно, повторный прогон StrictMode ничего не дублирует (тест/доказательство повторным вызовом).
+3. enterProfile: собрать смену store/theme/lang/panels/profileId в одну атомарную операцию (один set или batched), чтобы save-эффекты не срабатывали на промежуточной комбинации чужого profileId.
+
+Запрещено: менять migrate, формат id, debounce, поведение UI.
+Проверка: npm test; npx tsc -b; e2e (включая P26 профилей); weight; oxlint; i18n. Поведение load/save/миграции побайтово то же.
+Готово когда: App.tsx короче, логика та же, двойной прогон инициализатора безопасен; гейты зеленые.
+Отчет: новые/перенесенные файлы + diff App + гейты.

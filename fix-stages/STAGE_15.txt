@@ -1,0 +1,21 @@
+ЭТАП 15/15: Покрытие, вес, CI, доки (P23+P24+P25) — один запрос, без прод-логики
+Контекст: grafnot-prototype/. Прод-код заморожен после STAGE_01-14.
+Цель: закрыть непокрытое, ужать вес, включить CI, sync доков.
+
+Файлы:
+- Покрыть: src/App.tsx:461 (export .md Blob), :448 (duplicate), RU/EN/KZ тоггл (сейчас только dark/light e2e:614-622), src/PromptPage.tsx:67,72 + src/widgets.tsx:191 (fill&copy клипборд), мобильный замок (только тост e2e:857-858), quota-UI «один тост без спама»
+- e2e/check6.cjs:3 (precheck preview :5199 с понятной ошибкой), сиды от MAP_UNLOCK (если не сделано в STAGE_11)
+- scripts/check-weight.js:7 (BUDGET=240*1024; факт 224.3/240=93% из прогона → Tiptap+d3 в lazy-чанки, цель initial <200 КБ), vite.config.ts:6 (только plugins:[react()])
+- oxlint в CI (создать .github/workflows/ci.yml: test + tsc + e2e + weight + oxlint + i18n)
+- README обоих уровней: 88 vs 127 unit, 58 vs 61 e2e, байты App 33274/38742, i18n 29272/30319, store 11675/13509 — сверять скриптом, руками не править числа
+
+Шаги:
+1. Добавить unit+e2e из списка выше; fill&copy мокать буфер.
+2. Lazy-сплит Tiptap/d3 без смены поведения; warning 500 КБ должен уйти.
+3. CI-файл + скрипт sync README (числа/байты/гейты из кода и прогонов).
+4. Долги зафиксировать как issues, не кодом: корзина 30 дней (политика отсутствует; поле src/store.ts:57 только тип trash, enforcement нет), история версий, config/*.md, лицензия, словарь 57→2000+ (src/promptData.ts:21 DATASET_VERSION, :26 TAG_DATA).
+
+Запрещено: менять прод-логику, схему, UI-тексты.
+Проверка: все 6 гейтов + зеленый CI-прогон.
+Готово когда: непокрытое покрыто, вес <200 initial, CI зелен, README в sync.
+Отчет: новые тесты + CI-лог + вес до/после + гейты.

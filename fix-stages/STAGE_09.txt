@@ -1,0 +1,18 @@
+ЭТАП 09/15: Perf без смены логики (P12+P13) — один запрос
+Контекст: grafnot-prototype/. Только мемоизация и сложность, поведение то же.
+Цель: поиск не O(n) на каждый кейстрок, граф не блокирует UI.
+
+Файлы:
+- src/App.tsx:135-154 (activeNote/openCount/uniqueTitle), :563-600 (поиск notes+tasks+prompts+promptPreview:588, slice(0,7))
+- src/useListState.ts:43-44 (select/slice)
+- src/graphLayout.ts:28,46-48,50-56 (ticks=300 синхронно, nodes.find в цикле)
+
+Шаги:
+1. activeNote/openCount/поиск — useMemo по [notes,tasks,prompts,q,lang]. Порядок и топ-7 те же.
+2. useListState select/slice — memo; виртуализацию НЕ делать (только memo).
+3. graphLayout: заменить nodes.find в цикле на Map (O(n*m)→O(n+m)); тики оставить 300 синхронно, но layout мемоизировать по входу + детерминизм для e2e сохранить. Worker НЕ вводить на этом этапе.
+
+Запрещено: менять ранжирование поиска, layout-числа (300 тиков, box 800x500, link 110/0.6, charge -260), UI.
+Проверка: npm test (graphLayout.test.ts зелен); tsc; e2e карта/поиск; weight (не вырос); oxlint; i18n.
+Готово когда: ввод в Ctrl+K без лишних проходов, граф те же координаты при том же входе; гейты зеленые.
+Отчет: diff + замеры до/после (профилировщик или счетчик) + гейты.

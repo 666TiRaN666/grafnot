@@ -1,0 +1,18 @@
+ЭТАП 05/15: Изоляция префов и лимитов (P7) — один запрос
+Контекст: grafnot-prototype/. Bare-ключи текут между профилями.
+Цель: все префы строго per-profile, legacy только миграция.
+
+Файлы:
+- src/useListState.ts:40-41,65 (loadListLimit/saveListLimit без profileId)
+- src/App.tsx:66 (прямой getItem grafnot-lang), :126-130 (tplLimit)
+- src/prefs.ts, src/listPrefs.ts, src/profiles.ts:8-47 (состав ключей)
+
+Шаги:
+1. Пробросить profileId во все loadListLimit/saveListLimit и prefKeyFor-вызовы. Bare-ключи оставить только как legacy-чтение при первом запуске.
+2. Убрать прямой getItem('grafnot-lang') — только через prefKeyFor. migrateLegacyPrefs покрывает перенос, голые ключи удаляются только после успешной проверки чтения (как в ensureRegistry).
+3. Добавить unit: лимиты двух профилей не пересекаются; lang второго профиля не читает bare-ключ.
+
+Запрещено: менять схему стора, migrate notes/graphs, UI-тексты.
+Проверка: npm test; tsc; e2e P26; weight; oxlint; i18n.
+Готово когда: переключение профиля меняет тему/язык/лимиты изолированно; гейты зеленые.
+Отчет: diff + файл:строка + новые тесты + гейты.
