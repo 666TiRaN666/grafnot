@@ -1,0 +1,34 @@
+/* S1 primitives, namespace u-. Not referenced by any page yet (S1): no visuals change. */
+.u-btn { font-family: var(--u-font); min-height: var(--u-hit-min); border-radius: var(--u-r-md); padding: var(--u-s2) var(--u-s4); border: 1px solid var(--u-border); background: var(--u-card); color: var(--u-text); font-size: 14px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: var(--u-s2); }
+.u-btn[data-variant='primary'] { background: var(--u-accent); border-color: transparent; color: var(--u-on-accent); font-weight: 700; }
+.u-btn[data-variant='danger'] { background: transparent; border-color: var(--u-danger); color: var(--u-danger); font-weight: 700; }
+.u-btn[data-variant='ghost'] { background: transparent; border-color: transparent; }
+.u-btn[data-size='sm'] { min-height: var(--u-hit-min); padding: var(--u-s1) var(--u-s3); font-size: 13px; }
+.u-btn[data-size='lg'] { min-height: 48px; padding: var(--u-s3) var(--u-s6); font-size: 15px; width: 100%; }
+.u-iconbtn { min-width: var(--u-hit-min); min-height: var(--u-hit-min); display: inline-flex; align-items: center; justify-content: center; border-radius: var(--u-r-md); border: 1px solid transparent; background: transparent; color: var(--u-text); cursor: pointer; }
+.u-iconbtn:hover { border-color: var(--u-border); }
+.u-field { display: flex; flex-direction: column; gap: var(--u-s1); margin: var(--u-s2) 0; }
+.u-field > label { font-size: 13px; font-weight: 700; }
+.u-hint { font-size: 12px; color: var(--u-muted); }
+.u-error { font-size: 12px; color: var(--u-danger); font-weight: 700; }
+.u-in, .u-area, .u-select { width: 100%; border: 1px solid var(--u-border); border-radius: var(--u-r-md); padding: var(--u-s2) var(--u-s3); background: var(--u-card); color: var(--u-text); font-size: 14px; font-family: var(--u-font); }
+.u-area { resize: vertical; min-height: 88px; }
+.u-seg { display: inline-flex; gap: 2px; border: 1px solid var(--u-border); border-radius: var(--u-r-md); padding: 2px; }
+.u-seg button { border: none; background: none; color: var(--u-muted); border-radius: var(--u-r-sm); padding: var(--u-s2) var(--u-s3); min-height: var(--u-hit-min); cursor: pointer; font-size: 13px; }
+.u-seg button[aria-pressed='true'] { background: var(--u-text); color: var(--u-bg); font-weight: 700; }
+.u-chip { border-radius: 999px; padding: var(--u-s2) var(--u-s3); min-height: var(--u-hit-min); border: 1px solid var(--u-border); background: transparent; color: var(--u-text); cursor: pointer; font-size: 13px; }
+.u-chip[aria-pressed='true'] { border-color: var(--u-accent); font-weight: 700; }
+.u-row { width: 100%; min-height: var(--u-hit-min); display: flex; align-items: center; gap: var(--u-s3); text-align: left; background: none; border: none; border-bottom: 1px solid var(--u-border); padding: var(--u-s3) var(--u-s2); cursor: pointer; color: var(--u-text); }
+.u-row-main { flex: 1; min-width: 0; background: none; border: none; color: inherit; text-align: left; cursor: pointer; padding: 0; font-size: 14px; }
+.u-row-meta { color: var(--u-muted); font-size: 12px; }
+.u-pop { position: fixed; z-index: var(--u-z-pop); background: var(--u-card); color: var(--u-text); border: 1px solid var(--u-border); border-radius: var(--u-r-lg); padding: var(--u-s4); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2); }
+.u-drawer { position: fixed; z-index: var(--u-z-drawer); top: 0; right: 0; bottom: 0; width: min(360px, 100%); background: var(--u-card); color: var(--u-text); border-left: 1px solid var(--u-border); padding: var(--u-s4); overflow: auto; }
+@media (max-width: 760px) {
+  .u-drawer { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 80vh; border-left: none; border-top: 1px solid var(--u-border); border-radius: var(--u-r-lg) var(--u-r-lg) 0 0; }
+}
+.u-empty { text-align: center; padding: var(--u-s8) var(--u-s4); }
+.u-kbd { font-family: var(--u-font); font-size: 11px; border: 1px solid var(--u-border); border-radius: 6px; padding: 2px 8px; white-space: nowrap; }
+.u-skel { border-radius: var(--u-r-sm); background: var(--u-border); min-height: 14px; }
+.u-confirm-b { position: fixed; inset: 0; z-index: var(--u-z-drawer); display: flex; align-items: center; justify-content: center; padding: var(--u-s4); background: rgba(10, 14, 20, 0.5); }
+.u-confirm { width: 420px; max-width: 100%; background: var(--u-card); color: var(--u-text); border: 1px solid var(--u-border); border-radius: var(--u-r-lg); padding: var(--u-s6); }
+.u-confirm-actions { display: flex; gap: var(--u-s2); justify-content: flex-end; margin-top: var(--u-s4); }

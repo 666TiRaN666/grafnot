@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -17,12 +17,11 @@ import { fileURLToPath } from "node:url";
 // [srcDir] (default: ../src, so `npm run check:i18n` is unchanged).
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
 
-// Consumed via tr(c.key) from the filter-chips config in PromptPage.tsx
-// ([{ id, key }]), never as tr("...") literals. This list is not free-form:
-// every entry must exist in the dict AND be listed in the chips config, and
-// every chips-config key must be listed here — otherwise exit 1, so a new
-// chip without a translation (or a stale exception) cannot slip through.
-const DYNAMIC_KEYS = new Set(["tplFAll", "tplFMine", "tplFLlm", "tplFImg"]);
+// S9: the { id, key } chips config died with the legacy page (nothing to
+// cross-check anymore). Dynamic tr(c.key) calls are banned: every key must
+// appear as a tr("...") literal so the dead-key scan stays exact.
+// S12 exception: Settings → Keys renders from the shortcuts registry
+// (src/shortcuts.ts), so labelKey: "..." literals there count as usage.
 
 function listFiles(dir, out) {
   out = out || [];
@@ -356,18 +355,6 @@ function parseDict(src) {
   return { keys, langs };
 }
 
-// Dynamic keys from their definition site: every { id, key } chip entry in
-// PromptPage.tsx. Anything listed here must exist in the dict.
-function collectChipKeys(dir) {
-  const prompt = readFileSync(join(dir, "PromptPage.tsx"), "utf8");
-  const clean = stripComments(prompt);
-  const re = /\{\s*id:\s*"([^"]+)"\s*,\s*key:\s*"([^"]+)"\s*\}/g;
-  const keys = new Set();
-  let m;
-  while ((m = re.exec(clean)) !== null) keys.add(m[2]);
-  return keys;
-}
-
 const { keys: declared, langs } = parseDict(dict);
 const declaredSet = new Set(declared);
 
@@ -375,20 +362,22 @@ const used = new Set();
 for (const f of listFiles(srcDir)) {
   for (const k of collectTrKeys(readFileSync(f, "utf8"))) used.add(k);
 }
+// S12: registry-driven labels (Settings → Keys from src/shortcuts.ts).
+const regPath = join(srcDir, "shortcuts.ts");
+if (existsSync(regPath)) {
+  for (const m of readFileSync(regPath, "utf8").matchAll(/labelKey\s*:\s*["']([A-Za-z0-9_]+)["']/g)) {
+    used.add(m[1]);
+  }
+}
 
-const chipKeys = collectChipKeys(srcDir);
 const missing = [...used].filter((k) => !declaredSet.has(k)).sort();
 const gaps = { RU: [], EN: [], KZ: [] };
 for (const k of declared) {
   for (const L of ["RU", "EN", "KZ"]) if (!langs.get(k).has(L)) gaps[L].push(k);
 }
-const chipMissing = [...chipKeys].filter((k) => !declaredSet.has(k)).sort();
-const staleDyn = [...DYNAMIC_KEYS].filter((k) => !chipKeys.has(k)).sort();
-const unlistedDyn = [...chipKeys].filter((k) => !DYNAMIC_KEYS.has(k)).sort();
-const dead = declared.filter((k) => !used.has(k) && !DYNAMIC_KEYS.has(k));
+const dead = declared.filter((k) => !used.has(k));
 
 let failed = false;
-console.log("dynamic keys (chips config, not literal tr): " + [...chipKeys].sort().join(", "));
 if (missing.length > 0) {
   console.log("missing i18n keys (" + missing.length + "): " + missing.join(", "));
   failed = true;
@@ -398,16 +387,6 @@ for (const L of ["RU", "EN", "KZ"]) {
     console.log("parity i18n gap: " + L + " missing (" + gaps[L].length + "): " + gaps[L].join(", "));
     failed = true;
   }
-}
-if (chipMissing.length > 0) {
-  console.log("chip keys missing from dict (" + chipMissing.length + "): " + chipMissing.join(", "));
-  failed = true;
-}
-if (staleDyn.length > 0 || unlistedDyn.length > 0) {
-  console.log(
-    "dynamic exceptions out of sync (stale: [" + staleDyn.join(", ") + "] unlisted: [" + unlistedDyn.join(", ") + "]): fix DYNAMIC_KEYS and the chips config",
-  );
-  failed = true;
 }
 if (dead.length > 0) {
   console.log("dead i18n keys (" + dead.length + "): " + dead.join(", "));

@@ -12,6 +12,7 @@
     "check:weight": "node scripts/check-weight.js",
     "check:i18n": "node scripts/check-i18n.js",
     "check:i18n:selftest": "node scripts/check-i18n.selftest.js",
+    "check:contrast": "node scripts/check-contrast.cjs",
     "e2e": "node e2e/check6.cjs"
   },
   "dependencies": {

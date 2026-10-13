@@ -1,0 +1,57 @@
+/* S1 design tokens. New --u-* names only: importing this file changes no
+ * existing visuals. Contrast pairs are enforced by scripts/check-contrast.cjs
+ * (WCAG AA, ratio >= 4.5 for text pairs in both themes). */
+:root {
+  --u-s1: 4px;
+  --u-s2: 8px;
+  --u-s3: 12px;
+  --u-s4: 16px;
+  --u-s6: 24px;
+  --u-s8: 32px;
+  --u-r-sm: 8px;
+  --u-r-md: 12px;
+  --u-r-lg: 16px;
+  --u-hit-min: 32px;
+  --u-z-pop: 40;
+  --u-z-drawer: 50;
+  --u-z-toast: 60;
+  --u-d1: 120ms;
+  --u-d2: 180ms;
+  --u-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif;
+  --u-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+@media (pointer: coarse) {
+  :root {
+    --u-hit-min: 44px;
+  }
+}
+.g-app[data-theme='light'] {
+  --u-bg: #f4f5f7;
+  --u-text: #101828;
+  --u-muted: #475467;
+  --u-accent: #2447c4;
+  --u-on-accent: #ffffff;
+  --u-danger: #a41d13;
+  --u-on-danger: #ffffff;
+  --u-card: #ffffff;
+  --u-border: #d7dbe3;
+  --u-focus: #2447c4;
+}
+.g-app[data-theme='dark'] {
+  --u-bg: #0e1013;
+  --u-text: #eceef2;
+  --u-muted: #b6bdc9;
+  --u-accent: #9dbcff;
+  --u-on-accent: #101828;
+  --u-danger: #ff9d94;
+  --u-on-danger: #1a0b09;
+  --u-card: #171b21;
+  --u-border: #333b47;
+  --u-focus: #9dbcff;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --u-d1: 0ms;
+    --u-d2: 0ms;
+  }
+}

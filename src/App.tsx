@@ -1,7 +1,7 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
-import type { Lang, Page, Theme } from './i18n';
+import type { Lang, Theme } from './i18n';
 import { tr } from './i18n';
-import type { LlmTpl, SearchItem } from './data';
+import type { LlmTpl } from './data';
 import { LEGACY_STORE_KEY, SCHEMA_VERSION, appendPromptText, loadStoreResult, saveStore, storeKeyFor } from './store';
 import type { CalcBlock, Graph, Note, PromptSave, Store } from './store';
 import { ProfilePicker } from "./ProfilePicker";
@@ -17,29 +17,38 @@ import {
 import { prefKeyFor } from "./prefs";
 import { ErrorBoundary, Icon, Modal, StatusBanner, ToastStack, dismissToast, fmtDue } from './widgets';
 import type { ToastMsg } from './widgets';
-import type { HomeActions } from './HomePage';
-// The editors load on demand: Tiptap travels with HomePage, d3-force with
-// MapPage. Named re-exports keep one network chunk per page module.
-const HomePage = lazy(() => import('./HomePage').then((m) => ({ default: m.HomePage })));
-const MapPage = lazy(() => import('./MapPage').then((m) => ({ default: m.MapPage })));
-const MapLocked = lazy(() => import('./MapPage').then((m) => ({ default: m.MapLocked })));
+import type { NotesActions } from './NotesView';
+// The editors load on demand: Tiptap travels with NotesView, d3-force with
+// MapView. Named re-exports keep one network chunk per page module.
+const NotesView = lazy(() => import('./NotesView').then((m) => ({ default: m.NotesView })));
+const MapView = lazy(() => import('./MapView').then((m) => ({ default: m.MapView })));
 const lazyFallback = (
   <div className="g-page" role="status" aria-busy="true">
     <span className="g-pulse" />
   </div>
 );
-import { TasksPage } from './TasksPage';
-import { CalendarPage } from './CalendarPage';
-import { NotesPage } from './NotesPage';
-import { PromptPage } from './PromptPage';
-
-import { useListNav } from "./useListNav";
+import { PlanList } from './PlanList';
+import { PlanWeek } from './PlanWeek';
+import { PromptLib } from './PromptLib';
+import { PromptBuilder } from './PromptBuilder';
+import { PromptWorkbench } from './PromptWorkbench';
+import { PromptImageWb } from './PromptImageWb';
+import { isSettingsSection } from './settingsNav';
+import type { SettingsSection } from './settingsNav';
+// Settings and the palette open on demand: they travel in their own chunks,
+// like the editors (S2 rule 5). Ctrl+K fetches a few kilobytes on first open.
+const SettingsPage = lazy(() => import('./SettingsPage').then((m) => ({ default: m.SettingsPage })));
+const Palette = lazy(() => import('./Palette').then((m) => ({ default: m.Palette })));
+import type { PaletteEntry } from './paletteModel';
+import { navigate, parseRoute, useRoute } from './ui/router';
+import type { RouteSection } from './ui/router';
 import { exportRaw, exportMemory } from "./exportRaw";
-import { SNIPPET_LEN, promptPreview } from "./promptUtils";
+import { SNIPPET_LEN, buildTplEntries, makeSnippet, promptPreview } from "./promptUtils";
+import { LLM_TEMPLATES } from "./data";
 import { newId } from "./utils/newId";
 import { consumeActiveIdReset, decideFlush, ensureRegistryCached, freshStore, hasLegacyKey, loadProfileStore, nextSaveState, sameStoreContent, settleStore, shouldPersist, verifyStoredMatches } from "./storage/profileBoot";
 import type { SaveState, StoreBlocked } from "./storage/profileBoot";
-import { TPL_LIMITS, TPL_LIMIT_DEFAULT, loadListLimit, saveListLimit } from "./listPrefs";
+
 import { useArmConfirm } from "./useArmConfirm";
 
 function load(key: string, fallback: string): string {
@@ -58,8 +67,7 @@ function save(key: string, value: string): void {
   }
 }
 
-const LANGS: Lang[] = ['RU', 'EN', 'KZ'];
-const MAP_UNLOCK = 20;
+  const MAP_UNLOCK = 0;
 
 export default function App() {
   const readStoredRaw = (pid: string): string | null => {
@@ -89,7 +97,6 @@ export default function App() {
     const v = load(prefKeyFor('lang', profileId ?? undefined), 'RU');
     return v === 'EN' || v === 'KZ' || v === 'RU' ? v : 'RU';
   });
-  const [page, setPage] = useState<Page>('home');
   const [sideOpen, setSideOpen] = useState(() => load(prefKeyFor('side', profileId ?? undefined), '1') === '1');
   const [rightOpen, setRightOpen] = useState(() => load(prefKeyFor('right', profileId ?? undefined), '1') === '1');
   const [bootStore] = useState(() => {
@@ -123,24 +130,14 @@ export default function App() {
   const lastSeenRawRef = useRef<string | null>(bootStore.lastSeen);
   const emptyConfirm = useArmConfirm();
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [q, setQ] = useState('');
-
-  const [trashOpen, setTrashOpen] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
-  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [profileConfirmOpen, setProfileConfirmOpen] = useState(false);
 
   const [saveState, setSaveState] = useState<SaveState>('saved');
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const switchConfirm = useArmConfirm();
   const forceSwitchRef = useRef(false);
-  const [tplLimit, setTplLimit] = useState<number>(() => loadListLimit("prompts", undefined, profileId ?? undefined));
-  const changeTplLimit = (n: number) => {
-    setTplLimit(n);
-    saveListLimit("prompts", n, undefined, profileId ?? undefined);
-  };
-  const [settingsOpen, setSettingsOpen] = useState(false);
+
   const idRef = useRef(1);
   const saveFailedRef = useRef(false);
   const toastTimersRef = useRef(new Map<number, number>());
@@ -156,6 +153,12 @@ export default function App() {
   const SAVE_COALESCE_MAX = 8;
 
   const { notes, tasks, trash, trashTasks, graphs, activeId } = store;
+  // Fresh-store mirror for toast-action callbacks (Undo fires long after the
+  // render that armed it; reading `store` directly would see stale trash).
+  const storeRef = useRef(store);
+  useEffect(() => {
+    storeRef.current = store;
+  });
   // Derived per render before: find/filter over notes/tasks on every render
   // (each keystroke anywhere). Memoized — same values, fewer passes.
   const activeNote: Note | undefined = useMemo(() => notes.find((n) => n.id === activeId), [notes, activeId]);
@@ -210,6 +213,24 @@ export default function App() {
     setToasts((p) => dismissToast(p, id));
   };
 
+  // Action toasts (S3: Undo for delete/unlink, Open for note tasks). The
+  // callback map lives in a ref so firing never re-renders; action toasts
+  // stay the full N4 window (8s), plain toasts keep their short TTL.
+  const toastActionsRef = useRef(new Map<number, () => void>());
+  const TOAST_UNDO_MS = 8000;
+  const notifyAction = (text: string, actionLabel: string, fn: () => void) => {
+    const id = idRef.current++;
+    toastActionsRef.current.set(id, fn);
+    setToasts((p) => [...p, { id, text, actionLabel }].slice(-TOAST_QUEUED));
+    armToast(id, TOAST_UNDO_MS);
+  };
+  const fireToastAction = (id: number) => {
+    const fn = toastActionsRef.current.get(id);
+    toastActionsRef.current.delete(id);
+    closeToast(id);
+    fn?.();
+  };
+
   /** Titles identify notes for links, so they must stay unique. */
   const uniqueTitle = (base: string, ignoreId?: string) => {
     const taken = new Set(notes.filter((n) => n.id !== ignoreId).map((n) => n.title));
@@ -221,28 +242,28 @@ export default function App() {
   };
 
   // ----- store actions -----
-  const createNote = (title: string, content: Note['content'] = '', text = '', linkedIds: string[] = []) => {
+  const createNote = (title: string, content: Note['content'] = '', text = '', linkedIds: string[] = []): string => {
     const id = newId("n");
     const note: Note = { id, title: uniqueTitle(title), content, text, linkedIds, calcs: [], updated: Date.now() };
     setStore((s) => ({ ...s, notes: [note, ...s.notes], activeId: id }));
+    return id;
+  };
+
+  const go = (section: RouteSection, param?: string) => {
+    setPaletteOpen(false);
+    navigate(param !== undefined ? { section, param } : { section });
   };
 
   const newBlank = () => {
-    createNote(tr('newNoteTitle', lang));
-    setPage('home');
+    const id = createNote(tr('newNoteTitle', lang));
+    go('notes', id);
     notify(tr('toastNewNote', lang));
   };
 
-  // Locked map opens the explanatory placeholder (progress + reason), not a
-  // bare toast: the gate must never read as a bug. The toast stays too —
-  // it carries the N/20 count other flows assert.
+  // S10: the map is always open (MAP_UNLOCK = 0); an empty canvas shows a
+  // soft hint instead of a lock. Returning the lock is one line.
   const openMap = () => {
-    if (notes.length >= MAP_UNLOCK) {
-      setPage('map');
-    } else {
-      notify(`${tr('proLocked', lang)} (${notes.length}/${MAP_UNLOCK})`);
-      setPage('map');
-    }
+    go('map');
   };
 
   const resetPanels = () => {
@@ -402,7 +423,7 @@ export default function App() {
     const h = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
-        setSearchOpen(true);
+        setPaletteOpen(true);
       } else if (e.altKey && e.key === '0') {
         e.preventDefault();
         resetPanels();
@@ -412,12 +433,7 @@ export default function App() {
         e.preventDefault();
         newBlank();
       } else if (e.key === 'Escape') {
-        setSearchOpen(false);
-        setTrashOpen(false);
-        setMoreOpen(false);
-        setShortcutsOpen(false);
-    
-        setSettingsOpen(false);
+        setPaletteOpen(false);
       }
     };
     window.addEventListener('keydown', h);
@@ -427,7 +443,7 @@ export default function App() {
 
   const openNoteById = (id: string) => {
     setStore((s) => ({ ...s, activeId: id }));
-    setPage('home');
+    go('notes', id);
   };
 
   const updateActive = (fn: (n: Note) => Note) => {
@@ -457,15 +473,24 @@ export default function App() {
     notify(tr('toastTaskAdded', lang));
   };
 
-  const setTaskDue = (id: string, due: string) => {
+  const setTaskDue = (id: string, due?: string) => {
     setStore((s) => ({ ...s, tasks: s.tasks.map((x) => (x.id === id ? { ...x, due } : x)) }));
+  };
+
+  /** Week drags (and inbox drops) are reversible like every other move. */
+  const moveTask = (id: string, due?: string) => {
+    const t = tasks.find((x) => x.id === id);
+    if (!t) return;
+    const old = t.due;
+    setTaskDue(id, due);
+    notifyAction(tr("taskMoved", lang), tr("undoToast", lang), () => setTaskDue(id, old));
   };
 
   const deleteTask = (id: string) => {
     const victim = tasks.find((x) => x.id === id);
     if (!victim) return;
     setStore((s) => ({ ...s, tasks: s.tasks.filter((x) => x.id !== id), trashTasks: [victim, ...s.trashTasks] }));
-    notify(tr("toastTaskDeleted", lang));
+    notifyAction(tr("toastTaskDeleted", lang), tr("undoToast", lang), () => restoreTrashTask(victim.id));
   };
 
   const savePrompt = (d: Omit<PromptSave, 'id' | 'created'>) => {
@@ -475,8 +500,34 @@ export default function App() {
   };
 
   const deletePrompt = (id: string) => {
+    const idx = store.prompts.findIndex((x) => x.id === id);
+    const victim = idx >= 0 ? store.prompts[idx] : undefined;
+    if (!victim) return;
     setStore((s) => ({ ...s, prompts: s.prompts.filter((x) => x.id !== id) }));
-    notify(tr('promptDeleted', lang));
+    notifyAction(tr('promptDeleted', lang), tr('undoToast', lang), () =>
+      setStore((s) => {
+        const next = [...s.prompts];
+        next.splice(Math.min(idx, next.length), 0, victim);
+        return { ...s, prompts: next };
+      }),
+    );
+  };
+
+  const renamePrompt = (id: string, title: string) => {
+    setStore((s) => ({ ...s, prompts: s.prompts.map((x) => (x.id === id ? { ...x, title } : x)) }));
+  };
+
+  /** Template-level insert (no save binding): the workbench «В заметку». */
+  const appendToNote = (noteId: string, text: string) => {
+    setStore((s) => ({
+      ...s,
+      notes: s.notes.map((n) => {
+        if (n.id !== noteId) return n;
+        const next = appendPromptText(n.content, n.text, text);
+        return { ...n, ...next, updated: Date.now() };
+      }),
+    }));
+    notify(tr('toastToNote', lang));
   };
 
   const saveCustomTpl = (d: Omit<LlmTpl, 'id'>): string => {
@@ -492,12 +543,19 @@ export default function App() {
   };
 
   const deleteCustomTpl = (id: string) => {
+    const idx = store.customTpls.findIndex((x) => x.id === id);
+    const victim = idx >= 0 ? store.customTpls[idx] : undefined;
+    if (!victim) return;
     setStore((s) => ({ ...s, customTpls: s.customTpls.filter((x) => x.id !== id) }));
-    notify(tr('promptDeleted', lang));
+    notifyAction(tr('promptDeleted', lang), tr('undoToast', lang), () =>
+      setStore((s) => {
+        const next = [...s.customTpls];
+        next.splice(Math.min(idx, next.length), 0, victim);
+        return { ...s, customTpls: next };
+      }),
+    );
   };
 
-  const [activePromptId, setActivePromptId] = useState<string | null>(null);
-  const activePrompt = store.prompts.find((p) => p.id === activePromptId) ?? null;
 
   const persistRegistry = (next: ProfileRegistry): boolean => {
     if (!saveProfiles(next)) {
@@ -509,13 +567,7 @@ export default function App() {
   };
 
   const resetSession = () => {
-    setActivePromptId(null);
-    setSearchOpen(false);
-    setQ('');
-    setTrashOpen(false);
-    setMoreOpen(false);
-    setShortcutsOpen(false);
-    setSettingsOpen(false);
+    setPaletteOpen(false);
   };
 
   /** Enter a profile: isolated store + prefs, clean session state.
@@ -565,9 +617,9 @@ export default function App() {
     setLang(v === 'EN' || v === 'KZ' || v === 'RU' ? v : 'RU');
     setSideOpen(load(prefKeyFor('side', id), '1') === '1');
     setRightOpen(load(prefKeyFor('right', id), '1') === '1');
-    setTplLimit(loadListLimit("prompts", undefined, id));
     resetSession();
     setProfileId(id);
+    navigate(parseRoute(`#/${load(prefKeyFor('section', id), 'notes')}`));
   };
 
   const createNewProfile = (name: string) => {
@@ -600,9 +652,9 @@ export default function App() {
     setTheme('light');
     setSideOpen(true);
     setRightOpen(true);
-    setTplLimit(TPL_LIMIT_DEFAULT);
     resetSession();
     setProfileId(profile.id);
+    navigate({ section: 'notes' });
   };
 
   const renameProfileById = (id: string, name: string) => {
@@ -782,19 +834,6 @@ export default function App() {
     if (!exportMemory(store)) notify(tr('toastBackupFailed', lang));
   };
 
-  const bindPrompt = (promptId: string, noteId: string, text: string) => {
-    setStore((s) => ({
-      ...s,
-      prompts: s.prompts.map((x) => (x.id === promptId ? { ...x, noteId } : x)),
-      notes: s.notes.map((n) => {
-        if (n.id !== noteId) return n;
-        const next = appendPromptText(n.content, n.text, text);
-        return { ...n, ...next, updated: Date.now() };
-      }),
-    }));
-    notify(tr('toastLinked', lang));
-  };
-
   const unbindPrompt = (id: string) => {
     setStore((s) => ({ ...s, prompts: s.prompts.map((x) => (x.id === id ? { ...x, noteId: undefined } : x)) }));
     notify(tr('promptUnbound', lang));
@@ -808,32 +847,33 @@ export default function App() {
   const deleteActiveNote = () => {
     const victim = activeNote;
     if (!victim) return;
+    const next = notes.filter((n) => n.id !== victim.id);
     setStore((s) => {
       const rest = s.notes
         .filter((n) => n.id !== victim.id)
         .map((n) => (n.linkedIds.includes(victim.id) ? { ...n, linkedIds: n.linkedIds.filter((x) => x !== victim.id) } : n));
       return { ...s, notes: rest, trash: [victim, ...s.trash], activeId: rest[0]?.id ?? '' };
     });
-    notify(tr('toastNoteDeleted', lang));
+    // The route pins the open note: follow the store's new active note so
+    // the editor does not linger on the deleted id (old 'home' behavior).
+    if (next.length > 0 && next[0]) go('notes', next[0].id);
+    else go('notes');
+    notifyAction(tr('toastNoteDeleted', lang), tr('undoToast', lang), () => restoreTrash(victim.id));
   };
 
-  const deleteNoteById = (id: string) => {
-    const victim = notes.find((n) => n.id === id);
-    if (!victim) return;
-    setStore((s) => {
-      const rest = s.notes
-        .filter((n) => n.id !== id)
-        .map((n) => (n.linkedIds.includes(id) ? { ...n, linkedIds: n.linkedIds.filter((x) => x !== id) } : n));
-      return { ...s, notes: rest, trash: [victim, ...s.trash], activeId: s.activeId === id ? (rest[0]?.id ?? '') : s.activeId };
-    });
-    notify(tr('toastNoteDeleted', lang));
+  /** Sister of createNote that leaves activeId alone (for `[[` create-row). */
+  const createLinkedNote = (title: string): string => {
+    const id = newId("n");
+    const note: Note = { id, title: uniqueTitle(title), content: "", text: "", linkedIds: [], calcs: [], updated: Date.now() };
+    setStore((s) => ({ ...s, notes: [note, ...s.notes] }));
+    return id;
   };
 
   const restoreTrash = (id: string) => {
-    const n = trash.find((x) => x.id === id);
+    const n = storeRef.current.trash.find((x) => x.id === id);
     if (!n) return;
     setStore((s) => ({ ...s, trash: s.trash.filter((x) => x.id !== id), notes: [n, ...s.notes], activeId: n.id }));
-    setPage('home');
+    go('notes', n.id);
     notify(tr('toastTrashRestored', lang));
   };
 
@@ -842,9 +882,9 @@ export default function App() {
 
   };
 
-  const purge = useArmConfirm();
   const restoreTrashTask = (id: string) => {
-    const t = store.trashTasks.find((x) => x.id === id);
+    // Fresh store like restoreTrash: Undo callbacks fire long after arming.
+    const t = storeRef.current.trashTasks.find((x) => x.id === id);
     if (!t) return;
     setStore((s) => ({ ...s, trashTasks: s.trashTasks.filter((x) => x.id !== id), tasks: [t, ...s.tasks] }));
     notify(tr("toastTaskRestored", lang));
@@ -852,12 +892,6 @@ export default function App() {
   const purgeTrashTask = (id: string) => {
     setStore((s) => ({ ...s, trashTasks: s.trashTasks.filter((x) => x.id !== id) }));
 
-  };
-  const armPurgeNote = (id: string) => {
-    if (purge.confirm("n:" + id)) purgeTrash(id);
-  };
-  const armPurgeTask = (id: string) => {
-    if (purge.confirm("t:" + id)) purgeTrashTask(id);
   };
     const duplicateActive = () => {
     if (!activeNote) return;
@@ -870,6 +904,8 @@ export default function App() {
       updated: Date.now(),
     };
     setStore((s) => ({ ...s, notes: [copy, ...s.notes], activeId: copy.id }));
+    // The route pins the open note: open the copy (old 'home' behavior).
+    go('notes', copy.id);
   };
 
   const exportActive = () => {
@@ -890,7 +926,7 @@ export default function App() {
 
   const removeLink = (id: string) => {
     updateActive((n) => ({ ...n, linkedIds: n.linkedIds.filter((x) => x !== id) }));
-    notify(tr('toastUnlinked', lang));
+    notifyAction(tr('toastUnlinked', lang), tr('undoToast', lang), () => addLink(id));
   };
 
   /** Drop a dangling reference from every note at once. */
@@ -927,7 +963,35 @@ export default function App() {
   };
 
   const deleteGraph = (id: string) => {
+    const idx = graphs.findIndex((g) => g.id === id);
+    const victim = idx >= 0 ? graphs[idx] : undefined;
+    if (!victim) return;
     setStore((s) => ({ ...s, graphs: s.graphs.filter((g) => g.id !== id) }));
+    notifyAction(tr('graphDeleted', lang), tr('undoToast', lang), () =>
+      setStore((s) => {
+        if (s.graphs.some((g) => g.id === victim.id)) return s;
+        const next = [...s.graphs];
+        next.splice(Math.min(idx, next.length), 0, victim);
+        return { ...s, graphs: next };
+      }),
+    );
+  };
+
+  /** Map drag-a-link: one direction (LinkDialog-era semantics), reversible. */
+  const linkNotes = (fromId: string, toId: string) => {
+    if (fromId === toId) return;
+    const src = notes.find((n) => n.id === fromId);
+    if (!src || src.linkedIds.includes(toId)) return;
+    setStore((s) => ({
+      ...s,
+      notes: s.notes.map((n) => (n.id === fromId && !n.linkedIds.includes(toId) ? { ...n, linkedIds: [...n.linkedIds, toId] } : n)),
+    }));
+    notifyAction(tr('toastLinked', lang), tr('undoToast', lang), () =>
+      setStore((s) => ({
+        ...s,
+        notes: s.notes.map((n) => (n.id === fromId ? { ...n, linkedIds: n.linkedIds.filter((x) => x !== toId) } : n)),
+      })),
+    );
   };
 
   const toggleMember = (noteId: string, graphId: string) => {
@@ -955,7 +1019,7 @@ export default function App() {
 
 
 
-  const actions: HomeActions = {
+  const actions: NotesActions = {
     updateTitle: renameActive,
     updateDoc: (doc, text) => updateActive((n) => ({ ...n, content: doc, text })),
     createTask: (d) => addTask(d.text, { desc: d.desc, due: d.due, noteId: d.noteId }),
@@ -970,90 +1034,133 @@ export default function App() {
     addCalc,
     updateCalc,
     deleteCalc,
+    createLinkedNote,
+    notifyAction,
 
   };
 
-  // Dynamic search over real notes and tasks. Ranking, order and top-7 are
-  // unchanged — only memoized, so unrelated renders (clock, toasts, panels)
-  // no longer rebuild and filter the item list.
-  const results = useMemo(() => {
-    const items: SearchItem[] = [
-      ...notes.map(
-        (n): SearchItem => ({
-          id: `s-${n.id}`,
-          kind: 'note',
-          title: n.title || tr('newNoteTitle', lang),
-          sub: n.text.slice(0, SNIPPET_LEN),
-          refId: n.id,
-        }),
-      ),
-      ...tasks.map(
-        (t): SearchItem => ({
-          id: `s-${t.id}`,
-          kind: 'task',
-          title: t.text,
-          sub: `${tr('nav_tasks', lang)}${t.due ? ` · ${fmtDue(t.due)}` : ''}`,
-          refId: t.id,
-        }),
-      ),
-      ...store.prompts.map(
-        (p): SearchItem => ({
-          id: `s-${p.id}`,
-          kind: "prompt",
-          title: p.title,
-          sub: promptPreview(p, store.customTpls).slice(0, SNIPPET_LEN),
-          refId: p.id,
-        }),
-      ),
-    ];
-    const words = q.trim().toLowerCase().split(/\s+/);
-    return items
-      .filter((it) => {
-        const s = `${it.title} ${it.sub}`.toLowerCase();
-        return words.every((w) => s.includes(w));
-      })
-      .slice(0, 7);
+  // Palette entries over real notes, tasks and saved prompts. Grouping and
+  // capping live in filterPalette (paletteModel); entries are memoized so
+  // unrelated renders (toasts, panels) do not rebuild the item list.
+  const paletteNotes: PaletteEntry[] = useMemo(
+    () =>
+      notes.map((n): PaletteEntry => ({
+        id: `s-${n.id}`,
+        group: 'notes',
+        title: n.title || tr('newNoteTitle', lang),
+        sub: n.text.slice(0, SNIPPET_LEN),
+        refId: n.id,
+      })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notes, tasks, store.prompts, store.customTpls, q, lang]);
+    [notes, lang],
+  );
+  const paletteTasks: PaletteEntry[] = useMemo(
+    () =>
+      tasks.map((t): PaletteEntry => ({
+        id: `s-${t.id}`,
+        group: 'tasks',
+        title: t.text,
+        sub: `${tr('nav_tasks', lang)}${t.due ? ` · ${fmtDue(t.due)}` : ''}`,
+        refId: t.id,
+      })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tasks, lang],
+  );
+  // S6: the palette searches the unified library (templates + saves).
+  const palettePrompts: PaletteEntry[] = useMemo(
+    () => [
+      ...buildTplEntries(LLM_TEMPLATES, store.customTpls).map((e): PaletteEntry => ({
+        id: `s-${e.tpl.id}`,
+        group: 'prompts',
+        title: e.tpl.name,
+        sub: makeSnippet(e.tpl.body).slice(0, SNIPPET_LEN),
+        refId: e.tpl.id,
+      })),
+      ...store.prompts.map((p): PaletteEntry => ({
+        id: `s-${p.id}`,
+        group: 'prompts',
+        title: p.title,
+        sub: promptPreview(p, store.customTpls).slice(0, SNIPPET_LEN),
+        refId: p.id,
+      })),
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [store.prompts, store.customTpls, lang],
+  );
+  const paletteCommands: PaletteEntry[] = useMemo(
+    (): PaletteEntry[] => [
+      { id: 'c-new-note', group: 'commands', title: tr('newNote', lang), sub: '', cmd: 'new-note' },
+      { id: 'c-go-notes', group: 'commands', title: tr('notebooks', lang), sub: '', cmd: 'go-notes' },
+      { id: 'c-go-plan', group: 'commands', title: tr('planT', lang), sub: '', cmd: 'go-plan' },
+      { id: 'c-go-map', group: 'commands', title: tr('kmap', lang), sub: '', cmd: 'go-map' },
+      { id: 'c-go-prompts', group: 'commands', title: tr('nav_prompt', lang), sub: '', cmd: 'go-prompts' },
+      { id: 'c-go-settings', group: 'commands', title: tr('settings', lang), sub: '', cmd: 'go-settings' },
+      { id: 'c-open-trash', group: 'commands', title: tr('trashT', lang), sub: '', cmd: 'open-trash' },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [lang],
+  );
 
-  const pickSearch = (it: SearchItem) => {
-    setSearchOpen(false);
-    setQ('');
-    searchNav.reset();
-    const n = notes.find((x) => x.id === it.refId);
-    if (n) {
-      setStore((s) => ({ ...s, activeId: n.id }));
-      setPage('home');
+  const pickPalette = (e: PaletteEntry) => {
+    setPaletteOpen(false);
+    if (e.cmd === 'new-note') {
+      newBlank();
       return;
     }
-    const t = tasks.find((x) => x.id === it.refId);
-    if (t) {
-      toggleTask(t.id);
-      setPage('tasks');
+    if (e.cmd === 'go-notes') return go('notes');
+    if (e.cmd === 'go-plan') return go('plan', 'list');
+    if (e.cmd === 'go-map') return openMap();
+    if (e.cmd === 'go-prompts') return go('prompts');
+    if (e.cmd === 'go-settings') return go('settings', 'profiles');
+    if (e.cmd === 'open-trash') return go('settings', 'trash');
+    if (e.group === 'notes' && e.refId) {
+      openNoteById(e.refId);
       return;
     }
-    const pr = store.prompts.find((x) => x.id === it.refId);
-    if (pr) {
-      setActivePromptId(pr.id);
-      setPage("prompt");
+    if (e.group === 'tasks' && e.refId) {
+      toggleTask(e.refId);
+      go('plan', 'list');
       return;
     }
-    notify(it.title);
+    if (e.group === 'prompts' && e.refId) {
+      go('prompts', e.refId);
+      return;
+    }
+    notify(e.title);
   };
 
-  const kindName = (k: SearchItem['kind']) =>
-    tr(k === "note" ? "kindNote" : k === "prompt" ? "kindPrompt" : k === "task" ? "kindTask" : "kindDate", lang);
+  const paletteGroupName = (g: PaletteEntry['group']) =>
+    g === 'notes'
+      ? tr('kindNote', lang)
+      : g === 'tasks'
+        ? tr('kindTask', lang)
+        : g === 'prompts'
+          ? tr('kindPrompt', lang)
+          : tr('paletteCmd', lang);
 
-  const searchNav = useListNav(results.length, (idx) => {
-    const it = results[idx];
-    if (it) pickSearch(it);
-  });
+  // Hash routing (ui/router): sections notes/plan/map/prompts/settings.
+  // The last visited section is restored per profile on start; deep links
+  // work through Back/Forward without extra code.
+  const route = useRoute();
+  const section: RouteSection = route.section;
+  const restoredRef = useRef(false);
   useEffect(() => {
-    if (searchOpen) searchNav.reset();
-  }, [searchOpen]);
+    if (profileId) save(prefKeyFor('section', profileId), section);
+  }, [section, profileId]);
+  useEffect(() => {
+    if (!profileId || restoredRef.current) return;
+    restoredRef.current = true;
+    if (!window.location.hash) {
+      // No deep link: reopen the active note (old 'home' landing) or fall
+      // back to the last visited section of this profile.
+      if (activeNote) navigate({ section: 'notes', param: activeNote.id });
+      else navigate(parseRoute(`#/${load(prefKeyFor('section', profileId), 'notes')}`));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileId]);
 
-  const navBtn = (
-    icon: 'note' | 'tasks' | 'cal' | 'map' | 'trash' | 'sliders' | 'prompt',
+  const shellBtn = (
+    icon: 'note' | 'tasks' | 'cal' | 'map' | 'trash' | 'sliders' | 'prompt' | 'plus' | 'menu',
     testid: string,
     label: string,
     isActive: boolean,
@@ -1065,153 +1172,165 @@ export default function App() {
       key={testid}
       type="button"
       title={label}
+      aria-label={label}
       data-testid={testid}
-      className={`g-navitem${isActive ? ' active' : ''}`}
+      className={`s-navbtn${isActive ? ' active' : ''}`}
       onClick={onClick}
     >
       <Icon n={icon} />
-      {sideOpen && <span className="g-lbl">{label}</span>}
+      {sideOpen && <span className="s-navlbl">{label}</span>}
       {badge !== undefined && badge > 0 ? (
-        <span className="g-badge-n">{badge}</span>
+        <span className="s-badge">{badge}</span>
       ) : pro ? (
-        <span className="g-pro">{tr('pro', lang)}</span>
+        <span className="s-pro">Pro</span>
       ) : null}
     </button>
   );
 
-  const mapLocked = notes.length < MAP_UNLOCK;
+  const sectionTitle =
+    section === 'notes'
+      ? tr('notebooks', lang)
+      : section === 'plan'
+        ? tr('planT', lang)
+        : section === 'map'
+          ? tr('kmap', lang)
+          : section === 'prompts'
+            ? tr('nav_prompt', lang)
+            : tr('settings', lang);
+
+  const settingsSection: SettingsSection =
+    section === 'settings' && isSettingsSection(route.param) ? route.param : 'profiles';
+  const planView: 'list' | 'week' = route.param === 'week' ? 'week' : 'list';
+  const openNote: Note | undefined =
+    section === 'notes' && route.param ? notes.find((n) => n.id === route.param) : undefined;
+  // S9: template routes render the workbench (save mode when the id is a
+  // save); builder and unknown ids are resolved separately below.
+  const tplEntries = useMemo(() => buildTplEntries(LLM_TEMPLATES, store.customTpls), [store.customTpls]);
+  const promptParam = section === 'prompts' ? (route.param ?? null) : null;
+  const wbSave =
+    promptParam && !promptParam.includes('/')
+      ? (store.prompts.find((p) => p.id === promptParam) ?? null)
+      : null;
+  const wbTplId = wbSave?.templateId ?? (promptParam && !promptParam.includes('/') ? promptParam : null);
+  const wbEntry = wbTplId ? (tplEntries.find((e) => e.tpl.id === wbTplId) ?? null) : null;
+  const promptBuilder =
+    promptParam === 'new'
+      ? { mode: "new" as const, initial: { name: "", body: "", defaults: {} } }
+      : promptParam?.startsWith('edit/') === true
+        ? (() => {
+            const id = promptParam.slice(5);
+            const tpl = store.customTpls.find((t) => t.id === id);
+            return tpl
+              ? { mode: "edit" as const, id, initial: { name: tpl.name, body: tpl.body, defaults: { ...tpl.defaults }, ...(tpl.kind ? { kind: tpl.kind } : {}) } }
+              : null;
+          })()
+        : null;
 
   return (
-    <ErrorBoundary key="root" lang={lang} profileId={profileId} onHome={() => setPage('notes')}>
+    <ErrorBoundary key="root" lang={lang} profileId={profileId} onHome={() => go('notes')}>
     <div className="g-app" data-theme={theme}>
-      <header className="g-topbar">
-        <button
-          type="button"
-          className="g-btn sm ghost g-burger"
-          title={tr('menu', lang)}
-          aria-label={tr('menu', lang)}
-          onClick={() => setSideOpen((v) => !v)}
-        >
-          <Icon n="menu" />
-        </button>
-        <button type="button" className="g-logo" onClick={() => setPage('notes')}>
-          <span className="g-logo-dot" />
-          Grafnot
-        </button>
-        <button type="button" className="g-searchbtn" onClick={() => setSearchOpen(true)}>
-          <span>{tr('search_ph', lang)}</span>
-          <kbd className="g-kbd">Ctrl K</kbd>
-        </button>
-                <button type="button" className="g-btn sm ghost" title={tr("shortcutsT", lang)} aria-label={tr("shortcutsT", lang)} onClick={() => setShortcutsOpen(true)}>
-          ?
-        </button>
-        <div className={`g-status${saveState === 'saved' ? '' : ' g-status-bad'}`}>
-          <span className="g-pulse" />
-          {saveState === 'saved'
-            ? lastSavedAt
-              ? `${tr("savedLocal", lang)} · ${lastSavedAt}`
-              : tr("savedLocal", lang)
-            : saveState === 'pending'
-              ? tr('savePending', lang)
-              : saveState === 'failed'
-                ? tr('saveFailed', lang)
-                : tr('saveConflict', lang)}
-        </div>
-        <div className="g-top-actions">
+      <div className="s-shell">
+        <aside className={`s-rail${sideOpen ? '' : ' collapsed'}`}>
           <button
             type="button"
-            className="g-btn sm ghost"
-            onClick={() => setTheme((t) => (t === 'light' ? 'dark' : 'light'))}
-            title="theme"
+            className="s-railbtn"
+            title={tr('menu', lang)}
+            aria-label={tr('menu', lang)}
+            onClick={() => setSideOpen((v) => !v)}
           >
-            {tr(theme === 'light' ? 'themeIsLight' : 'themeIsDark', lang)}
+            <Icon n="menu" />
           </button>
-          <div className="g-seg" role="group" aria-label="lang">
-            {LANGS.map((l) => (
-              <button
-                key={l}
-                type="button"
-                className={`g-btn sm${lang === l ? ' active' : ''}`}
-                onClick={() => setLang(l)}
-              >
-                {l}
-              </button>
-            ))}
-          </div>
-          <button type="button" className="g-avatar" title="Ushuzov Ruslan" aria-label={tr('settings', lang)} onClick={() => setSettingsOpen(true)}>RK</button>
-        </div>
-      </header>
-
-      {saveState === 'failed' && (
-        <StatusBanner
-          title={tr('saveFailed', lang)}
-          body={tr('saveFailedBody', lang)}
-          actions={
-            <>
-              <button type="button" className="g-btn" onClick={downloadMemory}>
-                {tr('exportData', lang)}
-              </button>
-              <button type="button" className="g-btn primary" onClick={retrySave}>
-                {tr('retryBtn', lang)}
-              </button>
-            </>
-          }
-        />
-      )}
-      {saveState === 'conflict' && (
-        <StatusBanner
-          title={tr('saveConflict', lang)}
-          body={tr('conflictBody', lang)}
-          actions={
-            <>
-              {!conflictConfirm.isArmed('accept') ? (
-                <button type="button" className="g-btn" onClick={() => conflictConfirm.arm('accept')}>
-                  {tr('acceptTheirs', lang)}
-                </button>
-              ) : (
-                <button type="button" className="g-btn g-danger-arm" onClick={resolveAcceptTheirs}>
-                  {tr('switchAnyway', lang)}
-                </button>
-              )}
-              {!conflictConfirm.isArmed('overwrite') ? (
-                <button type="button" className="g-btn" onClick={() => conflictConfirm.arm('overwrite')}>
-                  {tr('overwriteMine', lang)}
-                </button>
-              ) : (
-                <button type="button" className="g-btn g-danger-arm" onClick={resolveOverwriteMine}>
-                  {tr('switchAnyway', lang)}
-                </button>
-              )}
-              <button type="button" className="g-btn ghost" onClick={downloadMine}>
-                {tr('exportData', lang)}
-              </button>
-            </>
-          }
-        />
-      )}
-
-      <div className="g-layout">
-        <aside className={`g-side${sideOpen ? '' : ' rail'}`}>
           <button
             type="button"
             title={tr('newNote', lang)}
-            className={`g-newbtn${sideOpen ? '' : ' railbtn'}`}
-            onClick={newBlank}
+            aria-label={tr('newNote', lang)}
+            data-testid="quickadd"
+            className="s-railbtn s-create"
+            onClick={() => setPaletteOpen(true)}
           >
-            {sideOpen ? tr('newNote', lang) : <Icon n="plus" />}
+            <Icon n="plus" />
+            {sideOpen && <span className="s-navlbl">{tr('newNote', lang)}</span>}
           </button>
-          <div className="g-nav">
-            {navBtn('note', 'nav-home', tr('notebooks', lang), page === 'notes', () => setPage('notes'))}
-            {navBtn('tasks', 'nav-tasks', tr('nav_tasks', lang), page === 'tasks', () => setPage('tasks'), openCount)}
-            {navBtn('cal', 'nav-cal', tr('calendar', lang), page === 'cal', () => setPage('cal'))}
-            {navBtn('map', 'nav-map', tr('kmap', lang), page === 'map', openMap, undefined, mapLocked)}
-            {navBtn('prompt', 'nav-prompt', tr('nav_prompt', lang), page === 'prompt', () => setPage('prompt'))}
+          <div className="s-nav">
+            {shellBtn('note', 'nav-notes', tr('notebooks', lang), section === 'notes', () => go('notes'))}
+            {shellBtn('tasks', 'nav-plan', tr('planT', lang), section === 'plan', () => go('plan', 'list'), openCount)}
+            {shellBtn('map', 'nav-map', tr('kmap', lang), section === 'map', openMap, undefined, notes.length < MAP_UNLOCK)}
+            {shellBtn('prompt', 'nav-prompt', tr('nav_prompt', lang), section === 'prompts', () => go('prompts'))}
           </div>
-          <div className="g-sidefoot">
-            {navBtn('trash', 'nav-trash', tr('trash', lang), false, () => setTrashOpen(true), trash.length + trashTasks.length)}
-            {navBtn('sliders', 'nav-settings', tr('settings', lang), false, () => setSettingsOpen(true))}
+          <div className="s-railfoot">
+            {shellBtn('sliders', 'nav-settings', tr('settings', lang), section === 'settings', () => go('settings', 'profiles'), trash.length + trashTasks.length)}
           </div>
         </aside>
+
+        <div className="s-main">
+          <header data-testid="page-header" className="s-header">
+            <h1 className="s-title">{sectionTitle}</h1>
+            <button type="button" data-testid="palette-open" className="s-searchbtn" onClick={() => setPaletteOpen(true)}>
+              <span>{tr('search_ph', lang)}</span>
+              <kbd className="g-kbd">Ctrl K</kbd>
+            </button>
+            <div data-testid="save-state" role="status" aria-live="polite" className={`g-status${saveState === 'saved' ? '' : ' g-status-bad'}`}>
+              <span className="g-pulse" />
+              {saveState === 'saved'
+                ? lastSavedAt
+                  ? `${tr("savedLocal", lang)} · ${lastSavedAt}`
+                  : tr("savedLocal", lang)
+                : saveState === 'pending'
+                  ? tr('savePending', lang)
+                  : saveState === 'failed'
+                    ? tr('saveFailed', lang)
+                    : tr('saveConflict', lang)}
+            </div>
+          </header>
+          <div className="s-strip">
+            {saveState === 'failed' && (
+              <StatusBanner
+                title={tr('saveFailed', lang)}
+                body={tr('saveFailedBody', lang)}
+                actions={
+                  <>
+                    <button type="button" className="g-btn" onClick={downloadMemory}>
+                      {tr('exportData', lang)}
+                    </button>
+                    <button type="button" className="g-btn primary" onClick={retrySave}>
+                      {tr('retryBtn', lang)}
+                    </button>
+                  </>
+                }
+              />
+            )}
+            {saveState === 'conflict' && (
+              <StatusBanner
+                title={tr('saveConflict', lang)}
+                body={tr('conflictBody', lang)}
+                actions={
+                  <>
+                    {!conflictConfirm.isArmed('accept') ? (
+                      <button type="button" className="g-btn" onClick={() => conflictConfirm.arm('accept')}>
+                        {tr('acceptTheirs', lang)}
+                      </button>
+                    ) : (
+                      <button type="button" className="g-btn g-danger-arm" onClick={resolveAcceptTheirs}>
+                        {tr('switchAnyway', lang)}
+                      </button>
+                    )}
+                    {!conflictConfirm.isArmed('overwrite') ? (
+                      <button type="button" className="g-btn" onClick={() => conflictConfirm.arm('overwrite')}>
+                        {tr('overwriteMine', lang)}
+                      </button>
+                    ) : (
+                      <button type="button" className="g-btn g-danger-arm" onClick={resolveOverwriteMine}>
+                        {tr('switchAnyway', lang)}
+                      </button>
+                    )}
+                    <button type="button" className="g-btn ghost" onClick={downloadMine}>
+                      {tr('exportData', lang)}
+                    </button>
+                  </>
+                }
+              />
+            )}
+          </div>
 
         <main className="g-main" key={profileId ?? "picker"}>
           {adoptionBlocked ? (
@@ -1308,61 +1427,68 @@ export default function App() {
               }
             />
           ) : (
-          <ErrorBoundary key={page} lang={lang} profileId={profileId} onHome={() => setPage('notes')}>
-          {page === 'home' &&
-            (activeNote ? (
+          <ErrorBoundary key={section} lang={lang} profileId={profileId} onHome={() => go('notes')}>
+          {section === 'notes' && (
+            <>
+              {openNote && (
+                <button type="button" data-testid="notes-back" className="g-btn sm ghost" onClick={() => go('notes')}>
+                  ← {tr('goBack', lang)}
+                </button>
+              )}
               <Suspense fallback={lazyFallback}>
-              <HomePage lang={lang} hintKey={prefKeyFor("hint", profileId)} note={activeNote} notes={notes} tasks={tasks} graphs={graphs} onOpenNote={openNoteById} prompts={store.prompts} onOpenPrompt={(id) => { setActivePromptId(id); setPage('prompt'); }} onUnbind={unbindPrompt} rightOpen={rightOpen} onToggleRight={() => setRightOpen((v) => !v)} actions={actions} notify={notify} />
+              <NotesView lang={lang} hintKey={prefKeyFor("hint", profileId)} notes={notes} openNote={openNote ?? null} tasks={tasks} graphs={graphs} onOpenNote={openNoteById} onNew={newBlank} onOpenPlan={() => go('plan', 'list')} prompts={store.prompts} onOpenPrompt={(id) => go('prompts', id)} onUnbind={unbindPrompt} rightOpen={rightOpen} onToggleRight={() => setRightOpen((v) => !v)} actions={actions} notify={notify} profileId={profileId} />
               </Suspense>
-            ) : (
-              <div className="g-empty">
-                <div className="g-empty-t">{tr('emptyHomeT', lang)}</div>
-                <div className="g-empty-sub">{tr('emptyHomeSub', lang)}</div>
-                <button type="button" className="g-btn primary" onClick={newBlank}>
-                  {tr('createFirst', lang)}
+            </>
+          )}
+          {section === 'plan' && (
+            <>
+              <div className="g-seg" role="group" aria-label="plan view">
+                <button
+                  type="button"
+                  data-testid="plan-view-list"
+                  className={`g-btn sm${planView === 'list' ? ' active' : ''}`}
+                  onClick={() => go('plan', 'list')}
+                >
+                  {tr('planList', lang)}
+                </button>
+                <button
+                  type="button"
+                  data-testid="plan-view-week"
+                  className={`g-btn sm${planView === 'week' ? ' active' : ''}`}
+                  onClick={() => go('plan', 'week')}
+                >
+                  {tr('planWeek', lang)}
                 </button>
               </div>
-            ))}
-          {page === 'notes' && (
-            <NotesPage
-              lang={lang}
-              notes={notes}
-              onOpen={openNoteById}
-              onDelete={deleteNoteById}
-              onNew={newBlank}
-              profileId={profileId}
-            />
+              {planView === 'week' ? (
+                <PlanWeek
+                  lang={lang}
+                  tasks={tasks}
+                  notes={notes}
+                  onToggle={toggleTask}
+                  onMove={moveTask}
+                  onAdd={(text, opts) => addTask(text, opts)}
+                  onUpdate={updateTask}
+                  onDelete={deleteTask}
+                  onOpenNote={openNoteById}
+                />
+              ) : (
+                <PlanList
+                  lang={lang}
+                  tasks={tasks}
+                  notes={notes}
+                  onToggle={toggleTask}
+                  onDelete={deleteTask}
+                  onAdd={(text, opts) => addTask(text, opts)}
+                  onUpdate={updateTask}
+                  onOpenNote={openNoteById}
+                />
+              )}
+            </>
           )}
-          {page === 'tasks' && (
-            <TasksPage
-              lang={lang}
-              tasks={tasks}
-              notes={notes}
-              onToggle={toggleTask}
-              onDelete={deleteTask}
-              onAdd={(text, due) => addTask(text, { due })}
-              onUpdate={updateTask}
-              onOpenNote={openNoteById}
-              profileId={profileId}
-            />
-          )}
-          {page === 'cal' && (
-            <CalendarPage
-              lang={lang}
-              tasks={tasks}
-              onToggle={toggleTask}
-              onAdd={(text, due) => addTask(text, { due })}
-              onSetDue={setTaskDue}
-            />
-          )}
-          {page === 'map' &&
-            (mapLocked ? (
+          {section === 'map' && (
               <Suspense fallback={lazyFallback}>
-              <MapLocked lang={lang} have={notes.length} need={MAP_UNLOCK} onNew={newBlank} />
-              </Suspense>
-            ) : (
-              <Suspense fallback={lazyFallback}>
-              <MapPage
+              <MapView
                 lang={lang}
                 notes={notes}
                 graphs={graphs}
@@ -1373,205 +1499,174 @@ export default function App() {
                 onRenameGraph={renameGraph}
                 onDeleteGraph={deleteGraph}
                 onToggleMember={toggleMember}
+                onLinkNotes={linkNotes}
                 profileId={profileId}
               />
               </Suspense>
-            ))}
-          {page === 'prompt' && (
-            <PromptPage
+          )}
+          {section === 'prompts' && (
+              <div className="p-lib-layout">
+                <PromptLib
+                  lang={lang}
+                  customTpls={store.customTpls}
+                  saves={store.prompts}
+                  selectedId={route.param ?? null}
+                  onSelect={(id) => go('prompts', id)}
+                  onRenameSave={renamePrompt}
+                  onCreate={() => go('prompts', 'new')}
+                  profileId={profileId}
+                />
+                <div className="p-detail">
+                  {promptBuilder ? (
+                    <PromptBuilder
+                      lang={lang}
+                      title={promptBuilder.mode === "new" ? tr("newTpl", lang) : tr("builderEdit", lang)}
+                      initial={promptBuilder.initial}
+                      onSave={(d) => {
+                        if (promptBuilder.mode === "new") {
+                          const id = saveCustomTpl(d);
+                          go('prompts', id);
+                        } else {
+                          updateCustomTpl(promptBuilder.id, d);
+                          go('prompts', promptBuilder.id);
+                        }
+                      }}
+                      onCancel={() => go('prompts', promptBuilder.mode === "edit" ? promptBuilder.id : undefined)}
+                    />
+                  ) : wbSave && wbEntry ? (
+                    <PromptWorkbench
+                      key={wbEntry.tpl.id + wbSave.id}
+                      lang={lang}
+                      tpl={wbEntry.tpl}
+                      mine={wbEntry.mine}
+                      save={wbSave}
+                      notes={notes}
+                      onSave={savePrompt}
+                      onDuplicate={() => {
+                        const id = saveCustomTpl({
+                          name: wbEntry.tpl.name,
+                          body: wbEntry.tpl.body,
+                          defaults: { ...wbEntry.tpl.defaults },
+                          ...(wbEntry.tpl.kind ? { kind: wbEntry.tpl.kind } : {}),
+                        });
+                        go('prompts', id);
+                      }}
+                      onEdit={() => go('prompts', `edit/${wbEntry.tpl.id}`)}
+                      onDelete={() => deletePrompt(wbSave.id)}
+                      onUnbindSave={wbSave.noteId ? () => unbindPrompt(wbSave.id) : undefined}
+                      onAppendNote={appendToNote}
+                      onOpenNote={openNoteById}
+                      notify={notify}
+                      notifyAction={notifyAction}
+                    />
+                  ) : wbEntry && wbEntry.kind === "image" ? (
+                    <PromptImageWb
+                      key={wbEntry.tpl.id}
+                      lang={lang}
+                      tplName={wbEntry.tpl.name}
+                      mine={wbEntry.mine}
+                      notes={notes}
+                      onSaveTpl={(d) => {
+                        const id = saveCustomTpl(d);
+                        go('prompts', id);
+                      }}
+                      onAppendNote={appendToNote}
+                      onOpenNote={openNoteById}
+                      notify={notify}
+                      notifyAction={notifyAction}
+                      profileId={profileId}
+                    />
+                  ) : wbEntry ? (
+                    <PromptWorkbench
+                      key={wbEntry.tpl.id}
+                      lang={lang}
+                      tpl={wbEntry.tpl}
+                      mine={wbEntry.mine}
+                      save={null}
+                      notes={notes}
+                      onSave={savePrompt}
+                      onDuplicate={() => {
+                        const id = saveCustomTpl({
+                          name: wbEntry.tpl.name,
+                          body: wbEntry.tpl.body,
+                          defaults: { ...wbEntry.tpl.defaults },
+                          ...(wbEntry.tpl.kind ? { kind: wbEntry.tpl.kind } : {}),
+                        });
+                        go('prompts', id);
+                      }}
+                      onEdit={() => go('prompts', `edit/${wbEntry.tpl.id}`)}
+                      onDelete={() => deleteCustomTpl(wbEntry.tpl.id)}
+                      onUnbindSave={undefined}
+                      onAppendNote={appendToNote}
+                      onOpenNote={openNoteById}
+                      notify={notify}
+                      notifyAction={notifyAction}
+                    />
+                  ) : (
+                    <div className="g-empty">
+                      <div className="g-empty-t">{tr("libT", lang)}</div>
+                      <button type="button" className="g-btn primary" onClick={() => go('prompts', 'new')}>
+                        {tr("newTpl", lang)}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+          )}
+          {section === 'settings' && (
+            <Suspense fallback={lazyFallback}>
+            <SettingsPage
               lang={lang}
-              notify={notify}
-              prompts={store.prompts}
-              notes={notes}
-              activePrompt={activePrompt}
-              customTpls={store.customTpls}
-              tplLimit={tplLimit}
-              onTplLimit={changeTplLimit}
-              onSave={savePrompt}
-              onDelete={deletePrompt}
-              onBind={bindPrompt}
-              onUnbind={unbindPrompt}
-              onOpenNote={openNoteById}
-              onConsumed={() => setActivePromptId(null)}
-              onSaveTpl={saveCustomTpl}
-              onUpdateTpl={updateCustomTpl}
-              onDeleteTpl={deleteCustomTpl}
-              profileId={profileId}
+              section={settingsSection}
+              onSection={(s) => go('settings', s)}
+              theme={theme}
+              onTheme={setTheme}
+              onLang={setLang}
+              registry={registry}
+              onEnterProfile={(id) => enterProfile(id, registry)}
+              onCreateProfile={createNewProfile}
+              onRenameProfile={renameProfileById}
+              onDeleteProfile={deleteProfileById}
+              onSwitchProfile={() => setProfileConfirmOpen(true)}
+              trash={trash}
+              trashTasks={trashTasks}
+              onRestoreNote={restoreTrash}
+              onRestoreTask={restoreTrashTask}
+              onPurgeNote={purgeTrash}
+              onPurgeTask={purgeTrashTask}
+              onExportData={() => {
+                if (profileId && !exportRaw(storeKeyFor(profileId))) notify(tr('toastBackupFailed', lang));
+              }}
             />
+            </Suspense>
           )}
           </ErrorBoundary>
           )}
         </main>
-      </div>
+        </div>
 
-      <nav className="g-bottombar">
-        <button type="button" className={`g-bitem${page === 'notes' ? ' active' : ''}`} onClick={() => setPage('notes')}>
-          {tr('nav_home', lang)}
+      <nav data-testid="tabbar" className="s-tabbar" aria-label="sections">
+        <button type="button" data-testid="tab-notes" className={`s-tabbtn${section === 'notes' ? ' active' : ''}`} onClick={() => go('notes')}>
+          <Icon n="note" />
+          <span>{tr('notebooks', lang)}</span>
         </button>
-        <button type="button" className={`g-bitem${page === 'tasks' ? ' active' : ''}`} onClick={() => setPage('tasks')}>
-          {tr('nav_tasks', lang)}
+        <button type="button" data-testid="tab-plan" className={`s-tabbtn${section === 'plan' ? ' active' : ''}`} onClick={() => go('plan', 'list')}>
+          <Icon n="tasks" />
+          <span>{tr('planT', lang)}</span>
         </button>
-        <button type="button" className={`g-bitem${page === 'cal' ? ' active' : ''}`} onClick={() => setPage('cal')}>
-          {tr('calendar', lang)}
-        </button>
-        <button type="button" className={`g-bitem${page === 'map' || page === 'prompt' ? ' active' : ''}`} onClick={() => setMoreOpen(true)}>
-          {tr("moreNav", lang)}
-        </button>
-        <button type="button" className="g-bitem primary" onClick={newBlank}>
+        <button type="button" data-testid="tab-add" className="s-tabbtn s-tabadd" aria-label={tr('newNote', lang)} onClick={() => setPaletteOpen(true)}>
           +
         </button>
+        <button type="button" data-testid="tab-map" className={`s-tabbtn${section === 'map' ? ' active' : ''}`} onClick={openMap}>
+          <Icon n="map" />
+          <span>{tr('kmap', lang)}</span>
+        </button>
+        <button type="button" data-testid="tab-prompts" className={`s-tabbtn${section === 'prompts' ? ' active' : ''}`} onClick={() => go('prompts')}>
+          <Icon n="prompt" />
+          <span>{tr('nav_prompt', lang)}</span>
+        </button>
       </nav>
-
-      {moreOpen && (
-        <Modal title={tr("moreNav", lang)} lang={lang} onClose={() => setMoreOpen(false)}>
-          <div className="g-linklist">
-            <button
-              type="button"
-              className={"g-linkitem" + (page === "map" ? " sel" : "")}
-              onClick={() => {
-                setMoreOpen(false);
-                openMap();
-              }}
-            >
-              <span>
-                <Icon n="map" /> {tr("kmap", lang)}
-                {mapLocked && (
-                  <span className="muted small" style={{ marginLeft: 8 }}>
-                    {notes.length}/{MAP_UNLOCK}
-                  </span>
-                )}
-              </span>
-              {mapLocked && <span className="g-pro">Pro</span>}
-            </button>
-            <button
-              type="button"
-              className={"g-linkitem" + (page === "prompt" ? " sel" : "")}
-              onClick={() => {
-                setMoreOpen(false);
-                setPage("prompt");
-              }}
-            >
-              <span>
-                <Icon n="prompt" /> {tr("nav_prompt", lang)}
-              </span>
-            </button>
-          </div>
-        </Modal>
-      )}
-
-      <footer className="g-foot">
-        <span>{tr('tagline', lang)}</span>
-        <span>{tr('footSync', lang)}</span>
-      </footer>
-
-      {trashOpen && (
-        <Modal title={tr('trashT', lang)} lang={lang} onClose={() => { setTrashOpen(false); purge.resetAll(); }}>
-          {trash.length === 0 && trashTasks.length === 0 && <div className="muted">{tr('emptyTrash', lang)}</div>}
-          {trash.map((n) => (
-            <div className="g-sugg" key={n.id}>
-              <span>{n.title}</span>
-              <span>
-                <button type="button" className="g-linkbtn" onClick={() => restoreTrash(n.id)}>
-                  [{tr('restoreBtn', lang)}]
-                </button>{' '}
-                <button
-                  type="button"
-                  className={purge.isArmed("n:" + n.id) ? "g-linkbtn g-danger-arm" : "g-linkbtn"}
-                  onClick={() => armPurgeNote(n.id)}
-                >
-                  {purge.isArmed("n:" + n.id) ? tr("confirmPurge", lang) : `[${tr("delForever", lang)}]`}
-                </button>
-              </span>
-            </div>
-          ))}
-          {trashTasks.length > 0 && <div className="g-card-t sub">{tr('tasks', lang)}</div>}
-          {trashTasks.map((t) => (
-            <div className="g-sugg" key={t.id}>
-              <span>{t.text}</span>
-              <span>
-                <button type="button" className="g-linkbtn" onClick={() => restoreTrashTask(t.id)}>
-                  [{tr('restoreBtn', lang)}]
-                </button>{" "}
-                <button
-                  type="button"
-                  className={purge.isArmed("t:" + t.id) ? "g-linkbtn g-danger-arm" : "g-linkbtn"}
-                  onClick={() => armPurgeTask(t.id)}
-                >
-                  {purge.isArmed("t:" + t.id) ? tr("confirmPurge", lang) : `[${tr("delForever", lang)}]`}
-                </button>
-              </span>
-            </div>
-          ))}
-        </Modal>
-      )}
-
-      {settingsOpen && (
-        <Modal title={tr("settings", lang)} lang={lang} onClose={() => setSettingsOpen(false)}>
-          <div className="g-field">
-            <span>{tr("themeL", lang)}</span>
-            <div className="g-seg" role="group" aria-label="theme">
-              <button
-                key="light"
-                type="button"
-                className={"g-btn sm" + (theme === "light" ? " active" : "")}
-                onClick={() => setTheme("light")}
-              >
-                {tr("themeLight", lang)}
-              </button>
-              <button
-                key="dark"
-                type="button"
-                className={"g-btn sm" + (theme === "dark" ? " active" : "")}
-                onClick={() => setTheme("dark")}
-              >
-                {tr("themeDark", lang)}
-              </button>
-            </div>
-          </div>
-          <div className="g-field">
-            <span>{tr("langL", lang)}</span>
-            <div className="g-seg" role="group" aria-label="lang">
-              {LANGS.map((l) => (
-                <button
-                  key={l}
-                  type="button"
-                  className={"g-btn sm" + (lang === l ? " active" : "")}
-                  onClick={() => setLang(l)}
-                >
-                  {l}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="g-field">
-            <span>{tr("tplLimitL", lang)}</span>
-            <div className="g-seg" role="group" aria-label="limit">
-              {TPL_LIMITS.map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  className={"g-btn sm" + (tplLimit === n ? " active" : "")}
-                  onClick={() => changeTplLimit(n)}
-                >
-                  {n}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="g-field">
-            <button
-              type="button"
-              className="g-btn sm g-wide"
-              onClick={() => {
-                setSettingsOpen(false);
-                setProfileConfirmOpen(true);
-              }}
-            >
-              {tr("switchProfile", lang)}
-            </button>
-          </div>
-        </Modal>
-      )}
+      </div>
 
       {profileConfirmOpen && (
         <Modal
@@ -1617,59 +1712,22 @@ export default function App() {
         </Modal>
       )}
 
-      {shortcutsOpen && (
-        <Modal title={tr("shortcutsT", lang)} lang={lang} onClose={() => setShortcutsOpen(false)}>
-          <div className="g-sugg">
-            <span>{tr("scSearch", lang)}</span>
-            <kbd className="g-kbd">Ctrl K</kbd>
-          </div>
-          <div className="g-sugg">
-            <span>{tr("scPanels", lang)}</span>
-            <kbd className="g-kbd">Alt 0</kbd>
-          </div>
-          <div className="g-sugg">
-            <span>{tr("scNew", lang)}</span>
-            <kbd className="g-kbd">Ctrl Alt N</kbd>
-          </div>
-        </Modal>
+      {paletteOpen && (
+        <Suspense fallback={lazyFallback}>
+        <Palette
+          lang={lang}
+          notes={paletteNotes}
+          tasks={paletteTasks}
+          prompts={palettePrompts}
+          commands={paletteCommands}
+          groupName={paletteGroupName}
+          onPick={pickPalette}
+          onClose={() => setPaletteOpen(false)}
+        />
+        </Suspense>
       )}
 
-      {searchOpen && (
-        <div className="g-back" onClick={() => setSearchOpen(false)}>
-          <div className="g-search" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-            <input
-              className="g-search-in"
-              autoFocus
-              value={q}
-              onChange={(e) => {
-                setQ(e.target.value);
-                searchNav.reset();
-              }}
-              onKeyDown={searchNav.onKeyDown}
-              placeholder={tr('search_ph', lang)}
-              aria-label="search"
-            />
-            <div className="g-results">
-              {results.length === 0 && <div className="muted">{tr('noResults', lang)}</div>}
-              {results.map((r, i) => (
-                <button
-                  key={r.id}
-                  type="button"
-                  className={`g-result${i === searchNav.active ? ' active' : ''}`}
-                  onMouseEnter={() => searchNav.setActive(i)}
-                  onClick={() => pickSearch(r)}
-                >
-                  <span className="g-kind">{kindName(r.kind)}</span>
-                  <span>{r.title}</span>
-                  <span className="muted">{r.sub}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      <ToastStack items={toasts} lang={lang} onClose={closeToast} onHover={pauseToast} />
+      <ToastStack items={toasts} lang={lang} onClose={closeToast} onHover={pauseToast} onAction={fireToastAction} />
     </div>
     </ErrorBoundary>
   );

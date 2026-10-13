@@ -1,0 +1,399 @@
+ГРАФНОТ-ПРОТОТИП: САМОУЧИТЕЛЬ С НУЛЯ (только этот проект + этот файл, без гугла и ИИ)
+===============================================================================================================
+Для кого: человек, который никогда не писал сайты. После прочтения сможет повторить подобное приложение.
+Как пользоваться: читать сверху вниз. Открыть папку grafnot-prototype в редакторе. Каждый раздел заканчивается заданием ПРОВЕРЬ СЕБЯ - делать руками.
+
+СОДЕРЖАНИЕ:
+0. Что вообще происходит, когда ты открываешь сайт
+1. Как запустить этот проект (пошагово)
+2. HTML за 15 минут на примере index.html
+3. CSS за 30 минут на примере index.css (включая hover/active - подсветку кнопок)
+4. JavaScript/TypeScript за 40 минут на примере store.ts и utils/newId.ts
+5. React за 60 минут на примере main.tsx и App.tsx
+6. Память: localStorage, store.ts, profiles.ts, prefs.ts, listPrefs.ts, storage/profileBoot.ts, exportRaw.ts
+7. Каркас: App.tsx shell, ui/router.ts, i18n.ts, widgets.tsx
+8. Экраны по одному: NotesView, PlanList, PlanWeek, MapView, Palette, Settings, ProfilePicker, Промпты
+9. Модели и хуки: promptUtils, paletteModel, taskGroups, weekCal, graphLayout, mapCamera, linkSuggest, imageTags, builderModel, workbenchModel, promptLibrary, promptData, data, useListNav, useListState, useArmConfirm, ui/useUndo, ui/placement, ui/primitives
+10. Как собрать свой клон с нуля за 12 шагов (только повторяя приёмы проекта)
+11. Словарь, отладка без гугла, тесты (*.test.ts), карта всех файлов
+
+---------------------------------------------------------------------------------------------------------------
+0. ЧТО ВООБЩЕ ПРОИСХОДИТ
+---------------------------------------------------------------------------------------------------------------
+Представь: браузер (Chrome) - это повар, который умеет читать три рецепта:
+- HTML - ЧТО положить на стол (кнопка, поле, заголовок).
+- CSS - КАК это выглядит (цвет, размер, подсветка при наведении).
+- JS - ЧТО делать, когда трогают (нажал - сохрани, ввёл - отфильтруй).
+
+В проекте:
+- index.html:10 - <div id="root"></div> - пустая тарелка. Сюда всё положат.
+- index.html:11 - <script src="/src/main.tsx"> - указание повару: главный рецепт там.
+- src/main.tsx:25 - createRoot(...).render(<App/>) - положить блюдо App на тарелку root.
+- src/App.tsx - само блюдо: боковая панель, шапка, страница, тосты.
+- src/index.css + src/ui/tokens.css - специи (цвета, отступы).
+- package.json - список покупок (какие библиотеки скачать) и кнопки запуска (scripts).
+- vite.config.ts:6 - vite + plugin react - плита, которая быстро готовит и пересобирает.
+
+Файлы не волшебные. Это просто текст. Браузер читает текст и рисует.
+
+ПРОВЕРЬ СЕБЯ: открой index.html, найди <div id="root"> и <script>. Удали скрипт мысленно - что останется? Правильно: пустая страница. Верни обратно.
+
+---------------------------------------------------------------------------------------------------------------
+1. КАК ЗАПУСТИТЬ (Windows + PowerShell 5.1)
+---------------------------------------------------------------------------------------------------------------
+Открой PowerShell в папке grafnot-prototype. Все пути с пробелами - в кавычках. Никаких && и ||, команды по одной.
+
+Шаг 1. Проверка инструментов (по одному):
+  node --version
+  npm --version
+Если нет - дальше не иди, поставь Node.
+
+Шаг 2. Что качать (читать, не выполнять пока):
+  package.json:6-15 scripts:
+    dev = vite (режим готовки, пересобирает при правке)
+    build = tsc -b && vite build (сначала проверка типов, потом сборка в dist/)
+    test = vitest run (юнит-тесты)
+    preview = vite preview (раздача собранного, для ручной проверки и e2e)
+    e2e = node e2e/check6.cjs (94 проверки поверх preview :5199)
+    check:weight = node scripts/check-weight.js (вес бандла + предохранитель)
+    check:i18n = node scripts/check-i18n.js (ключи RU/EN/KZ)
+  package.json:17-24 dependencies: react, react-dom, @tiptap/* (редактор), d3-force (физика графа).
+  devDependencies: typescript, vite, vitest, oxlint, playwright-core, plugin-react.
+
+Шаг 3. Запуск:
+  npm install      # скачать библиотеки в node_modules (один раз)
+  npm run dev      # открыть адрес, что покажет (обычно http://localhost:5173)
+  # правишь src/*.tsx или *.css - страница сама обновляется
+  npm test         # 131+128 тестов ядра должны быть зелёными
+  npm run build    # проверка tsc + сборка в dist/
+  npm run preview  # раздать dist для проверки руками (в этом проекте preview гоняют через node node_modules\vite\bin\vite.js preview --port 5199, убивают по реальному PID, сирот на :5199 не оставляют)
+
+Правило проекта: вес отчёт +50% от baseline, лимитов нет (baseline docs/weight-baseline.json). Хранилище только localStorage, бэкенда нет.
+
+ПРОВЕРЬ СЕБЯ: запусти npm run dev, открой страницу, нажми Ctrl+K. Что открылось? Правильно: палитра (src/Palette.tsx). Закрой Esc.
+
+---------------------------------------------------------------------------------------------------------------
+2. HTML ЗА 15 МИНУТ (на index.html целиком, 13 строк)
+---------------------------------------------------------------------------------------------------------------
+Разберём index.html построчно (src выше прочитан целиком):
+1  <!doctype html> - сказать браузеру: это современный HTML.
+2  <html lang="ru"> - язык страницы русский.
+4  <meta charset="UTF-8" /> - буквы в UTF-8 (русские/казахские не крякозябры).
+5  <link rel="icon" ... favicon.svg /> - иконка вкладки.
+6  <meta name="viewport" ... /> - ширина = ширине телефона, масштаб 1. Без этого mobile разъедется.
+7  <title>Grafnot ...</title> - текст вкладки.
+10 <div id="root"></div> - ЕДИНСТВЕННЫЙ элемент. Всё остальное дорисует React. id нужен, чтобы найти: document.getElementById('root') в main.tsx:25.
+11 <script type="module" src="/src/main.tsx"> - вход в JS. type=module значит можно писать import.
+
+Главные теги, которые встретишь в проекте:
+- <button> - нажать. В App.tsx:1234-1249 два примера: кнопка меню и кнопка + Новая заметка. У кнопки всегда type="button" (чтобы не отправляла форму), className (как одета), onClick (что делать), aria-label (название для слепых и тестов).
+- <input>, <textarea>, <select> - ввести текст / много строк / выбрать. Пример: Palette.tsx:45 palette-input, DayPopup title 383.
+- <div>, <aside>, <header>, <nav>, <main> - коробки для раскладки. Смысл одинаковый, названия подсказывают: aside - бок, header - верх, nav - навигация.
+- data-testid="..." - крючок для тестов. Тесты ищут не по тексту (текст меняется RU/EN/KZ), а по testid. Правило README: тесты используют testid и role, а не тексты и классы.
+
+ПРОВЕРЬ СЕБЯ: открой App.tsx:1266-1268. Найди <header data-testid="page-header" className="s-header"> и внутри <button data-testid="palette-open" className="s-searchbtn">. Скажи вслух: что (header), как одет (s-header), крючок (page-header).
+
+---------------------------------------------------------------------------------------------------------------
+3. CSS ЗА 30 МИНУТ (на index.css:1-57, дальше по аналогии)
+---------------------------------------------------------------------------------------------------------------
+CSS = правило: КОГО одеть { ЧТО надеть }.
+Пример index.css:45:
+  .g-btn { background: var(--card); border: 1px solid var(--border); ... }
+- .g-btn значит все элементы с class="g-btn". Точка = класс.
+- внутри {} - свойства: фон, рамка, скругление 9px, отступы 9px 14px, cursor:pointer (рука при наведении), transition (плавность).
+
+3.1 Переменные (краски). index.css:4-13 light, 14-23 dark:
+  --bg, --side, --card, --text, --muted, --border, --accent (#2f6bff синий), --accent-soft (светло-синий), --danger, --ok, --warn.
+  Использование: background: var(--card). Сменил переменную в одном месте - сменилось везде. Тема переключается атрибутом data-theme в App.tsx:1231 <div className="g-app" data-theme={theme}>. CSS .g-app[data-theme='dark'] значит когда у .g-app атрибут dark, бери другие краски.
+  ui/tokens.css - то же, но мелкие токены: --u-s1..s8 отступы 4/8/12/16/24/32, --u-hit-min 32px (44px на touch), z-слои.
+
+3.2 Подсветка кнопок при наведении и нажатии (твой первый вопрос, теперь полно):
+  index.css:46 .g-btn:hover { border-color: var(--accent); }
+  - :hover = псевдо-состояние. Браузер сам следит за мышью. Навёл - применил это правило поверх обычного. Убрал - убрал. Кода писать не надо.
+  - Здесь меняется только цвет рамки на синий. Поэтому кнопка подсвечивается.
+  index.css:36 .s-searchbtn:hover { border-color + box-shadow 0 0 0 3px var(--accent-soft); } - та же идея, плюс мягкое свечение вокруг.
+  index.css:47 .g-btn:active { transform: scale(.98); }
+  - :active = пока держишь кнопку мышью/пальцем. transform scale(.98) = сожми до 98%. Отпустил - вернулось. Поэтому кажется, что кнопка прожалась.
+  - Отличие от .active БЕЗ двоеточия: index.css:52 .g-btn.active и :73 .s-navbtn.active - это НЕ нажатие сейчас, а выбранный раздел. React сам добавляет слово active в className, когда section совпадает. Пример App.tsx:1255 section==='notes'. Это остаётся, пока ты в разделе.
+  index.css:45 transition: border-color .15s, background .15s, transform .05s - плавный переход за 0.15 сек, чтобы не мигало.
+  index.css:30 :focus-visible { outline: 2px solid var(--accent); } - рамка для клавиатуры (Tab), доступность.
+  index.css:48 :disabled { opacity:.6 } - серая неактивная.
+
+3.3 Раскладка (как коробки стоят):
+  index.css:33 .s-header { display:flex; align-items:center; gap:14px; ... position:sticky; top:0; } - flex = в ряд, gap = щель, sticky = прилипает сверху при скролле.
+  index.css:62 .s-shell { display:flex; gap:20px; max-width:1460px; margin:0 auto; } - две колонки: rail + main, по центру.
+  index.css:63 .s-rail { width:224px; position:sticky; top:76px; } + .collapsed { width:64px } - сворачивание в App.tsx:1233.
+  Остальные .n-listpane, .t-plan, .w-grid, .p-lib-layout, .w-cols, .m-canvaswrap - та же идея: flex или grid, фиксированная левая колонка (300px список, 320px библиотека, 360px результат) + гибкая середина.
+
+3.4 Почему кнопка именно так выглядит в разных местах:
+  .g-btn.primary (index.css:49) - залитая синяя, белый текст. Главное действие.
+  .g-btn.ghost (51) - прозрачная. Второстепенное.
+  .g-btn.sm - маленькая.
+  .s-create (68-69) - тоже синяя, но hover делает filter:brightness(1.07) - чуть ярче.
+  .s-navbtn.active (73) - светло-синий фон + жирный. Текущий раздел.
+
+ПРОВЕРЬ СЕБЯ: в dev-режиме наведи на любую .g-btn, зажми мышью. Опиши: hover - рамка синяя, active - сжалась. Найди в инспекторе transition. Поменяй --accent на красный, обнови - все кнопки стали красными? Верни обратно.
+
+---------------------------------------------------------------------------------------------------------------
+4. JS/TS ЗА 40 МИНУТ (на store.ts:5-76 и utils/newId.ts)
+---------------------------------------------------------------------------------------------------------------
+JS - действия. TS - тот же JS, но с подсказками типов (чтобы ошибиться раньше).
+
+4.1 Типы - бланки. store.ts:5-17:
+  export interface Note { id: string; title: string; content: string|JSONContent; text: string; linkedIds: string[]; calcs: CalcBlock[]; updated: number; }
+  - interface = форма бланка. У каждой заметки должны быть эти поля.
+  - string = текст, number = число (время ms), string[] = список текстов, ? = можно не заполнять (desc?: string в TaskItem:41).
+  - Так же TaskItem:37-47 (text, done:boolean да/нет, due?: дата ISO YYYY-MM-DD, noteId?: откуда), Graph:49-53 (title + noteIds), PromptSave:25-35, Store:55-65 (notes[], tasks[], trash[], trashTasks[], graphs[], prompts[], customTpls[], activeId).
+  - Зачем: если забудешь поле, tsc -b (package.json:8 build) закричит до запуска.
+
+4.2 Функции - глаголы. Примеры:
+  store.ts:74-76 export function storeKeyFor(profileId:string):string { return `grafnot-store-${profileId}`; }
+  - берёт id профиля, отдаёт ключ. Обратные кавычки `...${...}` = вставить внутрь.
+  - utils/newId.ts: newId(prefix) = prefix + crypto.randomUUID(), fallback Date.now+счётчик. Зачем: у каждой сущности уникальный номер.
+  - store.ts:487-492 unlinkedNotes, 495-504 brokenIds, 510-523 appendPromptText, 529-534 filterTasks - маленькие чистые helpers без экрана.
+
+4.3 import/export - связь файлов:
+  import { newId } from "./utils/newId" (store.ts:3) - взять инструмент из соседнего файла.
+  export interface / export function - отдать наружу. Без export файл невидим.
+
+4.4 Массивы и объекты (90% логики):
+  - notes: Note[] = полка с бланками.
+  - .map - сделать из каждого что-то (отрисовка списка), .filter - оставить подходящие (поиск), .find - найти один, .slice - отрезать кусок (пагинация visible = items.slice), .length - сколько.
+  - JSON.stringify(store) - превратить полку в строку для localStorage, JSON.parse - обратно. Именно так saveStore/loadStore работают (store.ts:400-479).
+
+4.5 localStorage - шкаф в браузере:
+  localStorage.getItem(key) - достать строку, setItem(key,value) - положить. Всё хранится строками, поэтому JSON.
+  Ключи проекта: стор grafnot-store-<id> (storeKeyFor), реестр grafnot-profiles-v1 (profiles.ts:23), префы grafnot-theme|lang|...:<id> (prefs.ts). Голые ключи - только legacy-путь до миграции.
+  Ограничение: место ~5МБ, может кончиться - тогда saveStore вернёт false, шапка покажет НЕ сохранено + баннер с экспортом из памяти (App.tsx:1286-1301).
+
+ПРОВЕРЬ СЕБЯ: открой консоль браузера (F12), введи localStorage.length. Найди ключ grafnot-store-... Скопируй значение в файл (это и есть exportRaw вручную). Что внутри? Правильно: JSON с notes/tasks/graphs.
+
+---------------------------------------------------------------------------------------------------------------
+5. REACT ЗА 60 МИНУТ (на main.tsx целиком + App.tsx кусками)
+---------------------------------------------------------------------------------------------------------------
+React = конструктор: описываешь ЧТО должно быть при текущих данных, React сам перерисовывает, когда данные меняются. Не надо руками трогать DOM.
+
+5.1 main.tsx:1-29 построчно:
+  1-2 import React, createRoot - взять конструктор и установщик.
+  3-4 import './index.css' + './ui/tokens.css' - одеть всё сразу.
+  5 import App - главная деталь.
+  10-23 если есть visualViewport, следить за высотой: если стала меньше на 100+ (открылась клавиатура) и фокус в INPUT/TEXTAREA, то scrollIntoView center. Зачем: на mobile клавиатура перекрывала поле над tabbar (S11).
+  25-29 createRoot(getElementById('root')!).render(<StrictMode><App/></StrictMode>) - найти тарелку #root из index.html:10 и поставить App. ! значит точно есть. StrictMode - строгий режим (двойные проверки в dev).
+
+5.2 Компонент = функция, возвращающая внешний вид. Пример App.tsx:72 export default function App() { ... return ( <div>...</div> ) }
+  - Внутри можно хранить состояние, снаружи выглядит как тег <App/>.
+
+5.3 Состояние useState - память детали. Пример App.tsx:95 const [theme,setTheme] = useState<Theme>(()=> load(...)==='dark'?'dark':'light')
+  - theme - текущее значение, setTheme - поменять, useState(...) - начальное (лениво через ()=>, читает localStorage один раз).
+  - Когда вызываешь setTheme('dark'), React перерисовывает всё, где theme используется (App.tsx:1231 data-theme={theme}).
+  - Так же: lang, sideOpen/rightOpen (App.tsx:100-101), profileId (92), store (через bootStore 102-122), paletteOpen, route (useRoute).
+  - Правило: состояние - единственный источник правды. Не трогай DOM напрямую, меняй состояние.
+
+5.4 Пропсы - входные провода. Пример widgets.tsx:18 ToastStack({items,lang,onClose...}) - родитель App.tsx:1730 передаёт items=toasts, lang, onClose. Внутри читаешь как переменные.
+  - onClick={() => setPaletteOpen(true)} (App.tsx:1249) - провод: при клике вызвать функцию. Стрелка ()=> значит сделай позже, а не сейчас.
+
+5.5 Условный рендер - показать/скрыть:
+  {sideOpen && <span>...} (App.tsx:1252) - если открыто, покажи подпись, иначе ничего.
+  {section==='notes' ? ' active' : ''} (App.tsx:1649 в старом коде таббара) - добавить слово active, если раздел текущий. Именно так работает подсветка выбранного.
+  profileId===null ? <ProfilePicker/> : <main/> (App.tsx:1364-1398 идея) - если профиля нет, показать выбор, иначе приложение.
+
+5.6 Списки - .map. Пример App.tsx:1255-1258 четыре вызова shellBtn(...) - каждый рисует кнопку раздела. Внутри shellBtn:1162-1188 возвращает <button>. Ключ key нужен, чтобы React не путал.
+  - NotesView:620 список заметок, PlanList:177 строки задач, PromptLib:222 строки библиотеки - везде один приём: filtered.map(n => <div key={n.id}...>).
+
+5.7 Эффекты useEffect - сделать после отрисовки. Примеры App.tsx:
+  - 332-360 автосейв: когда store грязный, через 400мс вызвать flushSave (300-330, решает decideFlush по lastSeenRaw).
+  - 367-392 beforeunload/pagehide/visibility - дописать перед закрытием.
+  - 397-411 storage-event - если другая вкладка поменяла тот же ключ, показать конфликт (sameStoreContent игнорит activeId).
+  - ui/router.ts:47-50 useEffect подписывается на hashchange, отписывается в return. Так раздел меняется без перезагрузки.
+
+5.8 Ленивая загрузка - тяжёлое потом. App.tsx:23-24 const NotesView = lazy(()=>import('./NotesView')) + 25-29 fallback с пульсом. Tiptap едет только со страницей заметок, d3-force - только с картой. Правило S2-5: страницы остаются lazy-чанками, вес total gzip <=240КБ, прирост этапа <=0.5КБ (S1 +4КБ).
+
+ПРОВЕРЬ СЕБЯ: найди в App.tsx три useState, один onClick, один && , один .map. Объясни вслух что хранится, что происходит при клике, что скрывается, что повторяется.
+
+---------------------------------------------------------------------------------------------------------------
+6. ПАМЯТЬ ПОДРОБНО (как не потерять данные)
+---------------------------------------------------------------------------------------------------------------
+6.1 store.ts:67-76 версии и ключи:
+  SCHEMA_VERSION=5 - номер бланка. Каждый раз, когда бланк ломали, +1. migrate() (268-391) умеет поднять v1->v5 за один проход: v1 notebook->graphs+linkedIds, v2->v3 customTpls=[], v3->v4 слоты, v4->v5 trashTasks=[]. Считает droppedLinks/droppedItems и показывает тостом. Тесты store.test.ts.
+  LEGACY_STORE_KEY='grafnot-store-v2' - старый общий шкаф до профилей. Читается один раз при переезде.
+  storeKeyFor(pid) = `grafnot-store-${pid}` - у каждого профиля свой шкаф.
+
+6.2 Чтение/запись store.ts:400-479:
+  readStoreResult - взять строку, try JSON.parse, проверить гардами isObj/isTaskItem/isPromptSave/isGraphShape/sanitize (212-243), узнать версию versionOf, вызвать migrate, вернуть {kind:'ok', store, dropped} или {kind:'blocked', reason, raw, backupKey} или {kind:'empty'}.
+  loadStoreResult/loadStore - обёртки. saveStore - поставить штамп schemaVersion, запретить запись из будущего (future), JSON.stringify, setItem, вернуть true/false (false = квота кончилась).
+  readLegacyStore - только для переезда.
+
+6.3 profiles.ts (222): реестр.
+  PROFILES_KEY=grafnot-profiles-v1 (23). Profile {id, имя, created}, Registry {profiles[], activeId}.
+  profileKeysFor (38-47) - все ключи профиля (store + prefKeyFor/listPrefs/tplLimit).
+  removeProfileData (54-74) - удаление в порядке prefs->store последним, fail-fast. Если стор не удалился - сирота + тост, а не призрак.
+  loadProfilesResult (97-129) - чтение реестра, recoverRegistryFromStores (142-154) - собрать из grafnot-store-* если реестр битый (имена Профиль N, тост), saveProfiles (158-166).
+  Чистые операции 169-222: uniqueProfileName/uniqueProfileId, create/rename/delete/setActive. Тесты profiles.test.ts.
+
+6.4 prefs.ts (55) + listPrefs.ts (107):
+  prefs.ts: PREF_KEYS theme/lang/side/right/hint/section/density/recentTags. prefKeyFor (26-29) голый vs :profileId. migrateLegacyPrefs (36-55) копия без затирания.
+  listPrefs.ts: один JSON-map вместо кучи ключей. LIST_PREFS_KEY, tplLimitKeyFor, ListKey notes|tasks|mapMembers|prompts, loadListLimit (73-87 fallback legacy для prompts), saveListLimit (90-107 миграция legacy в карту + удаление старого).
+
+6.5 storage/profileBoot.ts (352) - запуск:
+  freshStore (28-30) - пустой. canonicalize/verifyStoredMatches (49-73) - проверка записи read-back равен записанному.
+  ensureRegistry (95-161) + кэш - adopt legacy с проверкой, бэкап битого реестра, recover.
+  writeCorruptBackup (205-244) - нечитаемый стор в <ключ>:corrupt-<ts>, max 2 на ключ, дедуп.
+  loadProfileStore (249-263), shouldPersist (267-270).
+  nextSaveState (272-295) - статусы Сохранено локально·время / Сохраняется / НЕ сохранено, sameStoreContent (302-316 игнор activeId), decideFlush (321-328), settleStore (342-352 промоут migrateImageSavesToTemplates).
+
+6.6 exportRaw.ts (43): страховка.
+  downloadBlob (5-21) - скачать текст файлом. exportRaw(key) (25-33) - сырой ключ. exportMemory(store) (37-43) - живой state + schemaVersion в grafnot-store-unsaved.json. Используется в баннерах App.tsx и ErrorBoundary.
+
+ПРОВЕРЬ СЕБЯ: создай заметку, обнови страницу - осталась? Открой DevTools Application -> Local Storage, найди свой grafnot-store-<id>, поменяй title одной заметки в JSON, обнови - изменилось? Верни обратно. Это и есть ручное восстановление из раздела Профили README.
+
+---------------------------------------------------------------------------------------------------------------
+7. КАРКАС ПОДРОБНО (как всё связано)
+---------------------------------------------------------------------------------------------------------------
+7.1 App.tsx shell 1230-1736 (читай снизу вверх: return в конце):
+  ErrorBoundary key=root (1230) - ловец падений: при краше показывает reload + exportRaw + home, ничего не пишет (widgets.tsx:325-368).
+  div.g-app data-theme (1231) - тема.
+  aside.s-rail (1233) - левый рельс: кнопка меню (railbtn 1234-1242), кнопка + Создать quickadd s-create (1243-1253, открывает палитру), nav (1254-1259: nav-notes/nav-plan/nav-map/nav-prompt через shellBtn 1162-1188, с бейджем openCount и замком MAP_UNLOCK=0), низ railfoot настройки nav-settings (1260-1262 с суммой корзины).
+  div.s-main (1265) - правая часть: header page-header (1266) с h1 s-title (sectionTitle 1190-1227) + кнопка-поиск palette-open s-searchbtn (1268) + save-state (статус), полоса s-strip (баннеры 1286-1428), main key=profileId (страницы 1431-1642), nav tabbar mobile (1648-1668), модалка смены профиля (1671-1713), палитра lazy (1715-1728), ToastStack (1730).
+  go() 252-255 + navigate из router - смена хэша. route=useRoute() 1144-1160 + восстановление секции из pref section.
+
+7.2 ui/router.ts целиком (53 строки, уже прочитан):
+  parseRoute(hash) - отрезать #, разбить по /, head notes/plan/map/prompts/settings, plan только list/week иначе notes, prompts склеивает остаток (edit/<id>), иначе notes.
+  buildRoute(route) - собрать #/section/param. navigate - положить в location.hash. useRoute - useState(parse) + подписаться на hashchange.
+  Зачем хэш: без сервера, Back/Forward работают, deep link открывает экран.
+
+7.3 i18n.ts (270): словарь STR 5-257 ~250 ключей. Каждая фраза x3 RU/EN/KZ. В коде только буквальный tr('ключ',lang) (259-268). Неизвестный ключ -> — + warn. Удаляешь фразу - удали из трёх языков (check:i18n без dead keys, ~50 legacy mock ключей не трогать). Длинные RU/KZ не должны ломать раскладку.
+
+7.4 widgets.tsx (368):
+  ToastStack 18-61 - последние 3 + +N, role=status aria-live=polite, onHover ставит на паузу, actionLabel = Undo, × закрывает. TOAST_VISIBLE_MAX=3. dismissToast 64.
+  Hi 68-82 - подсветка совпадений через promptUtils splitHighlight/cutHiParts.
+  Modal 84-165 - фокус-ловушка, Esc, возврат фокуса, aria.
+  Icon 167-272 - 10 SVG PATHS, Icon n=..., fmtDue 275-280 ISO->ДД.ММ, copyText 282-299 clipboard+fallback.
+  StatusBanner 303-319 role=alert - тонкая полоса над контентом (логика та же, вид новый S2).
+  ErrorBoundary 325-368 - см выше.
+
+ПРОВЕРЬ СЕБЯ: поменяй хэш вручную на #/plan/week, #/settings/appearance. Что открылось? Нажми Back. Поменяй язык в настройках - все надписи сменились? Найди в коде tr('...') для них.
+
+---------------------------------------------------------------------------------------------------------------
+8. ЭКРАНЫ ПО ОДНОМУ (что видит + из чего состоит + как повторить)
+---------------------------------------------------------------------------------------------------------------
+Общий приём всех списков (useListState + useListNav + listPrefs):
+- useListState (83 строки): query (что ищут), limit (сколько показать, из listPrefs), shown/filtered/visible (отфильтровано и отрезано slice), nav (подсветка через useListNav), changeQuery/changeLimit/showMore/ensureVisible. Порции по 50 (N9), строка Показано X из Y, плотность в ... .
+- useListNav (29): active, setActive, onKeyDown (ArrowUp/Down двигают, Enter выбирает, фокус остаётся в input).
+- Клавиши: / фокус поиска страницы, Ctrl+K палитра, N новый элемент, Ctrl+Enter главное действие, стрелки по спискам, Delete с Undo, Esc отмена.
+
+8.1 NotesView.tsx (~1200, самый большой):
+  Видит: слева список 300px (поиск по /, сортировка по изменению, строка = название + сниппет + дата, вся строка цель), справа редактор (крупный inline заголовок, Enter в текст), контекстная панель справа одна вкладка.
+  Внутри: TPL_HTML 3 заготовки, wordsOf, similarNotes, evalExpr/resolveBlock/calcDisplay (мини-калькулятор a*10 без eval, защита от циклов), fmtDate. sorted+useListState, useEditor Tiptap StarterKit + синк при смене noteId. state draft/suggest/slash/tab/moreOpen/hint. syncInlineMenus (детект [[ и /), pickSuggest (Enter создаёт связь по id, недавние сверху + создать ...), SLASH_RUNNERS 7 пунктов (заголовок, список, заготовка, расчёт, ссылка), клавиатура, openTaskFromSelection (Ctrl+Shift+T создаёт задачу с noteId + тост Открыть), insertTpl/insertVar. Рендер: n-listpane, n-detail + sel-menu (жирный/курсив/заголовок/список/в ссылку/в задачу) + link-suggest + slash-menu + g-calcs, n-ctx с tabDefs Связи (входящие+битые)/Похожие/Задачи/Промпты/Заготовки. ... в заголовке: Экспорт/Дублировать/В корзину (красным, сразу + Undo).
+  Как повторить: сначала список + useListState, потом Tiptap по докам стартер-кита, потом [[ через parseBracketQuery + rankLinkSuggest.
+
+8.2 PlanList.tsx (595) - вид Список:
+  Видит: свёрнутый композер Новая задача... (клик/N), раскрывается ВНИЗ: Название (автофокус) -> + описание -> Срок чипы [Сегодня][Завтра][Через неделю][Без даты]+Выбрать дату -> [Добавить] во всю ширину. Enter добавляет и оставляет фокус (серийный ввод), Esc сворачивает. Группы Просрочено (цвет+текст)/Сегодня/Завтра/Эта неделя/Позже/Без даты + Выполненные внизу, заголовок со счётчиком, сворачиваются, автодогрузка по 50, поиск по /. Строка >=44px: чекбокс 24 в зоне 44 + название+чип срока+чип источника + ... . Клик - правая панель (mobile нижний лист): название/описание/срок чипами/источник, внизу отдельно Удалить (сразу + Undo в trashTasks). Space выполнить, Enter открыть, Delete удалить, стрелки. Свайп влево удаляет (+ кнопочный эквивалент).
+  Внутри: groupTitle, TASKS_PAGE=50, SWIPE_DEL_PX=48, state query/shown/collapsed/activeRow/panelId/menuId/cOpen/cTitle/cDesc/cDue, groupTasks (taskGroups.ts), sections, dueChips, renderRow task-row, TaskPanel общий с Week.
+  Удалённое: фильтр active/done/all, лимит-сег, TasksPage, TaskDialog.
+
+8.3 PlanWeek.tsx (422) - вид Неделя:
+  Видит: [‹][Сегодня][›] >=40px + месяц, клавиши ←/→/T, сетка 7 колонок >=140px + Входящие (без срока), на mobile полоса дней + повестка. Вся пустая область ячейки = цель, нижняя полоса + Задача (на touch всегда, на desktop при hover/фокусе). Попап у ячейки: Название (автофокус) -> + описание -> [Добавить][Отмена], срок = день ячейки в заголовке, Enter добавляет и оставляет для серии. Чип: чекбокс отдельно (только он меняет done) + название до 2 строк. Клик по чипу - та же панель. Drag на pointer events порог 4px между днями и Входящими + Undo, клавиатурная альтернатива Перенести в панели. Mobile свайп дней.
+  Внутри: offset/popup/panelId/dropDay, narrow через matchMedia, byDue/inbox, monthTitle/wd (weekCal.ts mondayISO/weekRange), openAt+clampXY (placement.ts), move/up, renderChip с suppressClick, plan-week/week-inbox/day-cell-<iso>/day-add-<iso>/w-mobile/w-agenda, DayPopup day-popup/title/add.
+  Удалён CalendarPage.
+
+8.4 MapView.tsx (909) + graphLayout.ts + mapCamera.ts:
+  Видит: холст на всю область, поиск узла по / (центрирует+выделяет), плавающая тулза снизу по центру (зум -/+/вписать >=44px, переключатель графа с поиском, ... графа: Переименовать/Состав/Удалить), клик по узлу - peek-панель (Drawer, mobile лист): название/сниппет/[Открыть]/[Связать с...] + режим протяни от узла к узлу (создаёт linkedIds, Undo, порог 4px, хит-зона r=24), состав Drawer с поиском + фильтр в графе/не в графе + массовый выбор, чип Без связей (N) подсвечивает сирот и приглушает остальных, битые в разрезе, мягкая подсказка Соедините заметки - карта оживёт. Замок MAP_UNLOCK=0 (возврат одной строкой =20).
+  Внутри GraphCanvas: pos/view, layoutGraph (graphLayout.ts: старт по кругу 800x500, 300 тиков, детерминирована, memo), centerView/fitView (mapCamera.ts k 0.4-2.5 паддинг 120), toContent/zoomAt, wheel-zoom passive:false, drag pan|node|link. MapView: scope/peekId/linkMode/linkFind/searchQ/switcher/menu/renaming/members/hlOrphans, scopeNotes/edges/broken, members useListState, bulkAddVisible.
+  Удалён старый MapPage-UI.
+
+8.5 Palette.tsx (78) + paletteModel.ts (42):
+  Видит: Quick Add (Ctrl+K, + Создать в rail, + на mobile): поиск по заметкам/задачам/библиотеке группами по 3-4 + команды (создать/перейти/настройки/сменить профиль/корзина). Enter выполняет подсвеченную, Esc закрывает.
+  Внутри: filterPalette (фильтр по всем словам, пустой = только commands, до 4 на группу, порядок notes/tasks/prompts/commands), useListNav, s-pal-back/palette-input/palette-item-<i> с groupName+title+sub.
+
+8.6 SettingsPage.tsx (323) + settingsNav.ts (27) + ProfilePicker.tsx (133):
+  Видит: настройки страницей #/settings/<section>, 5 секций: Профили (список/переключить/переименовать/удалить через ConfirmDialog, profile-name-in), Внешний вид (тема/язык), Корзина (заметки+задачи, поиск, восстановить/очистить с ConfirmDialog), Клавиши (список из shortcuts.ts), Данные (exportRaw текущего профиля). Статус сохранения в шапке справа, баннеры тонкой полосой.
+  Внутри SettingsPage: trashQ/newName/renamingId/pendingPurge/pendingProfile, shownTrash/shownTasks. settingsNav: SettingsSection, SETTINGS_SECTIONS, isSettingsSection, title через tr.
+  ProfilePicker: стартовый гейт (один профиль - автовход, несколько - выбор), draft/renamingId, useArmConfirm (удаление в 2 клика), profile-picker/profile-row-<id>/profile-name-in.
+
+8.7 Промпты (4 файла экранов + 6 моделей):
+  Словарь: Шаблон = текст с полями {{поле}}, Сохранённый промпт = заполненная версия. Бейджи типа Картинка/Текст и происхождения Встроенный/Мой/Сохранённый. Кнопки однозначные: Сохранить (версию), В мои шаблоны (только у встроенных).
+  PromptLib.tsx (276): левая 320px Библиотека: поиск (/), сегменты Все/Картинки/Текст/Мои/Недавние, строки 56px (иконка/сниппет с подсветкой/мета), автодогрузка, плотность в ..., пустая - два пути Собрать для картинки / Заполнить текстовый. Маршрут #/prompts/<itemId>. Внутри: LIB_PAGE=50, loadDensity, buildLibrary/filterLibrary (promptLibrary.ts: LibEntry, build/filter, recent новые первые), useListState key=prompts, saveCount, toggleDensity, segs, prompt-item/inline-rename prompt-rename, DATASET_VERSION.
+  PromptWorkbench.tsx (348): текстовый шаблон: заголовок (название/тип/...: Изменить/Дублировать/Удалить с Undo), форма вертикально (label сверху, дефолты подставлены, * у обязательных, textarea автоподстройка, порядок = порядок слотов, автофокус на первое пустое, Enter->след, в последнем копирует, Ctrl+Enter копирует), панель результата 360px sticky справа / mobile sticky снизу: живой превью mono (незаполненные подсвечены, клик ведёт к полю), счётчик символов, [Копировать] primary >=48px во всю ширину, [Сохранить] (PromptSave templateId+params, название шаблон·дата, переименование в строке) и [В заметку стрелка] (попап: поиск + 5 недавних, вставка через appendPromptText). Ошибка не заполнено только после попытки: подсветка + фокус. Чип Заметка: X с крестом (Undo). Внутри: slots/required (workbenchModel.ts requiredSlots/buildSaveTitle), values/binding/attempted/fieldRefs, result=fillBody (promptUtils.ts), tryCopy/onFieldEnter, t-field, tplEmptySlots, prompt-result/w-miss/copy-prompt, NoteAttach.
+  PromptImageWb.tsx (402): image из тегов: сегменты модели (AIModel Pony/SDXL/Flux из data.ts) над полем, смена мгновенно меняет результат (renderPrompt в promptUtils.ts), крупное поле ввода (автофокус) с автодополнением по словарю (группы, подсветка, стрелки/Enter/Tab, запятая/Enter добавляет произвольный), чипы 36px (drag + Alt+стрелки, вес через меню low/normal/high -> ((high))/[low], удаление Backspace/Delete/крест 28px с Undo), риск иконкой+текстом (isRisky, RISK_THRESHOLD=50), под полем Недавние <=7. Результат та же панель, [Сохранить как шаблон], [В заметку]. Внутри: SUGGEST_CAP=8 RECENT_CAP=7, loadRecent pref recentTags, model/tokens/input/menuIdx/binding/recent, sugg=filterTags (imageTags.ts: TagWeight/filterTags/parseTagInput/moveTag/tagWeight/stripWeight/applyWeight), addToken/commitInput (дедуп), removeToken/moveChip/drag, tag-input/tag-suggest/tag-chip/t-tagmenu/t-tagx/tag-recent, saveAsTpl имя tokens[0..2] (model).
+  PromptBuilder.tsx (179) + builderModel.ts (35): Создать/Изменить шаблон: слева тело mono textarea, над ним [Вставить поле] (Ctrl+Shift+F) вставляет {{поле_N}} в курсор и выделяет имя (nextFieldName минимальный), справа таблица Найденные поля (имя/дефолт/обязательное), превью (fillBody), ошибки инлайн построчно (lintTemplate: незакрытая {{, дубликаты), переключатель типа Текст/Картинка, [Сохранить] sticky, [Отмена] слева. Рендер prompt-builder/builder-insert/body/errors/field-<name>/b-foot.
+  NoteAttach.tsx (117): общий В заметку для обоих: кнопка toNote позиционирует попап у кнопки (clampXY+placement), recent top5 по updated, rows поиск или recent max 6, чип w-notechip (Открыть + Очистить), попап n-suggest (Esc, w-note-pick-<i>, onPick append+bind).
+  Модели: promptUtils.ts (285) - listSlots/fillBody/missingSlots/splitSlots/resolveParams/renderSavedTpl/validateTemplate/getTplKind/makeSnippet/matchesTpl/buildTplEntries/filterTplEntries/splitHighlight/cutHiParts/clampActive/moveActive/migrateImageSavesToTemplates/renderPrompt/isRisky; promptData.ts (84) - TAG_DATA ~57 тегов x perModel + версия/дата/источник честно; data.ts (52) - LLM_TEMPLATES cr/sql/ent/art + SearchItem/AIModel/LlmTpl.
+
+8.8 Хуки и мелочи:
+  useListNav.ts, useListState.ts, useArmConfirm.ts (arm/isArmed/confirm, ключи n:<id>/t:<id>/default), ui/useUndo.ts (doWithUndo ttl 8000, одна активная, новая фиксирует прежнюю), ui/placement.ts computePlacement, listPrefs, prefs.
+  linkSuggest.ts: matchLinkCandidate (title+text, без себя) + parseBracketQuery + rankLinkSuggest (recent-first).
+  taskGroups.ts: toISODate/todayISO/addDaysISO + groupTasks (done отдельно, строковое ISO).
+  weekCal.ts: mondayISO/weekRange.
+  settingsNav.ts: секции.
+
+ПРОВЕРЬ СЕБЯ: открой каждый экран, нажми / (поиск), N (новый), стрелки, Enter, Esc. Найди в коде обработчики этих клавиш. Удали одну заметку - нажми Отменить в тосте за 8 сек. Что произошло в store?
+
+---------------------------------------------------------------------------------------------------------------
+9. МОДЕЛИ БЕЗ ЭКРАНА (чистые функции - самые лёгкие для старта)
+---------------------------------------------------------------------------------------------------------------
+Чистая = те же входы -> те же выходы, без экрана и памяти. Их легко тестировать (*.test.ts рядом).
+Список с входом/выходом:
+- paletteModel.filterPalette(q, notes, tasks, prompts, commands) -> группы по 4.
+- promptUtils.listSlots(body) -> имена {{...}}, fillBody(body, params) -> текст, missingSlots -> чего не хватает, renderPrompt(model, tokens) -> строка под модель, isRisky(tag) -> да/нет, splitHighlight(text, q) -> куски для <Hi>.
+- promptLibrary.buildLibrary(builtins, customs, saves) -> единый список, filterLibrary(list, seg, q) -> отфильтровано.
+- workbenchModel.requiredSlots(slots) -> без дефолта, buildSaveTitle(tplTitle, date) -> строка.
+- builderModel.nextFieldName(existing) -> поле_N, lintTemplate(body) -> ошибки построчно.
+- imageTags.filterTags(q, dict) -> до 8, parseTagInput(s) -> список, moveTag(arr,i,dir), applyWeight(tag,w).
+- linkSuggest.parseBracketQuery(textBeforeCaret) -> запрос или null, matchLinkCandidate(cand,q,selfId), rankLinkSuggest(cands,recentIds).
+- taskGroups.groupTasks(tasks, todayISO) -> 6 групп + done, weekCal.weekRange(todayISO,offset) -> 7 дат.
+- graphLayout.layoutGraph(nodes, edges) -> координаты (300 тиков, детерминирована), mapCamera.centerView/fitView -> {k,x,y}.
+- ui/placement.computePlacement(anchor,pop,viewport) -> {x,y}, ui/useUndo.createUndoController() -> {do,undo}.
+- settingsNav.isSettingsSection(s), store.migrate(raw) -> {store,dropped}, profiles.createProfile(name) etc.
+Как читать: открой *.ts и *.test.ts рядом, прогони тест мысленно: вход -> ожидание.
+
+---------------------------------------------------------------------------------------------------------------
+10. СВОЙ КЛОН С НУЛЯ ЗА 12 ШАГОВ (повторяя только приёмы проекта)
+---------------------------------------------------------------------------------------------------------------
+Делай в новой папке my-clone, файлы называй так же для сверки. После каждого шага сверяйся с указанным файлом проекта.
+
+Шаг 1. Пустая страница: создай index.html как в проекте (div#root + script module) + main.tsx (createRoot render Hello). Запусти vite. Сверка: index.html, main.tsx:25-29.
+Шаг 2. Кнопка с подсветкой: добавь <button class="my-btn">Нажми</button> + CSS .my-btn, .my-btn:hover (border-color), .my-btn:active (scale .98), transition. Сверка: index.css:45-47.
+Шаг 3. Счётчик на React: const [n,setN]=useState(0), <button onClick={()=>setN(n+1)}>Нажал {n}</button>. Пойми: состояние -> перерисовка. Сверка: App.tsx:95-101.
+Шаг 4. Список: const [items]=useState([{id:'1',text:'первое'}]), items.map(i=><div key={i.id}>{i.text}</div>). Добавь input + кнопку Добавить (newId). Сверка: PlanList:46-58 + utils/newId.ts.
+Шаг 5. Поиск: const [q,setQ]=useState(''), filtered=items.filter(i=>i.text.includes(q)), <input value={q} onChange={e=>setQ(e.target.value)}>. Сверка: useListState.ts.
+Шаг 6. Память: save = ()=>localStorage.setItem('my-key', JSON.stringify(items)), load = ()=>JSON.parse(localStorage.getItem('my-key')). Вызови load в useState(()=>...), save в useEffect при изменении. Сверка: store.ts:462-479 + App.tsx:332-360.
+Шаг 7. Темы: const [theme,setTheme]=useState('light'), <div data-theme={theme}> + CSS [data-theme='dark']{--bg:...}. Кнопка Переключить. Сверка: index.css:4-23 + App.tsx:1231.
+Шаг 8. Языки: const STR={hello:{RU:'Привет',EN:'Hello',KZ:'Сәлем'}}, function tr(k,lang){return STR[k][lang]}, <button onClick={()=>setLang('EN')}>EN</button>. Сверка: i18n.ts:259-268.
+Шаг 9. Роутер: function parseRoute(){return window.location.hash} + useEffect hashchange + <a href="#/notes">Заметки</a><a href="#/plan">План</a> + условный рендер. Сверка: ui/router.ts.
+Шаг 10. Тосты + Undo: const [toasts,setToasts]=useState([]), notify(text)=>добавить, setTimeout убрать через 2600, при удалении хранить удалённое и кнопка Вернуть. Сверка: widgets.tsx:18-61 + App.tsx:171-232 + ui/useUndo.ts.
+Шаг 11. Двухшаговое удаление: const [armed,setArmed]=useState(null), первый клик setArmed(id), второй если armed===id - удалить. Сверка: useArmConfirm.ts.
+Шаг 12. Сборка: вынеси список в файл List.tsx (export function List({items})), типы в types.ts (export interface Item{id:string;text:string}), helpers без экрана в model.ts (export function filterItems...), рядом model.test.ts с парой проверок. Запусти npm test, npm run build. Сверка: структура src/ + README Структура.
+
+Если застрял на шаге - открой указанный файл проекта, найди тот же приём, перепиши под свои имена. Больше ничего не нужно.
+
+---------------------------------------------------------------------------------------------------------------
+11. СЛОВАРЬ, ОТЛАДКА БЕЗ ГУГЛА, ТЕСТЫ, КАРТА ФАЙЛОВ
+---------------------------------------------------------------------------------------------------------------
+Словарь (все слова проекта):
+- HTML-тег, атрибут, class/id, div/span/button/input/textarea/select/header/aside/nav/main.
+- CSS-селектор (.класс, #id, :hover/:active/:focus-visible, [data-theme]), свойство, переменная var(--...), flex/grid, padding/margin, border/radius/shadow, transition/animation, media (pointer:coarse) touch >=44px, z-index слои.
+- JS: переменная const/let, функция, стрелка ()=>, if/ternary ? :, массив [], объект {}, JSON, import/export, null/undefined, boolean.
+- TS: interface, тип string/number/boolean/string[]/?, generic <T>.
+- React: компонент, пропсы, состояние useState, эффект useEffect, ref, key в списке, lazy/Suspense, StrictMode, onClick/onChange/onKeyDown.
+- Проект: стор (вся память), профиль (отдельный шкаф), преф (мелкая настройка), migrate (переезд), testid (крючок тестов), тост (всплывашка + Undo), палитра (Ctrl+K), пик/Drawer/Popover/ConfirmDialog, слот {{поле}}, тег, граф/узел/ребро/сирота, корзина trash/trashTasks.
+- Нормы N1-N9 из AGENTS.md: N1 цели >=32 desktop/44 touch, зазор 8, деструктив отдельно; N2 действие рядом с объектом; N3 label сверху, автофокус, Enter/Esc/Tab; N4 удаление + Undo 8с, confirm только необратимое; N5 <=7 пунктов; N6 отклик <=100мс, оптимистично; N7 клавиатура; N8 контраст 4.5:1, фокус, aria; N9 порции по 50.
+
+Отладка без гугла (только проект + браузер):
+- Не рисуется? Открой F12 Console - красное = ошибка с файлом:строкой. ErrorBoundary покажет reload + export.
+- Не сохраняется? Смотри save-state в шапке + s-strip баннер. Проверь localStorage в Application, quota, lastSeenRaw.
+- Не находится? Ищи по testid в Elements, кликни - увидишь классы. Сравни с index.css.
+- Клавиша не работает? Найди onKeyDown в этом View, поставь console.log(e.key).
+- Тест упал? Читай имя + первую строку ошибки (правило красный первым), смотри *.test.ts рядом.
+- Вес вырос? npm run check:weight, сравни с docs/weight-baseline.json, удали старый CSS в том же этапе.
+- Язык пропал? npm run check:i18n, ищи буквальный tr('ключ'), добавь x3 RU/EN/KZ.
+- Цели мелкие? node scripts/audit-targets.cjs report, смотри docs/ux-baseline.md.
+
+Тесты (*.test.ts рядом с файлом, 131 ядро + 128 UX):
+activeId - сброс activeId; builderModel - next/lint; clipboard - copy fallback; graphLayout - детерминированность; imageTags - filter/parse/move/вес; linkSuggest - match/parse/rank; listPrefs - лимиты+legacy; mapCamera - center/fit; mobileNav - таббар; paletteModel - группы по 4; prefs - ключи+миграция; profiles - CRUD; promptData - версия+57 тегов; promptLibrary - build/filter; promptSearch - поиск; promptUtils - слоты/fill/missing/render/risk; settings - секции; shortcuts - реестр; snippetTerms - сниппеты; store - migrate v5+sanitize; syncWording - статусы; taskGroups - группы; toast - очередь 3+Undo; tplFilter - filter; useArmConfirm - взвод; useListState - поиск/лимит; newId - формат; profileBoot - registry/adopt/verify/бэкапы/decideFlush; placement - flip/clamp; router - parse/build; useUndo - do/undo/TTL; workbenchModel - required/title; weekCal - monday/range.
+e2e/check6.cjs - 94 проверки: P5-P28 база, P29 блокировки, P30 ErrorBoundary, P31 сохранения, P32 две вкладки, P33 реестр, P34-36 adopt legacy, S2 каркас/палитра/настройки, S3 заметки, S4 список, S5 неделя, S10 карта.
+
+Карта всех файлов src/ (кратко, подробно - разделы 6-9 выше):
+main.tsx - вход 29; App.tsx - всё 1736; index.css - вид 592; ui/tokens.css - токены; ui/primitives.tsx/css - кирпичи u-; ui/router.ts - хэш 53; ui/placement.ts - попап 55; ui/useUndo.ts - undo 70; store.ts - схема 534; storage/profileBoot.ts - запуск 352; profiles.ts - реестр 222; prefs.ts - префы 55; listPrefs.ts - лимиты 107; exportRaw.ts - скачать 43; utils/newId.ts - id 18; NotesView.tsx - заметки ~1200; PlanList.tsx - список 595; PlanWeek.tsx - неделя 422; MapView.tsx - карта 909; graphLayout.ts - физика 75; mapCamera.ts - камера 30; Palette.tsx - палитра 78; paletteModel.ts - логика 42; SettingsPage.tsx - настройки 323; settingsNav.ts - секции 27; ProfilePicker.tsx - гейт 133; PromptLib.tsx - библиотека 276; promptLibrary.ts - список 65; promptData.ts - словарь 84; PromptWorkbench.tsx - текст 348; workbenchModel.ts - минимум 12; promptUtils.ts - слоты 285; PromptImageWb.tsx - image 402; imageTags.ts - теги 61; PromptBuilder.tsx - конструктор 179; builderModel.ts - линтинг 35; NoteAttach.tsx - в заметку 117; data.ts - встроенные 52; linkSuggest.ts - [[ 23; taskGroups.ts - группы 60; weekCal.ts - неделя 16; widgets.tsx - тосты/окно/иконки 368; i18n.ts - словарь 270; useListNav.ts - стрелки 29; useListState.ts - списки 83; useArmConfirm.ts - 2 клика 66.
+Правило изменения: store только аддитивно (SCHEMA_VERSION+migrate), i18n x3 буквальный tr, переиспользуй useListNav/useListState/listPrefs/<Hi>/useArmConfirm/Modal, ключи grafnot-store-<profileId> + prefs grafnot-<name>[:<profileId>] + реестр grafnot-profiles-v1, bare keys только legacy, README обоих уровней в синхроне после поведения/тестов.
+
+КОНЕЦ САМОУЧИТЕЛЯ. Дальше - только практика шагами из раздела 10.

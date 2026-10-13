@@ -88,6 +88,6 @@ describe("useListState", () => {
   it("prefers a controlled limit when the parent owns it", () => {
     const s = renderState("prompts", 3, 5);
     expect(s.limit).toBe("5");
-    expect(s.shown).toBe("10");
+    expect(s.shown).toBe("5");
   });
 });

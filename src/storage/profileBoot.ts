@@ -297,8 +297,8 @@ export function nextSaveState(prev: SaveState, event: SaveEvent): SaveState {
 /** Content equality ignoring activeId: opening a note in another tab
  * rewrites the key with view state only. Such moves must neither block our
  * writes nor toast-spam the other tab; real content diffs still conflict.
- * Key order matters: our own raws are canonical (one serializer), anything
- * else fails closed to "different". */
+ * Comparison is canonical (key order ignored); unparseable payloads still
+ * fail closed to "different". */
 export function sameStoreContent(a: string | null, b: string | null): boolean {
   if (a === b) return true;
   if (a == null || b == null) return false;
@@ -309,7 +309,7 @@ export function sameStoreContent(a: string | null, b: string | null): boolean {
     if (!pb || typeof pb !== 'object' || Array.isArray(pb)) return false;
     pa.activeId = '';
     pb.activeId = '';
-    return JSON.stringify(pa) === JSON.stringify(pb);
+    return JSON.stringify(canonicalize(pa)) === JSON.stringify(canonicalize(pb));
   } catch {
     return false;
   }

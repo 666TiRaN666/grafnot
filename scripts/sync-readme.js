@@ -145,16 +145,20 @@ let root = readFileSync(rootReadme, 'utf8');
 let protoTxt = readFileSync(protoReadme, 'utf8');
 
 // "57 тестов ядра" / "70 тестов UX..." — groups are the file lists on those lines
-// (bare names without the suffix are completed to *.test.ts).
+// (bare names without the suffix are completed to *.test.ts; *.test.js kept).
 function normTest(f) {
   const t = f.trim();
   if (!t) return '';
-  return t.endsWith('.test.ts') ? t : `${t}.test.ts`;
+  if (t.endsWith('.test.ts') || t.endsWith('.test.js')) return t;
+  return `${t}.test.ts`;
+}
+function isTestFile(s) {
+  return s.endsWith('.test.ts') || s.endsWith('.test.js');
 }
 function protoGroup(lineRe) {
   const line = protoTxt.split('\n').find((l) => lineRe.test(l));
   if (!line) return null;
-  const files = line.split('—')[0].split(/[,/]/).map(normTest).filter((s) => s.endsWith('.test.ts'));
+  const files = line.split('—')[0].split(/[,/]/).map(normTest).filter(isTestFile);
   const nM = line.match(/(\d+)\s*тест/);
   return { files, have: nM ? nM[1] : null, line };
 }

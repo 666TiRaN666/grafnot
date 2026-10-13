@@ -3,8 +3,8 @@ import { TPL_LIMITS } from "./promptUtils";
 import { STR } from "./i18n";
 
 describe("settings panel copy", () => {
-  it("covers theme language and list limit in all languages", () => {
-    const keys = ["settings", "themeL", "themeLight", "themeDark", "langL", "tplLimitL", "closeBtn"];
+  it("covers theme and language in all languages", () => {
+    const keys = ["settings", "themeL", "themeLight", "themeDark", "langL", "closeBtn"];
     for (const k of keys) {
       for (const lang of ["RU", "EN", "KZ"] as const) {
         const v = STR[k][lang];

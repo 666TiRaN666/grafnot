@@ -39,7 +39,9 @@ export interface ListState<T> {
 export function useListState<T>(opts: ListStateOptions<T>): ListState<T> {
   const [query, setQuery] = useState("");
   const [innerLimit, setInnerLimit] = useState<number>(() => loadListLimit(opts.key, undefined, opts.profileId));
-  const [shown, setShown] = useState<number>(() => loadListLimit(opts.key, undefined, opts.profileId));
+  // A parent-owned (controlled) limit also sizes the first batch: otherwise
+  // the list flashes one stored page and jumps after mount (S3/N9 notes).
+  const [shown, setShown] = useState<number>(() => opts.limit ?? loadListLimit(opts.key, undefined, opts.profileId));
   const limit = opts.limit ?? innerLimit;
   // Filtering runs only when the query or the select function changes — not
   // on every parent render (typing in an unrelated input, clock tick, etc.).

@@ -8,6 +8,8 @@ import { storeKeyFor } from './store';
 export interface ToastMsg {
   id: number;
   text: string;
+  /** Optional Undo action (S1): label comes from the caller, no new i18n keys. */
+  actionLabel?: string;
 }
 
 /** Max simultaneously visible toasts; the rest collapse into a "+N" badge. */
@@ -18,11 +20,13 @@ export function ToastStack({
   lang,
   onClose,
   onHover,
+  onAction,
 }: {
   items: ToastMsg[];
   lang: Lang;
   onClose?: (id: number) => void;
   onHover?: (id: number, hovering: boolean) => void;
+  onAction?: (id: number) => void;
 }) {
   // Newest-first visibility (the previous slice(-2) contract): the latest
   // toasts are always on screen, older overflow collapses into the badge.
@@ -40,6 +44,11 @@ export function ToastStack({
           onMouseLeave={() => onHover?.(m.id, false)}
         >
           <span className="g-toast-t">{m.text}</span>
+          {m.actionLabel && onAction && (
+            <button type="button" className="g-toast-undo" onClick={() => onAction(m.id)}>
+              {m.actionLabel}
+            </button>
+          )}
           {onClose && (
             <button type="button" className="g-toast-x" onClick={() => onClose(m.id)} aria-label={tr('closeBtn', lang)}>
               ×

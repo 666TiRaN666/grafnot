@@ -112,6 +112,19 @@ describe("decideFlush", () => {
     expect(sameStoreContent(a, c)).toBe(false);
     expect(decideFlush({ base: a }, c)).toBe("stale");
   });
+  it("ignores key order and activeId together (seed vs migrated writes)", () => {
+    // S3: tab A holds the seed literal, tab B flushed a migrate() rebuild of
+    // the same content while navigating. Same store, must harmonize.
+    const seedOrder = '{"schemaVersion":5,"notes":[],"activeId":"a"}';
+    const migratedOrder = '{"notes":[],"activeId":"b","schemaVersion":5}';
+    expect(sameStoreContent(seedOrder, migratedOrder)).toBe(true);
+    expect(decideFlush({ base: seedOrder }, migratedOrder)).toBe("write");
+    const nestedA = '{"notes":[{"id":"n","title":"t"}],"activeId":"a"}';
+    const nestedB = '{"activeId":"b","notes":[{"title":"t","id":"n"}]}';
+    expect(sameStoreContent(nestedA, nestedB)).toBe(true);
+    const changed = '{"notes":[{"id":"n","title":"other"}],"activeId":"a"}';
+    expect(sameStoreContent(nestedA, changed)).toBe(false);
+  });
 });
 
 describe("shouldPersist", () => {

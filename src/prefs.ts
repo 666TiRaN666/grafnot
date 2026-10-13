@@ -9,6 +9,9 @@ export const PREF_KEYS = {
   side: "grafnot-side",
   right: "grafnot-right",
   hint: "grafnot-hint-first",
+  section: "grafnot-section",
+  density: "grafnot-prompt-density",
+  recentTags: "grafnot-recent-tags",
 } as const;
 
 export type PrefName = keyof typeof PREF_KEYS;

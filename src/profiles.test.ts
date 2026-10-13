@@ -154,6 +154,9 @@ describe("profile data cleanup", () => {
       "grafnot-side:pf1",
       "grafnot-right:pf1",
       "grafnot-hint-first:pf1",
+      "grafnot-section:pf1",
+      "grafnot-prompt-density:pf1",
+      "grafnot-recent-tags:pf1",
       "grafnot-list-limits:pf1",
       "grafnot-tpl-limit:pf1",
     ]);
