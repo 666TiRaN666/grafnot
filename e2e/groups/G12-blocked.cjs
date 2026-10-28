@@ -1,6 +1,6 @@
 // E2E group G12-blocked (run order: e2e/check6.cjs).
 module.exports = async function (t) {
-  const { URL, GROUP_FILTER, setTailFailure, attachErrorGuards, seedProfiles, v5store, seedNote, reseed, groupActive, storageStateFor, check, assert, page, browser } = t;
+  const { URL, GROUP_FILTER, setTailFailure, attachErrorGuards, seedProfiles, v5store, seedNote, reseed, groupActive, storageStateFor, check, assert, orphanStores, page, browser } = t;
 
   // ---------- GROUP G12-blocked: damaged stores are never overwritten (STAGE 04) ----------
   // Each check seeds a raw store, loads the app, waits out the autosave
@@ -77,21 +77,11 @@ module.exports = async function (t) {
     });
   }
 
-  // Stage-02 acceptance: no orphan profile stores after a FULL run.
-  // Skipped for filtered runs (they end mid-state on purpose).
+  // Stage-02 acceptance: no orphan profile stores after G12's blocked-store
+  // flows in a FULL run (filtered runs end mid-state on purpose). The same
+  // check also runs at the real end of the full suite (harness, D4).
   if (GROUP_FILTER.length === 0) {
-    const endKeys = await page.evaluate(() => Object.keys(window.localStorage).filter((k) => k.startsWith('grafnot-')));
-    if (process.env.VERBOSE) console.log('storage keys at end: ' + JSON.stringify(endKeys));
-    const orphans = await page.evaluate(() => {
-      let reg = null;
-      try { reg = JSON.parse(window.localStorage.getItem('grafnot-profiles-v1') || 'null'); } catch { reg = null; }
-      const ids = new Set(((reg && reg.profiles) || []).map((p) => p.id));
-      return Object.keys(window.localStorage).filter((k) => {
-        if (k === 'grafnot-store-v2' || !k.startsWith('grafnot-store-')) return false;
-        if (k.includes(':corrupt-')) return false; // timestamped backups, not stores
-        return !ids.has(k.slice('grafnot-store-'.length));
-      });
-    });
-    if (orphans.length > 0) setTailFailure('orphan profile stores left: ' + orphans.join(','));
+    const { orphans } = await orphanStores(page);
+    if (orphans.length > 0) setTailFailure('orphan profile stores left after G12: ' + orphans.join(','));
   }
 };

@@ -1,6 +1,6 @@
 # E2E: известные грабли
 
-Вход — `e2e/check6.cjs` (`npm run e2e`, порядок групп), обвязка и счётчики (`EXPECTED_CHECKS`, `GROUP_SIZES`) — `e2e/harness.cjs`, проверки — `e2e/groups/<группа>.cjs`. Для правки читать только файл нужной группы. Часть групп: `GROUPS=G19-notes,G20-plan`. Новая группа: файл в `groups/`, имя в `ORDER` и `GROUP_SIZES`; хелпер, нужный нескольким группам, — в `API` обвязки. `VERBOSE=1` — подробный вывод, `E2E_FIXED_CLOCK=ISO` — замороженные часы, `E2E_TRACE=1` — трассировка Playwright.
+Вход — `e2e/check6.cjs` (`npm run e2e`, порядок групп), обвязка — `e2e/harness.cjs`, счётчики (`EXPECTED_CHECKS`, `GROUP_SIZES`) — `e2e/manifest.cjs`, проверки — `e2e/groups/<группа>.cjs`. Для правки читать только файл нужной группы. Часть групп: `GROUPS=G19-notes,G20-plan`. Новая группа: файл в `groups/`, имя в `ORDER` и `GROUP_SIZES` (самотест раннеров требует точного совпадения); хелпер, нужный нескольким группам, — в `API` обвязки. `VERBOSE=1` — подробный вывод, `E2E_FIXED_CLOCK=ISO` — замороженные часы, `E2E_TRACE=1` — трассировка Playwright.
 
 - Консоль PowerShell искажает казахские глифы — сверять только через ASCII-дампы или файлы UTF-8.
 - Фокус после синтетического клика: ждать `waitForFunction` на `document.activeElement`.

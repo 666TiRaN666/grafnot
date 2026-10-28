@@ -25,6 +25,7 @@ jobs:
       - run: npx oxlint
       - run: npm run check:i18n
       - run: npm run check:i18n:selftest
+      - run: node scripts/runner.selftest.cjs
       - run: node scripts/sync-readme.js --check
 
   e2e:

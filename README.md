@@ -13,10 +13,10 @@ npm test           # unit-тесты (vitest)
 npm run check:weight  # отчёт веса JS-бандла + предохранитель от baseline (лимитов нет)
 npm run preview    # раздача собранного (для ручной проверки и e2e)
 npm run e2e        # 168 e2e-проверок (Playwright, нужен preview :5199)
-npm run e2e:matrix   # S5 + список задач под фиксированными датами (календарная независимость; не в CI)
+npm run e2e:matrix   # S5 + список задач под 12 фиксированными датами: сам собирает dist и поднимает свой preview :5199 (не в CI)
 npm run check:i18n  # missing/parity/dead-гейт i18n-ключей (RU/EN/KZ)
 npm run check:i18n:selftest  # мутационный самотест гейта (4 фикстуры)
-npm run gates      # все быстрые гейты одной командой: таблица итогов, подробности только по упавшим
+npm run gates      # все быстрые гейты одной командой (+ самотест раннеров): таблица итогов, подробности только по упавшим
 npm run gates -- --e2e                     # + сборка, вес, свой preview :5199, полный e2e, аудит N1
 npm run gates -- --groups=G20-plan,G21-week  # + сборка, вес, preview, только эти e2e-группы
 ```
@@ -25,6 +25,7 @@ E2E: 168 e2e-проверок на Playwright поверх `vite preview` (вх�
 (пустой старт, редактор, задачи, неделя, связи, вычисления, карта, переименование, панели, промпты, корзина/undo, мобильная навигация, тосты, профили,
 блокировки битого стора, ErrorBoundary, честные статусы сохранения, две вкладки, восстановление реестра, адопция legacy).
 Сьют не зависит от дня недели и часового пояса: даты сидов вида `@today+N`/`@mon+N` раскрываются внутри страницы (зона Asia/Almaty, T2); `npm run e2e:matrix` гоняет S5 и список задач по 12 датам (Пн…Вс, границы месяца/года).
+Достоверность раннеров (D4): `gates` и `e2e:matrix` считают прогон зелёным, только если дочерний процесс завершился сам (не крах, не сигнал, не таймаут), напечатал итог `N/N passed` и это число совпадает с манифестом `e2e/manifest.cjs`; полный прогон явно сбрасывает `GROUPS`; проверка осиротевших сторов выполняется в конце полного прогона. Правила — `scripts/runner-lib.cjs`, самотест — `scripts/runner.selftest.cjs`.
 
 Пользовательский путь и гипотезы опыта собраны в [Journey Map Grafnot](JourneyMap.md).
 
@@ -32,7 +33,7 @@ E2E: 168 e2e-проверок на Playwright поверх `vite preview` (вх�
 
 ## CI (`.github/workflows/ci.yml`, P5')
 
-- job `unit` (блокирующий): `npm ci`, `npm test`, `npx tsc -b`, `npx oxlint`, `check:i18n` + selftest, `sync-readme --check`.
+- job `unit` (блокирующий): `npm ci`, `npm test`, `npx tsc -b`, `npx oxlint`, `check:i18n` + selftest, самотест раннеров, `sync-readme --check`.
 - job `e2e` (timeout 30 мин): build → preview :5199 → `npm run e2e` → `check:weight` (блокирующий, предохранитель +50% от baseline) → `check:contrast` и `audit-targets enforce` (временно неблокирующие: `continue-on-error`, числа зависят от шрифтов раннера; станут блокирующими после первого зелёного прогона на Actions) → upload-artifact с трассой при падении → остановка preview всегда.
 - Реальный прогон Actions с dev-машины невозможен; YAML проверен локально теми же командами и распарсен (node-структурно + PyYAML).
 
@@ -124,7 +125,8 @@ scripts/check-weight.js (+ weight-guard.js) — отчёт веса бандла
 scripts/check-i18n.js — missing/parity/dead-гейт i18n-ключей (+ scripts/check-i18n.selftest.js — мутационный самотест гейта)
 scripts/audit-targets.cjs — аудит целей N1 (report/enforce, desktop+mobile)
 scripts/check-css-unused.cjs — поиск мёртвых .g-классов
-e2e/check6.cjs — вход e2e и порядок групп; e2e/harness.cjs — сиды, хелперы, раннер, EXPECTED_CHECKS/GROUP_SIZES
+scripts/gates.cjs, scripts/e2e-weekday-matrix.cjs — раннеры; scripts/runner-lib.cjs — общий вердикт, окружение e2e и свой preview (+ scripts/runner.selftest.cjs)
+e2e/check6.cjs — вход e2e и порядок групп; e2e/harness.cjs — сиды, хелперы, раннер; e2e/manifest.cjs — EXPECTED_CHECKS/GROUP_SIZES
 e2e/groups/*.cjs — 168 e2e-проверок в 33 группах (P5–P28 база, P29 блокировки стора, P30 ErrorBoundary, P31 сохранения, P32 две вкладки, P33 реестр, P34–P36 адопция legacy, S2–S13 разделы после редизайна)
 docs/ux-baseline.md — база S0 «до» (аудит 375 элементов, 5 сценариев; сырой json аудита — локальный артефакт прогона, не в git)
 docs/fitts-report.md — S13 «до/после» по 5 сценариям (D, W, ID) + бюджеты G29

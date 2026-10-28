@@ -7,9 +7,9 @@ const path = require('path');
 const URL = 'http://localhost:5199/';
 // P5': portable resolver (Windows default vs Ubuntu google-chrome).
 const EXE = require('../scripts/chrome-exe.cjs');
-
-// How many checks run below. Update together when adding checks.
-const EXPECTED_CHECKS = 168;
+// Check counts live in the manifest so the runners can re-check our total (D4).
+const { EXPECTED_CHECKS, GROUP_SIZES, parseGroups } = require('./manifest.cjs');
+const { findOrphans } = require('../scripts/runner-lib.cjs');
 
 // Mirror of MAP_UNLOCK in src/App.tsx: gate counts derive from it, never magic numbers.
 const MAP_UNLOCK = 20;
@@ -74,8 +74,9 @@ async function precheckPreview() {
 
 const results = [];
 let tailFailure = '';
+let endNote = '';
 function setTailFailure(msg) {
-  tailFailure = msg;
+  tailFailure = tailFailure ? tailFailure + '; ' + msg : msg;
 }
 const runtimeErrors = [];
 // Substrings of page errors known to be caused by tests on purpose.
@@ -108,17 +109,11 @@ function runtimeAllowed(text) {
 // ---------- Group seeds and selective runs (STAGE 02) ----------
 // GROUPS env: comma-separated group names to run only (e.g. GROUPS=G4-story).
 // Empty = full run. Needed by stage 11 for repeat runs of affected groups.
-const GROUP_FILTER = (process.env.GROUPS || '').split(',').map((s) => s.trim()).filter(Boolean);
+const GROUP_FILTER = parseGroups(process.env.GROUPS);
 let currentGroup = '';
 let mainPage = null;
 // P5': hoisted tracing handle (see finally note).
 let traceCtx = null;
-// Per-group check counts. Update together with EXPECTED_CHECKS when adding checks.
-const GROUP_SIZES = {
-  'G0-boot': 3, 'G1-adopt-clean': 1, 'G2-editor': 8, 'G3-linkcalc': 6,
-  'G4-story': 18, 'G5-prompt': 5, 'G6-tasks': 7, 'G7-lists': 3,
-  'G8-mobile': 1, 'G9-profiles': 4, 'G10-p27': 5, 'G11-selftest': 1, 'G12-blocked': 4, 'G13-error': 2, 'G14-savefail': 2, 'G15-twotab': 2,   'G16-registry': 2, 'G17-adoption': 4, 'G18-shell': 4, 'G19-notes': 3, 'G20-plan': 7, 'G21-week': 6, 'G22-lib': 4, 'G23-wb': 10, 'G24-img': 10, 'G25-builder': 5, 'G26-map': 5, 'G27-mob': 6, 'G28-keys': 15, 'G29-kpi': 7, 'G30-rest': 3, 'G31-registry-sync': 3, 'G32-registry-read': 2,
-};
 function assertGroupSizes() {
   const sized = Object.values(GROUP_SIZES).reduce((a, b) => a + b, 0);
   if (sized !== EXPECTED_CHECKS) {
@@ -346,6 +341,15 @@ async function check(name, fn) {
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
 }
+// Profile stores in the page's storage that no registry entry owns.
+async function orphanStores(pg) {
+  const snap = await pg.evaluate(() => ({
+    keys: Object.keys(window.localStorage).filter((k) => k.startsWith('grafnot-')),
+    registry: window.localStorage.getItem('grafnot-profiles-v1'),
+  }));
+  if (process.env.VERBOSE) console.log('storage keys: ' + JSON.stringify(snap.keys));
+  return { stores: snap.keys.filter((k) => k.startsWith('grafnot-store-')).length, orphans: findOrphans(snap.keys, snap.registry) };
+}
 // S2 shell helpers: new notes and cross-entity jumps go through Quick Add.
 // Palette picks remount the editor: always wait for the hash move plus the
 // freshly mounted title before typing, never for a merely attached input.
@@ -401,6 +405,13 @@ async function run(groupNames) {
   for (const name of groupNames) {
     await require(path.join(__dirname, 'groups', name + '.cjs'))(api);
   }
+  // D4: the full-run orphan check belongs to the real end of the suite, after
+  // the last group (filtered runs end mid-state on purpose and skip it).
+  if (GROUP_FILTER.length === 0) {
+    const end = await orphanStores(page);
+    if (end.orphans.length > 0) setTailFailure('orphan profile stores left at end of run: ' + end.orphans.join(','));
+    else endNote = `end-of-run orphan check: ${end.stores} store key(s), none orphaned`;
+  }
 
   } finally {
     // P5': save the trace only when something failed (main context only;
@@ -445,6 +456,7 @@ async function run(groupNames) {
     process.exit(1);
   }
   console.log(results.join('\n'));
+  if (endNote) console.log(endNote);
   const fails = results.filter((r) => r.startsWith('FAIL')).length;
   console.log(`\n${results.length - fails}/${results.length} passed`);
   process.exit(fails ? 1 : 0);
@@ -470,6 +482,7 @@ const API = {
   storageStateFor,
   check,
   assert,
+  orphanStores,
   newViaPalette,
   pickViaPalette,
 };
