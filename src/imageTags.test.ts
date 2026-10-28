@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyWeight, filterTags, moveTag, parseTagInput, stripWeight, tagWeight } from "./imageTags";
+import { applyWeight, filterTags, formatWeight, moveTag, parseTagInput, stripWeight, tagWeight } from "./imageTags";
 
 const DICT = [{ tag: "blue hair" }, { tag: "blue eyes" }, { tag: "sunset" }];
 
@@ -35,5 +35,19 @@ describe("tag weight", () => {
     expect(applyWeight("((tag))", "normal")).toBe("tag");
     expect(stripWeight("((tag))")).toBe("tag");
     expect(stripWeight("[tag]")).toBe("tag");
+  });
+});
+
+describe("formatWeight per model (P3)", () => {
+  it("keeps brackets for Pony and SDXL, strips for Flux", () => {
+    expect(formatWeight("Pony", "tag", "high")).toBe("((tag))");
+    expect(formatWeight("SDXL", "tag", "low")).toBe("[tag]");
+    expect(formatWeight("Pony", "((tag))", "normal")).toBe("tag");
+    // Flux is natural language: brackets would be copied as literal text
+    // it does not understand, so weight is a no-op that strips.
+    expect(formatWeight("Flux", "tag", "high")).toBe("tag");
+    expect(formatWeight("Flux", "((tag))", "high")).toBe("tag");
+    expect(formatWeight("Flux", "[tag]", "low")).toBe("tag");
+    expect(formatWeight("Flux", "tag", "normal")).toBe("tag");
   });
 });

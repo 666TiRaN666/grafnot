@@ -85,8 +85,8 @@ function isProfile(v: unknown): v is Profile {
 
 /** Registry read result: corrupt payloads (broken JSON, foreign shape, any
  * invalid element) come back 'corrupt' with the raw text instead of a silent
- * empty registry (finding B1). 'absent' means first launch, never damage. */
-export type RegistryStatus = 'ok' | 'absent' | 'corrupt';
+ * empty registry (finding B1). Only null is absent; read failures are unavailable. */
+export type RegistryStatus = 'ok' | 'absent' | 'corrupt' | 'unavailable';
 
 export interface RegistryResult {
   status: RegistryStatus;
@@ -99,7 +99,7 @@ export function loadProfilesResult(storage?: Pick<ProfileStorage, "getItem">): R
   try {
     const get = storage?.getItem.bind(storage) ?? window.localStorage.getItem.bind(window.localStorage);
     raw = get(PROFILES_KEY);
-    if (!raw) return { status: 'absent', registry: emptyRegistry() };
+    if (raw === null) return { status: 'absent', registry: emptyRegistry() };
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
@@ -124,7 +124,7 @@ export function loadProfilesResult(storage?: Pick<ProfileStorage, "getItem">): R
     const activeOk = profiles.some((p) => p.id === active);
     return { status: 'ok', registry: { profiles, activeId: activeOk ? active : (profiles[0]?.id ?? "") } };
   } catch {
-    return raw ? { status: 'corrupt', registry: emptyRegistry(), raw } : { status: 'absent', registry: emptyRegistry() };
+    return raw !== null ? { status: 'corrupt', registry: emptyRegistry(), raw } : { status: 'unavailable', registry: emptyRegistry() };
   }
 }
 
@@ -163,6 +163,33 @@ export function saveProfiles(reg: ProfileRegistry, storage?: ProfileStorage): bo
   } catch {
     return false;
   }
+}
+
+export type RegistryUpdate = { status: 'ok'; registry: ProfileRegistry } | { status: 'failed' | 'invalid' };
+type RegistryLock = (work: () => RegistryUpdate) => Promise<RegistryUpdate>;
+
+/** Serialize UI registry mutations across tabs; run the mutation against fresh data.
+ * Without a shared lock, refuse the write rather than race another tab.
+ */
+export async function updateProfiles(
+  change: (current: ProfileRegistry) => ProfileRegistry,
+  options: { storage?: ProfileStorage; lock?: RegistryLock; allowAbsent?: boolean } = {},
+): Promise<RegistryUpdate> {
+  const work = (): RegistryUpdate => {
+    const loaded = loadProfilesResult(options.storage);
+    if (loaded.status !== 'ok' && !(options.allowAbsent && loaded.status === 'absent')) return { status: 'failed' };
+    let next: ProfileRegistry;
+    try { next = change(loaded.registry); } catch { return { status: 'invalid' }; }
+    if (!saveProfiles(next, options.storage)) return { status: 'failed' };
+    const readBack = loadProfilesResult(options.storage);
+    if (readBack.status !== 'ok' || JSON.stringify(readBack.registry) !== JSON.stringify(next)) return { status: 'failed' };
+    return { status: 'ok', registry: next };
+  };
+  try {
+    if (options.lock) return await options.lock(work);
+    if (!globalThis.navigator?.locks) return { status: 'failed' };
+    return await navigator.locks.request(PROFILES_KEY, { mode: 'exclusive' }, work);
+  } catch { return { status: 'failed' }; }
 }
 
 /** Unique display name; mirrors note-title dedup ("Name", "Name 2", ...). Throws on blank. */

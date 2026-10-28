@@ -2,6 +2,7 @@
 * { box-sizing: border-box; }
 .g-app { min-height: 100vh; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif; font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
 .g-app[data-theme='light'] {
+  color-scheme: light;
   --bg: #f4f5f7; --side: #ffffff; --card: #ffffff; --text: #101828;
   --muted: #667085; --faint: #6a717d; --border: #e6e8ee; --border-soft: #eef0f4;
   --accent: #2e69fa; --accent-ink: #1d4ed8; --accent-soft: #eef4ff;
@@ -12,6 +13,7 @@
   --topbar: rgba(255,255,255,.9);
 }
 .g-app[data-theme='dark'] {
+  color-scheme: dark;
   --bg: #0e1013; --side: #15181d; --card: #171b21; --text: #eceef2;
   --muted: #9aa1ad; --faint: #7f858f; --border: #242a33; --border-soft: #1c2128;
   --accent: #6b97ff; --accent-ink: #9dbcff; --accent-soft: #1a2540;
@@ -89,13 +91,14 @@ button { font-family: inherit; }
 /* doc */
 .g-wordcount { font-size: 12px; color: var(--faint); margin-right: 6px; white-space: nowrap; }
 .g-title-in { width: 100%; font-size: 24px; font-weight: 800; letter-spacing: -.02em; border: none; background: transparent; color: var(--text); outline: none; margin-bottom: 10px; padding: 0; border-radius: 0; }
-.g-title-in:focus { box-shadow: 0 2px 0 var(--accent-soft); }
+.g-title-in:focus-visible { box-shadow: 0 2px 0 var(--accent-ink); }
 
 /* Tiptap editor */
 .tiptap { min-height: 200px; outline: none; line-height: 1.7; font-size: 14.5px; padding: 6px 0 12px; }
 .tiptap p { margin: 8px 0; }
 .tiptap h3 { font-size: 16.5px; margin: 14px 0 6px; }
 .tiptap ul { padding-left: 22px; margin: 8px 0; }
+.tiptap pre { background: var(--bg); border: 1px solid var(--border-soft); border-radius: 10px; padding: 10px 12px; margin: 8px 0; font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .tiptap p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: var(--faint); float: left; height: 0; pointer-events: none; }
 
 .g-taskline { display: flex; align-items: center; gap: 12px; background: var(--accent-soft); border-radius: 12px; padding: 10px 12px; margin: 8px 0; cursor: pointer; transition: background .15s; }
@@ -153,6 +156,9 @@ button { font-family: inherit; }
 .s-pal { background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 16px; width: 580px; max-width: 100%; overflow: hidden; box-shadow: var(--shadow-lg); animation: pop .18s ease; }
 .s-pal-in { width: 100%; border: none; border-bottom: 1px solid var(--border); background: transparent; color: var(--text); padding: 16px 18px; font-size: 15px; outline: none; min-height: 48px; }
 .s-pal-list { max-height: 320px; overflow: auto; padding: 8px; }
+/* T4: scroll chaining stops at sheets, side panels and inner lists. */
+.t-panel, .w-panelwrap, .m-drawer, .m-peek,
+.s-pal-list, .n-suggest, .w-inbox-list, .t-suggest, .m-pop, .m-linkfind, .w-prev { overscroll-behavior: contain; }
 .s-pal-item { width: 100%; display: flex; gap: 12px; align-items: center; background: none; border: none; border-radius: 10px; color: var(--text); padding: 10px 12px; cursor: pointer; text-align: left; min-height: 44px; }
 .s-pal-item.active { background: var(--accent-soft); }
 .g-kind { font-size: 11px; border: 1px solid var(--border); border-radius: 20px; padding: 2px 10px; color: var(--muted); flex-shrink: 0; }
@@ -213,7 +219,7 @@ button { font-family: inherit; }
 /* tasks page */
 .g-page { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 22px 24px; box-shadow: var(--shadow); animation: rise .3s ease; }
 .g-page-h { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
-.g-date { border: 1px solid var(--border); border-radius: 10px; padding: 9px 12px; background: transparent; color: var(--text); font-size: 13.5px; color-scheme: light dark; }
+.g-date { border: 1px solid var(--border); border-radius: 10px; padding: 9px 12px; background: transparent; color: var(--text); font-size: 13.5px; }
 .g-src { margin-left: auto; background: var(--bg); border: 1px solid var(--border); color: var(--muted); border-radius: 20px; padding: 3px 12px; font-size: 12px; cursor: pointer; white-space: nowrap; }
 .g-src:hover { border-color: var(--accent); color: var(--accent-ink); }
 .g-src.gone { cursor: default; }
@@ -278,7 +284,7 @@ button.g-noteopen::after { content: ""; position: absolute; inset: 0; }
 
 /* knowledge graph */
 .g-gtitle-in { font-size: 18px; font-weight: 800; letter-spacing: -.01em; border: none; background: transparent; color: var(--text); outline: none; min-width: 0; flex: 1; }
-.g-gtitle-in:focus { box-shadow: 0 2px 0 var(--accent-soft); }
+.g-gtitle-in:focus-visible { box-shadow: 0 2px 0 var(--accent-ink); }
 .g-canvas { width: 100%; height: 440px; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; touch-action: none; cursor: grab; }
 .g-canvas:active { cursor: grabbing; }
 .g-vnode { fill: var(--card); stroke: var(--accent); stroke-width: 1.5; cursor: pointer; }

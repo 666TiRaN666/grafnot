@@ -81,6 +81,7 @@ export function NoteAttach({
         >
           <input
             autoFocus
+            autoComplete="off"
             className="g-in n-suggest-search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}

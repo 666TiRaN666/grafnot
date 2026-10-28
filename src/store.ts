@@ -64,8 +64,8 @@ export interface Store {
   activeId: string;
 }
 
-/** Increment on every breaking store change; drives migrate(). v4 turns customTpls into slot bodies, v5 adds task trash. */
-export const SCHEMA_VERSION = 5;
+/** Increment on every breaking store change; drives migrate(). v4 turns customTpls into slot bodies, v5 adds task trash, v6 image templates keep model/tokens. */
+export const SCHEMA_VERSION = 6;
 
 /** Pre-profiles single-store key; read once when migrating to the default profile. */
 export const LEGACY_STORE_KEY = 'grafnot-store-v2';
@@ -117,7 +117,12 @@ export interface StoredTpl {
   name: string;
   body: string;
   defaults?: Record<string, string>;
+  kind?: unknown;
+  model?: unknown;
+  tokens?: unknown;
 }
+
+const AI_MODELS: readonly unknown[] = ['Pony', 'SDXL', 'Flux'];
 
 export interface LooseStore {
   notes: LooseNote[];
@@ -137,7 +142,8 @@ export interface LooseStore {
  * v1 -> v2: notebook => graph membership, linked (titles) => linkedIds;
  * v2 -> v3: customTpls defaults to [] (sanitized, damaged entries dropped);
  * v3 -> v4: fixed p1/p2 templates become slot bodies (best-effort, tested);
- * v4 -> v5: trashTasks defaults to [].
+ * v4 -> v5: trashTasks defaults to [];
+ * v5 -> v6: image templates keep kind/model/tokens (optional, nothing to convert).
  * The notebook flow runs only for real legacy: payloads without a graphs
  * array, or with notebook fields on notes (a graphs array alone counts as v2+).
  * Damaged array elements (non-objects; tasks/trashTasks/prompts/graphs with
@@ -145,7 +151,7 @@ export interface LooseStore {
  * through untouched. Unknown top-level fields ride along in `rest`.
  * Missing link targets are dropped and counted. Trash keeps its fields
  * (linkedIds, calcs, text, updated); existing updated stamps are never
- * rewritten. Idempotent through the save/load cycle (saves stamp v5).
+ * rewritten. Idempotent through the save/load cycle (saves stamp v6).
  */
 /** Clean a legacy slot label into a usable {{name}} (fallback if empty). */
 function cleanSlotName(v: unknown, fallback: string): string {
@@ -185,7 +191,13 @@ function convertTpls(raw: Array<LooseTpl | StoredTpl> | undefined): LlmTpl[] {
           if (typeof v === 'string') defaults[k] = v;
         }
       }
-      out.push({ id: t.id, name: st.name, body: st.body, defaults });
+      const tpl: LlmTpl = { id: t.id, name: st.name, body: st.body, defaults };
+      // v6 image fields: kept when well-formed; a damaged field drops alone
+      // (the workbench then re-reads tags from the body).
+      if (st.kind === 'image') tpl.kind = 'image';
+      if (AI_MODELS.includes(st.model)) tpl.model = st.model as AIModel;
+      if (Array.isArray(st.tokens) && st.tokens.every((x) => typeof x === 'string')) tpl.tokens = [...st.tokens];
+      out.push(tpl);
       continue;
     }
     const c = convertLegacyTpl(t as LooseTpl);
@@ -514,12 +526,15 @@ export function appendPromptText(
 ): { content: Note['content']; text: string } {
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const nextText = prevText ? `${prevText}\n${text}` : text;
+  // UX-02: a paragraph collapses line breaks and indents; multi-line text
+  // (code, queries) goes in verbatim as a code block.
+  const multi = text.includes('\n');
   if (typeof content === 'string') {
-    return { content: `${content}<p>${esc(text)}</p>`, text: nextText };
+    return { content: multi ? `${content}<pre><code>${esc(text)}</code></pre>` : `${content}<p>${esc(text)}</p>`, text: nextText };
   }
   const doc = content as JSONContent;
-  const para: JSONContent = { type: 'paragraph', content: [{ type: 'text', text }] };
-  return { content: { ...doc, content: [...(doc.content ?? []), para] }, text: nextText };
+  const block: JSONContent = { type: multi ? 'codeBlock' : 'paragraph', content: [{ type: 'text', text }] };
+  return { content: { ...doc, content: [...(doc.content ?? []), block] }, text: nextText };
 }
 
 /**

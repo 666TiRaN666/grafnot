@@ -383,6 +383,7 @@ function DayPopup({
       <input
         autoFocus
         data-testid="day-popup-title"
+        autoComplete="off"
         value={name}
         onChange={(e) => setName(e.target.value)}
         onKeyDown={(e) => {

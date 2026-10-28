@@ -140,6 +140,7 @@ export function PromptLib({
         ref={searchRef}
         className="g-in"
         data-testid="prompt-search"
+        autoComplete="off"
         value={list.query}
         onChange={(e) => list.changeQuery(e.target.value)}
         onKeyDown={list.nav.onKeyDown}

@@ -34,9 +34,9 @@ export function exportRaw(key: string): boolean {
 
 /** Download the live in-memory store (failed-save rescue: storage holds
  * older data, so the key must not be read here). */
-export function exportMemory(store: Store): boolean {
+export function exportMemory(store: Store, rest?: Record<string, unknown>): boolean {
   try {
-    return downloadBlob(JSON.stringify({ ...store, schemaVersion: SCHEMA_VERSION }), 'grafnot-store-unsaved.json');
+    return downloadBlob(JSON.stringify({ ...rest, ...store, schemaVersion: SCHEMA_VERSION }), 'grafnot-store-unsaved.json');
   } catch {
     return false;
   }

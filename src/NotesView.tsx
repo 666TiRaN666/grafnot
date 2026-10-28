@@ -309,6 +309,19 @@ export function NotesView({
   const noteRef = useRef(note);
   noteRef.current = note;
 
+  // Self-heal (P4): the mounted doc must converge to the store doc. A
+  // delete→undo cycle (or chunk/remount timing) can leave a stale or empty
+  // doc mounted while the store holds content; without this guard the stale
+  // doc then overwrites the store via onUpdate (data loss). The text-equality
+  // guard keeps typing intact: while the user types, editor and store agree.
+  useEffect(() => {
+    const ed = editorRef.current;
+    if (note && ed && !ed.isDestroyed && ed.getText() !== (note.text ?? "")) {
+      ed.commands.setContent(note.content, { emitUpdate: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, noteId, notes]);
+
   // Switch document when the active note changes (not on every keystroke).
   useEffect(() => {
     const ed = editorRef.current;
@@ -496,7 +509,8 @@ export function NotesView({
   }, [suggest, slash, suggestItems]);
 
   // `/` focuses the list search when the caret is not in any field (N7).
-  // `N` opens a new note. Ctrl+Shift+T files the selection as a task (S3.8).
+  // `N` opens a new note. Ctrl+Alt+T files the selection as a task (S3.8, P2:
+  // Chrome reserves the old combination, so the hotkey moved; the ⋯/sel button stays).
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
@@ -511,7 +525,7 @@ export function NotesView({
         onNew();
         return;
       }
-      if (e.ctrlKey && e.shiftKey && e.code === "KeyT" && !e.metaKey && !e.altKey) {
+      if ((e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && e.code === "KeyT") {
         const blocked = !!t && !!t.closest && !!t.closest("input, textarea, select, .g-modal");
         if (blocked) return;
         e.preventDefault();
@@ -633,6 +647,7 @@ export function NotesView({
                 ref={searchRef}
                 className="g-in"
                 data-testid="notes-search"
+                autoComplete="off"
                 value={list.query}
                 onChange={(e) => list.changeQuery(e.target.value)}
                 onKeyDown={list.nav.onKeyDown}
@@ -696,6 +711,7 @@ export function NotesView({
               <input
                 className="g-title-in"
                 data-testid="title-in"
+                autoComplete="off"
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onBlur={commitTitle}

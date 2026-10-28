@@ -4,7 +4,7 @@ import { tr } from "./i18n";
 import type { LlmTpl } from "./data";
 import type { Note } from "./store";
 import { copyText } from "./widgets";
-import { fillBody, listSlots, missingSlots, resolveParams, splitSlots } from "./promptUtils";
+import { fillBody, isBlockSlot, listSlots, missingSlots, resolveParams, splitSlots } from "./promptUtils";
 import { buildSaveTitle, requiredSlots } from "./workbenchModel";
 import { NoteAttach } from "./NoteAttach";
 import type { PromptSave } from "./store";
@@ -226,7 +226,8 @@ export function PromptWorkbench({
           }}
         >
           {slots.map((s, i) => {
-            const multi = (tpl.defaults[s] ?? "").includes("\n");
+            // Textarea: Enter breaks the line, Ctrl+Enter copies (form handler).
+            const multi = isBlockSlot(tpl.body, s, tpl.defaults[s]);
             return (
               <label key={s} className="t-field">
                 <span className="muted small">

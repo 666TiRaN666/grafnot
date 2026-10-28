@@ -32,6 +32,8 @@ export function PlanList({
   onAdd,
   onUpdate,
   onOpenNote,
+  openId = null,
+  onLeaveOpen,
 }: {
   lang: Lang;
   tasks: TaskItem[];
@@ -41,6 +43,10 @@ export function PlanList({
   onAdd: (text: string, opts?: { desc?: string; due?: string }) => void;
   onUpdate: (id: string, patch: { text?: string; desc?: string; due?: string }) => void;
   onOpenNote: (id: string) => void;
+  /** Task from the route (#/plan/list/<id>): opened, revealed and highlighted. */
+  openId?: string | null;
+  /** The panel left `openId` (closed or switched): the route drops the id. */
+  onLeaveOpen?: () => void;
 }) {
   const today = todayISO();
   const [query, setQuery] = useState("");
@@ -90,6 +96,45 @@ export function PlanList({
   // resets its id during render (no cascading render pass).
   if (panelId && !tasks.some((t) => t.id === panelId)) setPanelId(null);
   const panelTask = panelId ? (tasks.find((t) => t.id === panelId) ?? null) : null;
+
+  // A routed task is revealed the same way (during render, no effect): its
+  // group expands, a hiding filter clears and the batch grows to reach it.
+  const [seenOpenId, setSeenOpenId] = useState<string | null>(null);
+  if (openId !== seenOpenId) {
+    setSeenOpenId(openId);
+    const target = openId ? tasks.find((t) => t.id === openId) : undefined;
+    if (target) {
+      const keepQuery = !needle || `${target.text} ${target.desc ?? ""}`.toLowerCase().includes(needle);
+      if (!keepQuery) setQuery("");
+      const g = groupTasks(keepQuery ? filtered : tasks, today);
+      const key = target.done ? "done" : (g.active.find((x) => x.items.includes(target))?.key ?? "done");
+      const nextCollapsed = new Set(collapsed);
+      nextCollapsed.delete(key);
+      setCollapsed(nextCollapsed);
+      let idx = g.done.indexOf(target);
+      if (!target.done) {
+        idx = 0;
+        for (const x of g.active) {
+          if (x.key === key) {
+            idx += x.items.indexOf(target);
+            break;
+          }
+          if (!nextCollapsed.has(x.key) || (keepQuery && needle)) idx += x.items.length;
+        }
+      }
+      setShown((s) => Math.max(s, idx + 1));
+      setPanelId(target.id);
+      setActiveRow(target.id);
+    }
+  }
+  useEffect(() => {
+    if (openId) rowRefs.current.get(openId)?.scrollIntoView({ block: "center" });
+  }, [openId]);
+
+  const showPanel = (id: string | null) => {
+    setPanelId(id);
+    if (openId && id !== openId) onLeaveOpen?.();
+  };
 
   const toggleCollapse = (key: string) => {
     setCollapsed((s) => {
@@ -188,7 +233,7 @@ export function PlanList({
         data-testid="task-row"
         data-due={t.due ?? undefined}
         tabIndex={0}
-        onClick={() => setPanelId(t.id)}
+        onClick={() => showPanel(t.id)}
         onKeyDown={(e) => {
           if (e.key === "ArrowDown" || e.key === "ArrowUp") {
             e.preventDefault();
@@ -201,7 +246,7 @@ export function PlanList({
             onToggle(t.id);
           } else if (e.key === "Enter") {
             e.preventDefault();
-            setPanelId(t.id);
+            showPanel(t.id);
           } else if (e.key === "Delete" || e.key === "Backspace") {
             e.preventDefault();
             onDelete(t.id);
@@ -275,7 +320,7 @@ export function PlanList({
                 onClick={(e) => {
                   e.stopPropagation();
                   setMenuId(null);
-                  setPanelId(t.id);
+                  showPanel(t.id);
                 }}
               >
                 {tr("openBtn", lang)}
@@ -320,6 +365,7 @@ export function PlanList({
                 ref={titleRef}
                 autoFocus
                 data-testid="task-composer-title"
+                autoComplete="off"
                 value={cTitle}
                 onChange={(e) => setCTitle(e.target.value)}
                 onKeyDown={(e) => {
@@ -368,6 +414,7 @@ export function PlanList({
             ref={searchRef}
             className="g-in"
             data-testid="task-search"
+            autoComplete="off"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -444,7 +491,7 @@ export function PlanList({
 
       {panelTask && (
         <div className="t-panelwrap">
-          <div className="t-backdrop" onClick={() => setPanelId(null)} />
+          <div className="t-backdrop" onClick={() => showPanel(null)} />
           <TaskPanel
             key={panelTask.id}
             lang={lang}
@@ -452,12 +499,13 @@ export function PlanList({
             notes={notes}
             onUpdate={onUpdate}
             onDelete={(id) => {
-              setPanelId(null);
+              showPanel(null);
               onDelete(id);
             }}
-            onClose={() => setPanelId(null)}
+            onClose={() => showPanel(null)}
             onOpenNote={onOpenNote}
             today={today}
+            focusTitle={panelTask.id === openId}
           />
         </div>
       )}
@@ -475,6 +523,7 @@ export function TaskPanel({
   onClose,
   onOpenNote,
   today,
+  focusTitle = false,
 }: {
   lang: Lang;
   task: TaskItem;
@@ -484,6 +533,8 @@ export function TaskPanel({
   onClose: () => void;
   onOpenNote: (id: string) => void;
   today: string;
+  /** Routed opens (palette, deep link) put focus in the panel: Esc closes it. */
+  focusTitle?: boolean;
 }) {
   // Drafts are per-task (key above): the panel is the only same-tab text
   // editor, so no sync effect is needed; cross-tab changes reload the page.
@@ -508,6 +559,7 @@ export function TaskPanel({
         <span className="muted small">{tr("addTaskPh", lang)}</span>
         <input
           data-testid="task-panel-title"
+          autoFocus={focusTitle}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           onBlur={() => {

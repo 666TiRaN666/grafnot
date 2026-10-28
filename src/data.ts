@@ -22,6 +22,9 @@ export interface LlmTpl {
   body: string;
   /** Default value per slot name (missing = ''). */
   defaults: Record<string, string>;
+  /** v6, image templates: constructor state (body is its render). Absent on old records. */
+  model?: AIModel;
+  tokens?: string[];
 }
 
 export const LLM_TEMPLATES: LlmTpl[] = [

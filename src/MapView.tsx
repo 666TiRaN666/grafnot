@@ -462,6 +462,7 @@ export function MapView({
           ref={searchRef}
           className="g-in"
           data-testid="map-search"
+          autoComplete="off"
           value={searchQ}
           onChange={(e) => {
             setSearchQ(e.target.value);
@@ -549,6 +550,7 @@ export function MapView({
           {renaming && graph ? (
             <input
               autoFocus
+              autoComplete="off"
               className="g-gtitle-in m-rename"
               value={gDraft}
               onChange={(e) => setGDraft(e.target.value)}

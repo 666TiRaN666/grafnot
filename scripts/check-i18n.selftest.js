@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 // Mutation self-test for check-i18n.js (STAGE_10, pruned in S9 with the
@@ -9,7 +10,8 @@ import { fileURLToPath } from "node:url";
 // fixture must fail, the clean one pass.
 // Run: node scripts/check-i18n.selftest.js
 const checker = join(dirname(fileURLToPath(import.meta.url)), "check-i18n.js");
-const base = join(process.env.TEMP || process.env.TMP || "C:\\Temp", "opencode", "i18n-selftest");
+// P5': os tmpdir is portable (Windows %TEMP% vs Linux /tmp).
+const base = join(tmpdir(), "opencode", "i18n-selftest");
 
 const entry = (k, langs) => `  ${k}: { ${langs.map((L) => `${L}: '${L}-${k}'`).join(", ")} },\n`;
 const dictFile = (entries) => `export const STR: Record<string, Record<string, string>> = {\n${entries}};\n`;

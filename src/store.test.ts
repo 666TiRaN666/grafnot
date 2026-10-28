@@ -68,9 +68,30 @@ describe('v1 -> v2 migration', () => {
   });
 });
 
+describe('v5 -> v6 image templates (UX-03)', () => {
+  it('keeps kind, model and tokens; old entries stay valid; junk fields drop', () => {
+    const { store } = migrate({
+      ...legacy(),
+      schemaVersion: 5,
+      customTpls: [
+        { id: 'i1', name: 'Img', body: 'a and b', defaults: {}, kind: 'image', model: 'Flux', tokens: ['((a))', 'b'] },
+        { id: 'i0', name: 'Old', body: '(a)', defaults: {}, kind: 'image' },
+        { id: 't0', name: 'Txt', body: 'x {{y}}', defaults: { y: '1' } },
+        { id: 'bad', name: 'Bad', body: 'q', defaults: {}, kind: 'image', model: 'Midjourney', tokens: [1, 'ok'] },
+      ] as never,
+    });
+    expect(store.customTpls).toEqual([
+      { id: 'i1', name: 'Img', body: 'a and b', defaults: {}, kind: 'image', model: 'Flux', tokens: ['((a))', 'b'] },
+      { id: 'i0', name: 'Old', body: '(a)', defaults: {}, kind: 'image' },
+      { id: 't0', name: 'Txt', body: 'x {{y}}', defaults: { y: '1' } },
+      { id: 'bad', name: 'Bad', body: 'q', defaults: {}, kind: 'image' },
+    ]);
+  });
+});
+
 describe('v3 -> v4 migration', () => {
   it('bumps schema and defaults customTpls, keeps prompts', () => {
-    expect(SCHEMA_VERSION).toBe(5);
+    expect(SCHEMA_VERSION).toBe(6);
     const { store } = migrate({
       ...legacy(),
       prompts: [{ id: 'p1', kind: 'image', title: 't', model: 'Pony', tokens: ['a'], created: 1 }],
@@ -156,6 +177,14 @@ describe('appendPromptText', () => {
   it('concats text cache with newline', () => {
     const r = appendPromptText({ type: 'doc', content: [] }, 'old', 'new');
     expect(r.text).toBe('old\nnew');
+  });
+
+  it('keeps multi-line text verbatim as a code block (UX-02)', () => {
+    const code = 'def f():\n    return 1';
+    const j = appendPromptText({ type: 'doc', content: [] }, '', code);
+    expect(j.content).toEqual({ type: 'doc', content: [{ type: 'codeBlock', content: [{ type: 'text', text: code }] }] });
+    expect(j.text).toBe(code);
+    expect(appendPromptText('', '', code).content).toBe('<pre><code>def f():\n    return 1</code></pre>');
   });
 
   it('escapes HTML in legacy string content', () => {

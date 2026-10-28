@@ -59,3 +59,18 @@ export function applyWeight(tag: string, w: TagWeight): string {
   if (w === "low") return `[${base}]`;
   return base;
 }
+
+export type WeightModel = "Pony" | "SDXL" | "Flux";
+
+/**
+ * Per-model weight formatting (P3). Pony (danbooru emphasis) and SDXL
+ * (native emphasis) understand bracket weights; Flux is natural language —
+ * brackets would be copied as literal text it does not understand, so weight
+ * is a no-op that strips. Stored tokens keep their brackets under Flux (the
+ * chip menu only hides the controls), so switching back restores the look;
+ * renderPrompt strips at render time for Flux for the same reason.
+ */
+export function formatWeight(model: WeightModel, tag: string, w: TagWeight): string {
+  if (model === "Flux") return stripWeight(tag);
+  return applyWeight(tag, w);
+}

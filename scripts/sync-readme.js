@@ -1,9 +1,9 @@
 // README sync checker: numbers in both READMEs (unit totals, e2e count,
-// per-file byte sizes and test counts) are derived from code, never hand-kept.
+// per-group test counts) are derived from code, never hand-kept.
 // Usage: node scripts/sync-readme.js        — check only, exits 1 on drift
 //        node scripts/sync-readme.js --write — patch the numbers in place
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,7 +11,6 @@ import { fileURLToPath } from 'node:url';
 const WRITE = process.argv.includes('--write');
 const here = dirname(fileURLToPath(import.meta.url));
 const proto = join(here, '..');
-const src = join(proto, 'src');
 const rootReadme = join(proto, '..', 'README.md');
 const protoReadme = join(proto, 'README.md');
 
@@ -42,8 +41,10 @@ function vitestFacts() {
 }
 
 function e2eCount() {
-  const srcTxt = readFileSync(join(proto, 'e2e', 'check6.cjs'), 'utf8');
-  return (srcTxt.match(/await check\(/g) || []).length;
+  const dir = join(proto, 'e2e', 'groups');
+  return readdirSync(dir)
+    .filter((f) => f.endsWith('.cjs'))
+    .reduce((n, f) => n + (readFileSync(join(dir, f), 'utf8').match(/await check\(/g) || []).length, 0);
 }
 
 const drifts = [];
@@ -97,50 +98,6 @@ let root = readFileSync(rootReadme, 'utf8');
   }
 }
 
-// "58 e2e" in the scripts row.
-{
-  const m = root.match(/(dead-key чекер; )(\d+)( e2e;)/);
-  if (m) {
-    wrong('root README', 'scripts-row e2e', m[2], e2e);
-    if (WRITE) root = root.replace(/(dead-key чекер; )\d+( e2e;)/, (_s, a, b) => `${a}${e2e}${b}`);
-  }
-}
-
-// Per-file byte sizes and test counts in the file table:
-// | `name` | 1234 | ... — bytes resolve under src/ first, then prototype root.
-{
-  const lines = root.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    const cells = lines[i].split('|');
-    if (cells.length < 4) continue;
-    const nameM = cells[1].match(/`([^`]+)`/);
-    const bytesM = cells[2].match(/^\s*(\d+)\s*$/);
-    if (!nameM || !bytesM) continue;
-    const name = nameM[1];
-    const cand = [join(src, name), join(proto, name)];
-    const hit = cand.find((p) => existsSync(p) && statSync(p).isFile());
-    if (!hit) {
-      drifts.push(`root README: cannot resolve byte row ${name}`);
-      continue;
-    }
-    const want = statSync(hit).size;
-    wrong('root README', `bytes ${name}`, bytesM[1], want);
-    if (WRITE) lines[i] = lines[i].replace(/(\| `[^`]+` \| )\d+( \|)/, `$1${want}$2`);
-    // Test counts in the description column for *.test.ts rows.
-    if (name.endsWith('.test.ts') && facts.perFile[name] !== undefined) {
-      const cM = cells[3].match(/(\d+)\s*тест/);
-      if (cM) {
-        wrong('root README', `tests ${name}`, cM[1], facts.perFile[name]);
-        if (WRITE) {
-          const n = facts.perFile[name];
-          lines[i] = lines[i].replace(/\d+\s*тест[а-я]*/, `${n} тест${ru(n, '', 'а', 'ов')}`);
-        }
-      }
-    }
-  }
-  if (WRITE) root = lines.join('\n');
-}
-
 // ---------- prototype README ----------
 let protoTxt = readFileSync(protoReadme, 'utf8');
 
@@ -187,15 +144,13 @@ for (const re of [RE_CORE, RE_UX]) {
   const orphans = Object.keys(facts.perFile).filter((f) => !grouped.has(f));
   if (orphans.length > 0) drifts.push(`proto README: ungrouped test files: ${orphans.join(', ')}`);
 }
-// "61 e2e-проверка/проверки/проверок" (stem alternates like above).
+// Every "61 e2e-проверка/проверки/проверок" (stem alternates like above).
 {
-  const m = protoTxt.match(/(\d+) e2e-провер(?:ка|ки|ок)/);
-  if (m) {
-    wrong('proto README', 'e2e total', m[1], e2e);
-    if (WRITE) protoTxt = protoTxt.replace(/(\d+) e2e-провер(?:ка|ки|ок)/, `${e2e} e2e-провер${ru(e2e, 'ка', 'ки', 'ок')}`);
-  } else {
-    drifts.push('proto README: e2e total pattern not found');
-  }
+  const re = /(\d+) e2e-провер(?:ка|ки|ок)/g;
+  const all = [...protoTxt.matchAll(re)];
+  if (all.length === 0) drifts.push('proto README: e2e total pattern not found');
+  for (const m of all) wrong('proto README', 'e2e total', m[1], e2e);
+  if (WRITE) protoTxt = protoTxt.replace(re, `${e2e} e2e-провер${ru(e2e, 'ка', 'ки', 'ок')}`);
 }
 
 if (WRITE) {

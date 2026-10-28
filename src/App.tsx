@@ -11,7 +11,9 @@ import {
   deleteProfile,
   removeProfileData,
   renameProfile,
-  saveProfiles,
+  loadProfilesResult,
+  PROFILES_KEY,
+  updateProfiles,
   setActiveProfile,
 } from "./profiles";
 import { prefKeyFor } from "./prefs";
@@ -43,7 +45,7 @@ import type { PaletteEntry } from './paletteModel';
 import { navigate, parseRoute, useRoute } from './ui/router';
 import type { RouteSection } from './ui/router';
 import { exportRaw, exportMemory } from "./exportRaw";
-import { SNIPPET_LEN, buildTplEntries, makeSnippet, promptPreview } from "./promptUtils";
+import { SNIPPET_LEN, buildTplEntries, imageInit, makeSnippet, promptPreview } from "./promptUtils";
 import { LLM_TEMPLATES } from "./data";
 import { newId } from "./utils/newId";
 import { consumeActiveIdReset, decideFlush, ensureRegistryCached, freshStore, hasLegacyKey, loadProfileStore, nextSaveState, sameStoreContent, settleStore, shouldPersist, verifyStoredMatches } from "./storage/profileBoot";
@@ -82,9 +84,11 @@ export default function App() {
   // session max once with no module-global counter.
   const [boot] = useState(() => {
     const reg = ensureRegistryCached();
-    return { registry: reg.registry, dropped: reg.droppedLinks, recovered: reg.recovered, adoption: reg.adoption };
+    return { registry: reg.registry, dropped: reg.droppedLinks, recovered: reg.recovered, adoption: reg.adoption, registryFailed: reg.registryFailed === true, registryReadFailed: reg.registryReadFailed === true };
   });
   const [registry, setRegistry] = useState<ProfileRegistry>(boot.registry);
+  const registryRef = useRef(registry);
+  registryRef.current = registry;
   // A pre-profiles legacy payload still sitting around: the picker offers
   // download + verified import (STAGE_09). Refreshed whenever the picker
   // shows; cleared by a successful import.
@@ -101,11 +105,12 @@ export default function App() {
   const [rightOpen, setRightOpen] = useState(() => load(prefKeyFor('right', profileId ?? undefined), '1') === '1');
   const [bootStore] = useState(() => {
     if (!profileId)
-      return { store: freshStore(), blocked: null as StoreBlocked | null, dropped: boot.dropped, lastSeen: null as string | null };
+      return { store: freshStore(), rest: {} as Record<string, unknown>, blocked: null as StoreBlocked | null, dropped: boot.dropped, lastSeen: null as string | null };
     const r = loadProfileStore(profileId);
     if (r.kind === 'blocked') {
       return {
         store: freshStore(),
+        rest: {} as Record<string, unknown>,
         blocked: { reason: r.reason, raw: r.raw, backupKey: r.backupKey } as StoreBlocked,
         dropped: boot.dropped,
         lastSeen: null as string | null,
@@ -113,13 +118,18 @@ export default function App() {
     }
     return {
       store: settleStore(r.store),
+      rest: r.rest,
       blocked: null as StoreBlocked | null,
       dropped: Math.max(boot.dropped, r.droppedLinks + r.droppedItems),
       lastSeen: readStoredRaw(profileId),
     };
   });
   const [store, setStore] = useState<Store>(bootStore.store);
+  // Unknown fields travel with their profile snapshot, never with UI state.
+  const storeRestRef = useRef<Record<string, unknown>>(bootStore.rest);
   const [storeBlocked, setStoreBlocked] = useState<StoreBlocked | null>(bootStore.blocked);
+  const storeBlockedRef = useRef(Boolean(storeBlocked || boot.registryFailed));
+  storeBlockedRef.current = Boolean(storeBlocked || boot.registryFailed || (profileId !== null && !registry.profiles.some(p => p.id === profileId)));
   // Last store handed to the UI by a load path (boot/enter/create). A new
   // object identity means a real user mutation -> the run becomes dirty.
   const loadedStoreRef = useRef<Store>(bootStore.store);
@@ -141,7 +151,7 @@ export default function App() {
   const idRef = useRef(1);
   const saveFailedRef = useRef(false);
   const toastTimersRef = useRef(new Map<number, number>());
-  const pendingSaveRef = useRef<{ store: Store; profileId: string; lang: Lang } | null>(null);
+  const pendingSaveRef = useRef<{ store: Store; rest: Record<string, unknown>; profileId: string; lang: Lang } | null>(null);
   const saveTimerRef = useRef<number | undefined>(undefined);
   // Trailing debounce alone starves under continuous edits (the timer keeps
   // resetting and a reload then amputates unsaved memory state). Cap the
@@ -273,6 +283,8 @@ export default function App() {
 
   useEffect(() => {
     if (profileId) save(prefKeyFor('theme', profileId), theme);
+    // Viewport scrollbar + any root-level native UI follow the app theme.
+    document.documentElement.style.colorScheme = theme;
   }, [theme, profileId]);
 
   useEffect(() => {
@@ -303,15 +315,22 @@ export default function App() {
       saveTimerRef.current = undefined;
     }
     skippedRef.current = 0;
+    if (storeBlockedRef.current) return pendingSaveRef.current === null;
     const pending = pendingSaveRef.current;
     pendingSaveRef.current = null;
     if (!pending) return true;
+    const liveRegistry = loadProfilesResult();
+    if (liveRegistry.status !== 'ok' || !liveRegistry.registry.profiles.some(p => p.id === pending.profileId)) {
+      pendingSaveRef.current = pending;
+      setSaveState((p) => nextSaveState(p, 'conflict'));
+      return false;
+    }
     if (decideFlush({ base: lastSeenRawRef.current }, readStoredRaw(pending.profileId)) !== 'write') {
       pendingSaveRef.current = pending;
       setSaveState((p) => nextSaveState(p, 'conflict'));
       return false;
     }
-    const ok = saveStore(pending.store, pending.profileId);
+    const ok = saveStore(pending.store, pending.profileId, undefined, { rest: pending.rest });
     setSaveState((p) => nextSaveState(p, ok ? 'ok' : 'fail'));
     if (!ok) {
       pendingSaveRef.current = pending;
@@ -335,7 +354,7 @@ export default function App() {
     const blocked = storeBlocked !== null;
     if (!shouldPersist(dirtyRef.current, blocked, pendingSaveRef.current !== null)) return;
     if (dirtyRef.current && !blocked) {
-      pendingSaveRef.current = { store, profileId, lang };
+      pendingSaveRef.current = { store, rest: storeRestRef.current, profileId, lang };
     }
     setSaveState((p) => nextSaveState(p, 'edit'));
     if (skippedRef.current >= SAVE_COALESCE_MAX) {
@@ -410,6 +429,28 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileId, storeBlocked, lang]);
 
+  // Registry events update pickers independently of the current store key.
+  useEffect(() => {
+    const onRegistry = (event: StorageEvent) => {
+      if (event.key !== PROFILES_KEY) return;
+      const loaded = loadProfilesResult();
+      if (loaded.status !== 'ok') return;
+      registryRef.current = loaded.registry;
+      setRegistry(loaded.registry);
+      if (profileId && !loaded.registry.profiles.some(p => p.id === profileId)) {
+        if (dirtyRef.current || pendingSaveRef.current) {
+          setSaveState((p) => nextSaveState(p, 'conflict'));
+        } else {
+          resetSession();
+          setProfileId(null);
+        }
+      }
+    };
+    window.addEventListener('storage', onRegistry);
+    return () => window.removeEventListener('storage', onRegistry);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileId]);
+
   // No minute ticker: the header shows the save status, never the wall time.
 
   useEffect(() => {
@@ -421,6 +462,7 @@ export default function App() {
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
+      if (storeBlockedRef.current) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setPaletteOpen(true);
@@ -557,13 +599,15 @@ export default function App() {
   };
 
 
-  const persistRegistry = (next: ProfileRegistry): boolean => {
-    if (!saveProfiles(next)) {
-      notify(tr('toastRegistrySaveFailed', lang));
-      return false;
+  const persistRegistry = async (change: (current: ProfileRegistry) => ProfileRegistry, allowAbsent = false, invalidMessage = tr('toastProfileOpFailed', lang)): Promise<ProfileRegistry | null> => {
+    const result = await updateProfiles(change, { allowAbsent });
+    if (result.status !== 'ok') {
+      notify(result.status === 'invalid' ? invalidMessage : tr('toastRegistrySaveFailed', lang));
+      return null;
     }
-    setRegistry(next);
-    return true;
+    registryRef.current = result.registry;
+    setRegistry(result.registry);
+    return result.registry;
   };
 
   const resetSession = () => {
@@ -571,10 +615,8 @@ export default function App() {
   };
 
   /** Enter a profile: isolated store + prefs, clean session state.
-   * All sets below run synchronously in one handler, so React batches them
-   * into a single render: save-effects never observe a mixed state where the
-   * store belongs to another profileId. Keep this function await-free. */
-  const enterProfile = (id: string, reg: ProfileRegistry) => {
+   * Await the registry transaction before batching store/profile state together. */
+  const enterProfile = async (id: string) => {
     if (!forceSwitchRef.current && !flushSave()) {
       notify(tr('toastSwitchBlocked', lang));
       return;
@@ -582,27 +624,24 @@ export default function App() {
     forceSwitchRef.current = false;
     // Registry first: the save gates every mutation below, so a failed
     // write aborts the switch with the old profile still active (finding B2).
-    let next: ProfileRegistry;
-    try {
-      next = setActiveProfile(reg, id);
-    } catch {
-      notify(tr('toastProfileOpFailed', lang));
-      return;
-    }
-    if (!persistRegistry(next)) return;
+    if (!await persistRegistry(current => setActiveProfile(current, id))) return;
+    // Edits made while waiting for the registry lock still belong to the old profile.
+    if (!flushSave()) { notify(tr('toastSwitchBlocked', lang)); return; }
     setSaveState((p) => nextSaveState(p, 'reset'));
     setLastSavedAt(null);
     const r = loadProfileStore(id);
     if (r.kind === 'blocked') {
+      storeRestRef.current = {};
       dirtyRef.current = false;
       lastSeenRawRef.current = null;
       const placeholder = freshStore();
       loadedStoreRef.current = placeholder;
       setStore(placeholder);
       setStoreBlocked({ reason: r.reason, raw: r.raw, backupKey: r.backupKey });
-      if (!r.backupKey) notify(tr('toastBackupFailed', lang));
+      if (r.raw !== undefined && !r.backupKey) notify(tr('toastBackupFailed', lang));
     } else {
       const settled = settleStore(r.store);
+      storeRestRef.current = r.rest;
       dirtyRef.current = false;
       loadedStoreRef.current = settled;
       lastSeenRawRef.current = readStoredRaw(id);
@@ -622,28 +661,20 @@ export default function App() {
     navigate(parseRoute(`#/${load(prefKeyFor('section', id), 'notes')}`));
   };
 
-  const createNewProfile = (name: string) => {
+  const createNewProfile = async (name: string) => {
     if (!flushSave()) {
       notify(tr('toastSwitchBlocked', lang));
       return;
     }
     setSaveState((p) => nextSaveState(p, 'reset'));
     setLastSavedAt(null);
-    let created: { registry: ProfileRegistry; profile: { id: string } } | null = null;
-    try {
-      created = createProfile(registry, name);
-    } catch {
-      created = null;
-    }
-    if (!created) {
-      notify(tr('toastProfileOpFailed', lang));
-      return;
-    }
-    // Registry first (finding B2): no lang pref, no state moves until saved.
-    if (!persistRegistry(created.registry)) return;
-    const profile = created.profile;
+    const next = await persistRegistry(current => createProfile(current, name).registry);
+    if (!next) return;
+    if (!flushSave()) { notify(tr('toastSwitchBlocked', lang)); return; }
+    const profile = { id: next.activeId };
     save(prefKeyFor('lang', profile.id), lang);
     const fresh = freshStore();
+    storeRestRef.current = {};
     dirtyRef.current = false;
     loadedStoreRef.current = fresh;
     lastSeenRawRef.current = null;
@@ -657,33 +688,22 @@ export default function App() {
     navigate({ section: 'notes' });
   };
 
-  const renameProfileById = (id: string, name: string) => {
-    let next: ProfileRegistry;
-    try {
-      next = renameProfile(registry, id, name);
-    } catch {
-      notify(tr('toastProfileOpFailed', lang));
-      return;
-    }
-    persistRegistry(next);
+  const renameProfileById = async (id: string, name: string) => {
+    await persistRegistry(current => renameProfile(current, id, name));
   };
 
-  const deleteProfileById = (id: string) => {
-    let next: ProfileRegistry;
-    try {
-      next = deleteProfile(registry, id);
-    } catch {
-      notify(tr("toastProfileDeleteFailed", lang));
+  const deleteProfileById = async (id: string) => {
+    if (id === profileId && !flushSave()) {
+      notify(tr('toastSwitchBlocked', lang));
       return;
     }
-    // Registry first, data second (finding B3): the entry is gone before
-    // any key is removed, so a failed removal leaves a recoverable orphan
-    // (found by recovery), never a ghost entry pointing at missing data.
-    if (!persistRegistry(next)) return;
-    if (!removeProfileData(id, window.localStorage)) {
-      notify(tr("toastProfileDataOrphan", lang));
-    }
-    if (id === profileId) enterProfile(next.activeId, next);
+    const next = await persistRegistry(current => {
+      if (id === profileId && !flushSave()) throw new Error('current profile has unsaved edits');
+      return deleteProfile(current, id);
+    }, false, tr('toastProfileDeleteFailed', lang));
+    if (!next) return;
+    if (!removeProfileData(id, window.localStorage)) notify(tr('toastProfileDataOrphan', lang));
+    if (id === profileId) await enterProfile(next.activeId);
   };
 
   /** Blocked-store banner actions: exports read the untouched keys, an empty
@@ -700,6 +720,7 @@ export default function App() {
     // Adopt the current (damaged) raw as the base: the empty write that
     // follows is explicit, not a silent clobber.
     if (profileId) lastSeenRawRef.current = readStoredRaw(profileId);
+    storeRestRef.current = {};
     setStore(freshStore());
     setStoreBlocked(null);
   };
@@ -714,25 +735,15 @@ export default function App() {
   const downloadLegacyRaw = () => {
     if (!exportRaw(LEGACY_STORE_KEY)) notify(tr('toastBackupFailed', lang));
   };
-  const startEmptyAfterFailedAdoption = () => {
+  const startEmptyAfterFailedAdoption = async () => {
     if (!adoptEmptyConfirm.confirm()) return;
     adoptEmptyConfirm.resetAll();
-    let created: { registry: ProfileRegistry; profile: { id: string } } | null = null;
-    try {
-      created = createProfile(registry, tr('profileDefault', lang));
-    } catch {
-      created = null;
-    }
-    if (!created) {
-      notify(tr('toastProfileOpFailed', lang));
-      return;
-    }
-    // Quota: the registry cannot be saved either — toast and stay blocked.
-    if (!persistRegistry(created.registry)) return;
+    const next = await persistRegistry(current => createProfile(current, tr('profileDefault', lang)).registry, true);
+    if (!next) return;
     setLegacyPresent(hasLegacyKey());
-    enterProfile(created.profile.id, created.registry);
+    await enterProfile(next.activeId);
   };
-  const importLegacyAsProfile = () => {
+  const importLegacyAsProfile = async () => {
     if (!legacyImportConfirm.confirm()) return;
     legacyImportConfirm.resetAll();
     const leg = loadStoreResult(undefined, window.localStorage);
@@ -740,39 +751,25 @@ export default function App() {
       notify(tr('toastProfileOpFailed', lang));
       return;
     }
-    let created: { registry: ProfileRegistry; profile: { id: string } } | null = null;
-    try {
-      created = createProfile(registry, tr('profileDefault', lang));
-    } catch {
-      created = null;
-    }
-    if (!created) {
-      notify(tr('toastProfileOpFailed', lang));
-      return;
-    }
-    const expected = { ...(leg.rest ?? {}), ...leg.store, schemaVersion: SCHEMA_VERSION };
-    if (!saveStore(leg.store, created.profile.id, window.localStorage, { rest: leg.rest })) {
-      notify(tr('toastSaveFailed', lang));
-      return;
-    }
-    if (!verifyStoredMatches(window.localStorage, created.profile.id, expected)) {
-      notify(tr('toastSaveFailed', lang));
-      return;
-    }
-    if (!persistRegistry(created.registry)) return;
-    try {
-      window.localStorage.removeItem(LEGACY_STORE_KEY);
-    } catch {
-      /* keep the key: the banner simply stays until it is gone */
-    }
+    const legacyStore = leg.store;
+    const next = await persistRegistry(current => {
+      const created = createProfile(current, tr('profileDefault', lang));
+      const expected = { ...(leg.rest ?? {}), ...legacyStore, schemaVersion: SCHEMA_VERSION };
+      if (!saveStore(legacyStore, created.profile.id, window.localStorage, { rest: leg.rest }) || !verifyStoredMatches(window.localStorage, created.profile.id, expected)) {
+        throw new Error('legacy copy was not saved');
+      }
+      return created.registry;
+    });
+    if (!next) return;
+    try { window.localStorage.removeItem(LEGACY_STORE_KEY); } catch { /* leave the original available for export */ }
     setLegacyPresent(hasLegacyKey());
-    enterProfile(created.profile.id, created.registry);
+    await enterProfile(next.activeId);
   };
 
   /** Failed-save rescue: export the live memory store (storage holds older
    * data) and retry the kept snapshot. The banner lives until a write wins. */
   const downloadMemory = () => {
-    if (!exportMemory(store)) notify(tr('toastBackupFailed', lang));
+    if (!exportMemory(store, storeRestRef.current)) notify(tr('toastBackupFailed', lang));
   };
   const retrySave = () => {
     setSaveState((p) => nextSaveState(p, 'retry'));
@@ -786,10 +783,13 @@ export default function App() {
     const r = loadProfileStore(profileId);
     if (r.kind === 'blocked') {
       setStoreBlocked({ reason: r.reason, raw: r.raw, backupKey: r.backupKey });
-      if (!r.backupKey) notify(tr('toastBackupFailed', lang));
+      if (r.raw !== undefined && !r.backupKey) notify(tr('toastBackupFailed', lang));
       return;
     }
     const settled = settleStore(r.store);
+    storeRestRef.current = r.rest;
+    setStoreBlocked(null);
+    resetSession();
     loadedStoreRef.current = settled;
     setStore(settled);
     dirtyRef.current = false;
@@ -810,16 +810,24 @@ export default function App() {
     (boot.adoption === 'failed' || boot.adoption === 'blocked') && registry.profiles.length === 0;
   const resolveAcceptTheirs = () => {
     if (!conflictConfirm.confirm('accept')) return;
+    if (profileId && !registryRef.current.profiles.some(p => p.id === profileId)) {
+      pendingSaveRef.current = null;
+      dirtyRef.current = false;
+      setProfileId(null);
+      setSaveState('saved');
+      conflictConfirm.resetAll();
+      return;
+    }
     pendingSaveRef.current = null;
     conflictConfirm.resetAll();
     reloadFromStorage(false);
   };
   const resolveOverwriteMine = () => {
     if (!conflictConfirm.confirm('overwrite')) return;
-    if (!profileId) return;
-    if (!saveStore(store, profileId)) {
+    if (!profileId || storeBlockedRef.current) return;
+    if (!saveStore(store, profileId, undefined, { rest: storeRestRef.current })) {
       setSaveState((p) => nextSaveState(p, 'fail'));
-      pendingSaveRef.current = { store, profileId, lang };
+      pendingSaveRef.current = { store, rest: storeRestRef.current, profileId, lang };
       return;
     }
     conflictConfirm.resetAll();
@@ -831,7 +839,7 @@ export default function App() {
     setLastSavedAt(new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }));
   };
   const downloadMine = () => {
-    if (!exportMemory(store)) notify(tr('toastBackupFailed', lang));
+    if (!exportMemory(store, storeRestRef.current)) notify(tr('toastBackupFailed', lang));
   };
 
   const unbindPrompt = (id: string) => {
@@ -1118,8 +1126,8 @@ export default function App() {
       return;
     }
     if (e.group === 'tasks' && e.refId) {
-      toggleTask(e.refId);
-      go('plan', 'list');
+      // UX-01: a search hit opens the task; completion stays an explicit act.
+      go('plan', `list/${e.refId}`);
       return;
     }
     if (e.group === 'prompts' && e.refId) {
@@ -1201,6 +1209,7 @@ export default function App() {
   const settingsSection: SettingsSection =
     section === 'settings' && isSettingsSection(route.param) ? route.param : 'profiles';
   const planView: 'list' | 'week' = route.param === 'week' ? 'week' : 'list';
+  const planTaskId = section === 'plan' && route.param?.startsWith('list/') ? route.param.slice('list/'.length) : null;
   const openNote: Note | undefined =
     section === 'notes' && route.param ? notes.find((n) => n.id === route.param) : undefined;
   // S9: template routes render the workbench (save mode when the id is a
@@ -1213,6 +1222,7 @@ export default function App() {
       : null;
   const wbTplId = wbSave?.templateId ?? (promptParam && !promptParam.includes('/') ? promptParam : null);
   const wbEntry = wbTplId ? (tplEntries.find((e) => e.tpl.id === wbTplId) ?? null) : null;
+  const wbImage = wbEntry?.kind === 'image' ? imageInit(wbEntry.tpl) : null;
   const promptBuilder =
     promptParam === 'new'
       ? { mode: "new" as const, initial: { name: "", body: "", defaults: {} } }
@@ -1245,6 +1255,7 @@ export default function App() {
             title={tr('newNote', lang)}
             aria-label={tr('newNote', lang)}
             data-testid="quickadd"
+            disabled={storeBlocked !== null || boot.registryFailed}
             className="s-railbtn s-create"
             onClick={() => setPaletteOpen(true)}
           >
@@ -1265,7 +1276,7 @@ export default function App() {
         <div className="s-main">
           <header data-testid="page-header" className="s-header">
             <h1 className="s-title">{sectionTitle}</h1>
-            <button type="button" data-testid="palette-open" className="s-searchbtn" onClick={() => setPaletteOpen(true)}>
+            <button type="button" data-testid="palette-open" disabled={storeBlocked !== null || boot.registryFailed} className="s-searchbtn" onClick={() => setPaletteOpen(true)}>
               <span>{tr('search_ph', lang)}</span>
               <kbd className="g-kbd">Ctrl K</kbd>
             </button>
@@ -1315,11 +1326,11 @@ export default function App() {
                       </button>
                     )}
                     {!conflictConfirm.isArmed('overwrite') ? (
-                      <button type="button" className="g-btn" onClick={() => conflictConfirm.arm('overwrite')}>
+                      <button type="button" className="g-btn" disabled={profileId === null || !registry.profiles.some(p => p.id === profileId)} onClick={() => conflictConfirm.arm('overwrite')}>
                         {tr('overwriteMine', lang)}
                       </button>
                     ) : (
-                      <button type="button" className="g-btn g-danger-arm" onClick={resolveOverwriteMine}>
+                      <button type="button" className="g-btn g-danger-arm" disabled={profileId === null || !registry.profiles.some(p => p.id === profileId)} onClick={resolveOverwriteMine}>
                         {tr('switchAnyway', lang)}
                       </button>
                     )}
@@ -1333,7 +1344,26 @@ export default function App() {
           </div>
 
         <main className="g-main" key={profileId ?? "picker"}>
-          {adoptionBlocked ? (
+          {boot.registryFailed ? (
+            <div data-testid="registry-blocked">
+              <StatusBanner
+                title={boot.registryReadFailed ? tr('registryReadFailedT', lang) : tr('toastRegistrySaveFailed', lang)}
+                body={boot.registryReadFailed ? tr('registryReadFailedBody', lang) : tr('registryFailedBody', lang)}
+                actions={
+                  <>
+                    <button type="button" data-testid="registry-retry" className="g-btn primary" onClick={() => window.location.reload()}>
+                      {tr('retryBtn', lang)}
+                    </button>
+                    {legacyPresent && (
+                      <button type="button" className="g-btn" onClick={downloadLegacyRaw}>
+                        {tr('downloadRaw', lang)}
+                      </button>
+                    )}
+                  </>
+                }
+              />
+            </div>
+          ) : adoptionBlocked ? (
             <div data-testid="adoption-blocked">
               <StatusBanner
                 title={tr(boot.adoption === 'failed' ? 'adoptionFailedT' : 'adoptionBlockedT', lang)}
@@ -1389,7 +1419,7 @@ export default function App() {
                 lang={lang}
                 registry={registry}
                 actions={{
-                  onEnter: (id) => enterProfile(id, registry),
+                  onEnter: (id) => enterProfile(id),
                   onCreate: createNewProfile,
                   onRename: renameProfileById,
                   onDelete: deleteProfileById,
@@ -1398,13 +1428,19 @@ export default function App() {
             </>
           ) : storeBlocked ? (
             <StatusBanner
-              title={tr('blockedT', lang)}
-              body={tr(storeBlocked.reason === 'corrupt' ? 'blockedCorrupt' : 'blockedFuture', lang)}
+              title={storeBlocked.reason === 'unavailable' ? tr('storageUnavailableT', lang) : tr('blockedT', lang)}
+              body={storeBlocked.reason === 'unavailable' ? tr('storageUnavailableBody', lang) : tr(storeBlocked.reason === 'corrupt' ? 'blockedCorrupt' : 'blockedFuture', lang)}
               actions={
                 <>
-                  <button type="button" className="g-btn" onClick={downloadBlockedRaw}>
-                    {tr('downloadRaw', lang)}
-                  </button>
+                  {storeBlocked.reason === 'unavailable' ? (
+                    <button type="button" data-testid="storage-retry" className="g-btn primary" onClick={() => reloadFromStorage(false)}>
+                      {tr('retryBtn', lang)}
+                    </button>
+                  ) : (
+                    <button type="button" className="g-btn" onClick={downloadBlockedRaw}>
+                      {tr('downloadRaw', lang)}
+                    </button>
+                  )}
                   {storeBlocked.backupKey && (
                     <button type="button" className="g-btn" onClick={downloadBackup}>
                       {tr('openBackup', lang)}
@@ -1482,6 +1518,8 @@ export default function App() {
                   onAdd={(text, opts) => addTask(text, opts)}
                   onUpdate={updateTask}
                   onOpenNote={openNoteById}
+                  openId={planTaskId}
+                  onLeaveOpen={() => navigate({ section: 'plan', param: 'list' }, { replace: true })}
                 />
               )}
             </>
@@ -1564,6 +1602,8 @@ export default function App() {
                       key={wbEntry.tpl.id}
                       lang={lang}
                       tplName={wbEntry.tpl.name}
+                      initModel={wbImage?.model ?? 'Pony'}
+                      initTokens={wbImage?.tokens ?? []}
                       mine={wbEntry.mine}
                       notes={notes}
                       onSaveTpl={(d) => {
@@ -1623,7 +1663,7 @@ export default function App() {
               onTheme={setTheme}
               onLang={setLang}
               registry={registry}
-              onEnterProfile={(id) => enterProfile(id, registry)}
+              onEnterProfile={(id) => enterProfile(id)}
               onCreateProfile={createNewProfile}
               onRenameProfile={renameProfileById}
               onDeleteProfile={deleteProfileById}
@@ -1654,7 +1694,7 @@ export default function App() {
           <Icon n="tasks" />
           <span>{tr('planT', lang)}</span>
         </button>
-        <button type="button" data-testid="tab-add" className="s-tabbtn s-tabadd" aria-label={tr('newNote', lang)} onClick={() => setPaletteOpen(true)}>
+        <button type="button" data-testid="tab-add" disabled={storeBlocked !== null || boot.registryFailed} className="s-tabbtn s-tabadd" aria-label={tr('newNote', lang)} onClick={() => setPaletteOpen(true)}>
           +
         </button>
         <button type="button" data-testid="tab-map" className={`s-tabbtn${section === 'map' ? ' active' : ''}`} onClick={openMap}>
@@ -1712,7 +1752,7 @@ export default function App() {
         </Modal>
       )}
 
-      {paletteOpen && (
+      {paletteOpen && !storeBlocked && !boot.registryFailed && (
         <Suspense fallback={lazyFallback}>
         <Palette
           lang={lang}

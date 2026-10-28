@@ -11,6 +11,12 @@ describe('hash router', () => {
     expect(parseRoute('#/plan/kanban')).toEqual({ section: 'notes' });
   });
 
+  it('keeps a task id under the list view only', () => {
+    expect(parseRoute('#/plan/list/t1')).toEqual({ section: 'plan', param: 'list/t1' });
+    expect(parseRoute('#/plan/week/t1')).toEqual({ section: 'plan', param: 'week' });
+    expect(buildRoute({ section: 'plan', param: 'list/t1' })).toBe('#/plan/list/t1');
+  });
+
   it('roundtrips map/prompt/settings routes', () => {
     for (const route of [
       { section: 'map', param: 'g1' },

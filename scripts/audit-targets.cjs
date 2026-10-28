@@ -7,9 +7,12 @@ const path = require('path');
 const http = require('http');
 
 const URL = 'http://localhost:5199/';
-const EXE = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+// P5': portable resolver (Windows default vs Ubuntu google-chrome).
+const EXE = require('./chrome-exe.cjs');
 const MODE = (process.env.MODE || process.argv[2] || 'report').replace(/^--mode=/, '');
-const OUT = path.join(__dirname, '..', 'docs', 'ux-audit-raw.json');
+// T2b: run artifact, NOT a document (element texts carry weekday labels and
+// dates, so bytes differ day to day). Untracked: written to the Temp dir.
+const OUT = path.join(require('os').tmpdir(), 'grafnot-ux-audit-raw.json');
 
 const VIEWPORTS = [
   { name: 'desktop 1440x900', w: 1440, h: 900, mobile: false },
@@ -178,7 +181,7 @@ function precheck() {
   for (const r of rows.filter((x) => x.n1.startsWith('FAIL')).slice(0, 40)) {
     console.log(`FAIL ${r.viewport} ${r.page} ${r.tag}.${r.cls || '-'} [${r.testid || r.text}] ${r.w}x${r.h} ${r.n1}`);
   }
-  console.log(`raw: docs/ux-audit-raw.json`);
+  console.log(`raw: ${OUT}`);
   if (MODE === 'enforce' && violations > 0) {
     console.error(`ENFORCE FAIL: ${violations} N1 violations`);
     process.exit(1);

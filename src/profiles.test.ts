@@ -12,6 +12,7 @@ import {
   renameProfile,
   saveProfiles,
   setActiveProfile,
+  updateProfiles,
 } from "./profiles";
 
 function mem(backing?: Record<string, string>) {
@@ -202,6 +203,14 @@ describe("profile data cleanup", () => {
 });
 
 describe("registry corruption and recovery (STAGE_08, red first)", () => {
+  it("distinguishes a registry read failure from an absent key", () => {
+    const result = loadProfilesResult({ getItem: () => { throw new Error("temporary read failure"); } });
+    expect(result).toEqual({ status: "unavailable", registry: emptyRegistry() });
+    expect(loadProfilesResult(mem()).status).toBe("absent");
+  });
+  it("treats an existing empty registry value as corrupt, not absent", () => {
+    expect(loadProfilesResult(mem({ [PROFILES_KEY]: "" }))).toEqual({ status: "corrupt", registry: emptyRegistry(), raw: "" });
+  });
   it("loadProfilesResult reports corrupt with raw instead of silent empty", () => {
     const raws = [
       "{oops",
@@ -268,5 +277,49 @@ describe("registry corruption and recovery (STAGE_08, red first)", () => {
       profiles: [],
       activeId: "",
     });
+  });
+});
+
+describe("updateProfiles", () => {
+  function queuedLock() {
+    let pending = Promise.resolve();
+    return <T>(work: () => T): Promise<T> => {
+      const result = pending.then(work);
+      pending = result.then(() => {}, () => {});
+      return result;
+    };
+  }
+  it("serializes simultaneous creates against the latest registry, even at the same timestamp", async () => {
+    const storage = mem(); saveProfiles(createProfile(emptyRegistry(), "Main", 1).registry, storage);
+    const lock = queuedLock();
+    const results = await Promise.all([
+      updateProfiles(current => createProfile(current, "A", 2).registry, { storage, lock }),
+      updateProfiles(current => createProfile(current, "B", 2).registry, { storage, lock }),
+    ]);
+    expect(results.map(result => result.status)).toEqual(["ok", "ok"]);
+    expect(loadProfiles(storage).profiles.map(profile => profile.id)).toEqual(["pf1", "pf2", "pf2-2"]);
+  });
+  it("does not resurrect a deleted profile on switch or rename", async () => {
+    const storage = mem(); const lock = queuedLock();
+    const before = createProfile(createProfile(emptyRegistry(), "A", 1).registry, "B", 2).registry;
+    saveProfiles(before, storage);
+    expect((await updateProfiles(current => deleteProfile(current, "pf2"), { storage, lock })).status).toBe("ok");
+    expect((await updateProfiles(current => setActiveProfile(current, "pf1"), { storage, lock })).status).toBe("ok");
+    expect((await updateProfiles(current => renameProfile(current, "pf2", "Ghost"), { storage, lock })).status).toBe("invalid");
+    expect(loadProfiles(storage).profiles.map(profile => profile.id)).toEqual(["pf1"]);
+  });
+  it("refuses unreadable registry data without writing", async () => {
+    let writes = 0;
+    const storage = { getItem: () => { throw new Error("denied"); }, setItem: () => { writes++; }, removeItem() {} };
+    expect((await updateProfiles(current => createProfile(current, "New").registry, { storage, lock: queuedLock() })).status).toBe("failed");
+    expect(writes).toBe(0);
+  });
+  it("requires explicit permission for an absent first registry and verifies writes", async () => {
+    const storage = mem(); const lock = queuedLock();
+    expect((await updateProfiles(current => createProfile(current, "Main").registry, { storage, lock })).status).toBe("failed");
+    expect(storage.has(PROFILES_KEY)).toBe(false);
+    expect((await updateProfiles(current => createProfile(current, "Main").registry, { storage, lock, allowAbsent: true })).status).toBe("ok");
+    storage.setItem = () => {};
+    expect((await updateProfiles(current => renameProfile(current, current.activeId, "Not written"), { storage, lock })).status).toBe("failed");
   });
 });

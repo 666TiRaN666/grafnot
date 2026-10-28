@@ -5,10 +5,13 @@ import {
   SNIPPET_LEN,
   cutHiParts,
   fillBody,
+  imageInit,
+  isBlockSlot,
   isRisky,
   listSlots,
   migrateImageSavesToTemplates,
   missingSlots,
+  parseImageBody,
   renderPrompt,
   renderSavedTpl,
   resolveParams,
@@ -16,6 +19,7 @@ import {
   splitSlots,
   validateTemplate,
 } from './promptUtils';
+import { LLM_TEMPLATES } from './data';
 
 describe('prompt utils', () => {
   it('renders per-model syntax', () => {
@@ -45,6 +49,8 @@ describe('prompt utils', () => {
       body: '(blue hair)',
       defaults: {},
       kind: 'image',
+      model: 'SDXL',
+      tokens: ['blue hair'],
     });
     expect(result.prompts[0]).toMatchObject({
       id: 'p-old',
@@ -54,6 +60,25 @@ describe('prompt utils', () => {
       noteId: 'n1',
       params: {},
     });
+  });
+
+  it('parses a rendered image body back (UX-03)', () => {
+    const tokens = ['a', '((b))', '[c]', '(d:1.2)'];
+    expect(parseImageBody(renderPrompt('Pony', tokens))).toEqual({ model: 'Pony', tokens });
+    expect(parseImageBody(renderPrompt('SDXL', tokens))).toEqual({ model: 'SDXL', tokens });
+    // Flux drops weights at render time: only the tags come back.
+    expect(parseImageBody(renderPrompt('Flux', ['((a))', 'b', 'c']))).toEqual({ model: 'Flux', tokens: ['a', 'b', 'c'] });
+    expect(parseImageBody('')).toEqual({ model: 'Pony', tokens: [] });
+  });
+
+  it('restores image state: stored fields, then body, built-in art from defaults', () => {
+    expect(imageInit({ id: 'x', name: 'n', body: 'zzz', defaults: {}, kind: 'image', model: 'Flux', tokens: ['((a))', 'b'] }))
+      .toEqual({ model: 'Flux', tokens: ['((a))', 'b'] });
+    expect(imageInit({ id: 'old', name: 'n', body: '(blue hair), (((red eyes)))', defaults: {}, kind: 'image' }))
+      .toEqual({ model: 'SDXL', tokens: ['blue hair', '((red eyes))'] });
+    const art = imageInit(LLM_TEMPLATES.find((t) => t.id === 'art')!);
+    expect(art.model).toBe('Pony');
+    expect(art.tokens).toEqual(['masterpiece', 'best quality', '1girl', 'long black hair', 'blue eyes', 'school uniform', 'sunset', 'soft lighting']);
   });
 
   it('flags risk below the named threshold', () => {
@@ -69,6 +94,16 @@ describe('template slots', () => {
   it('lists slots in order, dedupes, trims', () => {
     expect(listSlots('План по {{предмет}} на {{ дней }} дней. {{предмет}}!')).toEqual(['предмет', 'дней']);
     expect(listSlots('plain')).toEqual([]);
+  });
+
+  it('treats a slot on its own line (or a multiline default) as a block field', () => {
+    const cr = 'Проверь код ({{язык}}). Уровень: {{уровень}}.\nКод:\n{{код}}';
+    expect(isBlockSlot(cr, 'код')).toBe(true);
+    expect(isBlockSlot(cr, 'язык')).toBe(false);
+    expect(isBlockSlot('Объясни:\n  {{ запрос }}  \nДиалект: {{диалект}}.', 'запрос')).toBe(true);
+    expect(isBlockSlot('{{вопрос}}\nОтветь кратко', 'вопрос')).toBe(true);
+    expect(isBlockSlot('Тема {{x}}\nи {{x}} ещё', 'x')).toBe(false);
+    expect(isBlockSlot('Тема {{x}}', 'x', 'a\nb')).toBe(true);
   });
 
   it('fills slots, blanks missing, ignores extras', () => {

@@ -24,6 +24,7 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'note-new', keys: 'Ctrl+Alt+N', labelKey: 'scNew', scope: 'global' },
   { id: 'notes-search', keys: '/', labelKey: 'scNotesSearch', scope: 'notes' },
   { id: 'notes-new', keys: 'N', labelKey: 'scNew', scope: 'notes' },
+  { id: 'note-task', keys: 'Ctrl+Alt+T', labelKey: 'scNoteTask', scope: 'notes' },
   { id: 'plan-search', keys: '/', labelKey: 'scPlanSearch', scope: 'plan-list' },
   { id: 'plan-new', keys: 'N', labelKey: 'scPlanNew', scope: 'plan-list' },
   { id: 'task-open', keys: 'Enter', labelKey: 'scTaskOpen', scope: 'plan-list' },

@@ -42,6 +42,8 @@ export interface BootResult {
   droppedLinks: number;
   recovered: boolean;
   adoption: AdoptionStatus;
+  registryFailed?: boolean;
+  registryReadFailed?: boolean;
 }
 
 /** Canonical form for write verification: key order must not matter, our own
@@ -82,6 +84,34 @@ export function hasLegacyKey(storage?: Pick<StoreStorage, 'getItem'>): boolean {
   }
 }
 
+/** A boot transaction is committed only after registry read-back succeeds. */
+function saveBootRegistry(registry: ProfileRegistry): boolean {
+  if (!saveProfiles(registry)) return false;
+  try {
+    const raw = window.localStorage.getItem(PROFILES_KEY);
+    return raw !== null && JSON.stringify(canonicalize(JSON.parse(raw))) === JSON.stringify(canonicalize(registry));
+  } catch {
+    return false;
+  }
+}
+
+const ADOPTION_PENDING_KEY = 'grafnot-adoption-pending-v1';
+
+/** Keep the destination stable across interrupted migrations (legacy IDs may be generated). */
+function pendingAdoption(): ProfileRegistry['profiles'][number] | null {
+  try {
+    const pending = JSON.parse(window.localStorage.getItem(ADOPTION_PENDING_KEY) ?? 'null');
+    return pending && typeof pending.id === 'string' && /^pf[0-9]+(?:-[0-9]+)?$/.test(pending.id)
+      && typeof pending.name === 'string' && typeof pending.created === 'number' ? pending : null;
+  } catch {
+    return null;
+  }
+}
+
+function registryFailure(): BootResult {
+  return { registry: emptyRegistry(), droppedLinks: 0, recovered: false, adoption: 'none', registryFailed: true };
+}
+
 /** First launch with no registry: adopt the legacy single store into a default
  * profile. Idempotent: once the registry is saved, later loads return early,
  * so a repeated initializer run (StrictMode) cannot duplicate anything.
@@ -94,6 +124,7 @@ export function hasLegacyKey(storage?: Pick<StoreStorage, 'getItem'>): boolean {
  * An unreadable legacy blocks with no registry at all — App asks the user. */
 export function ensureRegistry(): BootResult {
   const res = loadProfilesResult();
+  if (res.status === 'unavailable') return { ...registryFailure(), registryReadFailed: true };
   if (res.status === 'ok' && res.registry.profiles.length > 0) {
     return { registry: res.registry, droppedLinks: 0, recovered: false, adoption: 'none' };
   }
@@ -104,7 +135,8 @@ export function ensureRegistry(): BootResult {
   } catch {
     /* ignore */
   }
-  if (res.status === 'corrupt' && res.raw !== undefined) {
+  const pending = pendingAdoption();
+  if (res.status === 'corrupt' && res.raw !== undefined && !pending) {
     writeCorruptBackup(window.localStorage, PROFILES_KEY, res.raw);
     let keys: string[] = [];
     try {
@@ -114,28 +146,41 @@ export function ensureRegistry(): BootResult {
     }
     const rebuilt = recoverRegistryFromStores(keys, (n) => `${tr('profileRecovered', lang)} ${n}`);
     if (rebuilt.profiles.length > 0) {
-      // Best effort: if this save fails the next launch re-recovers
-      // idempotently — no new default is ever created over the data.
-      saveProfiles(rebuilt);
+      if (!saveBootRegistry(rebuilt)) return registryFailure();
       return { registry: rebuilt, droppedLinks: 0, recovered: true, adoption: 'none' };
     }
   }
-  const { registry, profile } = createProfile(emptyRegistry(), tr('profileDefault', lang));
+  let keys: string[] = [];
+  try {
+    keys = Object.keys(window.localStorage);
+  } catch { /* an unavailable registry cannot be committed below */ }
+  const candidates = recoverRegistryFromStores(keys, (n) => 'profile ' + n);
+  // Reserve every existing store id, including copies from a previous failed boot.
+  const profile = pending ?? createProfile(candidates, tr('profileDefault', lang)).profile;
+  const registry: ProfileRegistry = { profiles: [profile], activeId: profile.id };
   const leg = loadStoreResult(undefined, window.localStorage);
   if (leg.status === 'ok' && leg.store) {
     const expected = { ...(leg.rest ?? {}), ...leg.store, schemaVersion: SCHEMA_VERSION };
+    try {
+      const rawPending = JSON.stringify(profile);
+      window.localStorage.setItem(ADOPTION_PENDING_KEY, rawPending);
+      if (window.localStorage.getItem(ADOPTION_PENDING_KEY) !== rawPending) throw new Error('adoption destination was not saved');
+    } catch {
+      return { registry: emptyRegistry(), droppedLinks: 0, recovered: false, adoption: 'failed' };
+    }
     const wrote = saveStore(leg.store, profile.id, window.localStorage, { rest: leg.rest });
     if (!wrote || !verifyStoredMatches(window.localStorage, profile.id, expected)) {
       // Quota or short write: registry stays unsaved, legacy stays intact,
       // memory holds no phantom profile — App shows the blocking screen.
       return { registry: emptyRegistry(), droppedLinks: 0, recovered: false, adoption: 'failed' };
     }
+    if (!saveBootRegistry(registry)) return registryFailure();
     const movedPrefs = migrateLegacyPrefs(profile.id, window.localStorage);
-    saveProfiles(registry);
     try {
       const del = window.localStorage.removeItem.bind(window.localStorage);
       del(LEGACY_STORE_KEY);
       for (const base of movedPrefs) del(base);
+      del(ADOPTION_PENDING_KEY);
     } catch {
       /* ignore */
     }
@@ -150,8 +195,8 @@ export function ensureRegistry(): BootResult {
     // Unreadable legacy: no registry, legacy key untouched, user decides.
     return { registry: emptyRegistry(), droppedLinks: 0, recovered: false, adoption: 'blocked' };
   }
+  if (!saveBootRegistry(registry)) return registryFailure();
   const movedPrefs = migrateLegacyPrefs(profile.id, window.localStorage);
-  saveProfiles(registry);
   try {
     for (const base of movedPrefs) window.localStorage.removeItem(base);
   } catch {
@@ -175,18 +220,19 @@ export function resetRegistryCache(): void {
 }
 
 /** Blocked-store reason: unreadable payload vs newer schema. */
-export type BlockReason = 'corrupt' | 'future';
+export type BlockReason = 'corrupt' | 'future' | 'unavailable';
 
 /** Banner payload: the app shows it instead of the page, autosave stays off. */
 export interface StoreBlocked {
   reason: BlockReason;
-  raw: string;
+  raw?: string;
   backupKey: string | null;
 }
 
 export interface ProfileStoreOk {
   kind: 'ok';
   store: Store;
+  rest: Record<string, unknown>;
   droppedLinks: number;
   droppedItems: number;
 }
@@ -194,7 +240,7 @@ export interface ProfileStoreOk {
 export interface ProfileStoreBlocked {
   kind: 'blocked';
   reason: BlockReason;
-  raw: string;
+  raw?: string;
   backupKey: string | null;
 }
 
@@ -245,21 +291,30 @@ export function writeCorruptBackup(
 
 /** Load one profile store with backup-on-failure. Corrupt/future payloads
  * come back blocked (the caller shows the banner and disables autosave);
- * absent payloads behave like before (clean empty start). */
+ * read failures block without a fabricated payload; only absent keys start empty. */
 export function loadProfileStore(
   profileId: string,
   storage?: Pick<StoreStorage, 'getItem' | 'setItem' | 'removeItem'>,
 ): ProfileStoreOk | ProfileStoreBlocked {
-  const backend = storage ?? window.localStorage;
+  let backend: Pick<StoreStorage, 'getItem' | 'setItem' | 'removeItem'>;
+  let r: ReturnType<typeof loadStoreResult>;
+  try {
+    backend = storage ?? window.localStorage;
+    r = loadStoreResult(profileId, backend);
+  } catch {
+    return { kind: 'blocked', reason: 'unavailable', backupKey: null };
+  }
   const key = storeKeyFor(profileId);
-  const r = loadStoreResult(profileId, backend);
   if (r.status === 'ok' && r.store) {
-    return { kind: 'ok', store: r.store, droppedLinks: r.droppedLinks, droppedItems: r.droppedItems };
+    return { kind: 'ok', store: r.store, rest: r.rest ?? {}, droppedLinks: r.droppedLinks, droppedItems: r.droppedItems };
   }
   if ((r.status === 'corrupt' || r.status === 'future') && r.raw !== undefined) {
     return { kind: 'blocked', reason: r.status, raw: r.raw, backupKey: writeCorruptBackup(backend, key, r.raw) };
   }
-  return { kind: 'ok', store: freshStore(), droppedLinks: 0, droppedItems: 0 };
+  if (r.status === 'absent') {
+    return { kind: 'ok', store: freshStore(), rest: {}, droppedLinks: 0, droppedItems: 0 };
+  }
+  return { kind: 'blocked', reason: 'unavailable', backupKey: null };
 }
 
 /** Autosave gate: blocked never writes; an untouched boot store writes

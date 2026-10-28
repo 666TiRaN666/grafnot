@@ -1,6 +1,7 @@
 import type { AIModel, LlmTpl } from './data';
 import { LLM_TEMPLATES } from "./data";
 import type { PromptSave } from "./store";
+import { stripWeight } from "./imageTags";
 
 /**
  * Risk boundary: a tag with model-knowledge rate below this is flagged.
@@ -22,10 +23,40 @@ export function renderPrompt(model: AIModel, tokens: string[]): string {
   if (tokens.length === 0) return '';
   if (model === 'SDXL') return tokens.map((t) => `(${t})`).join(', ');
   if (model === 'Flux') {
-    if (tokens.length === 1) return tokens[0];
-    return `${tokens.slice(0, -1).join(', ')} and ${tokens[tokens.length - 1]}`;
+    // P3: weights set under Pony/SDXL are kept in tokens but stripped here —
+    // Flux would otherwise copy brackets as literal text it does not understand.
+    const clean = tokens.map((t) => stripWeight(t));
+    if (clean.length === 1) return clean[0];
+    return `${clean.slice(0, -1).join(', ')} and ${clean[clean.length - 1]}`;
   }
   return tokens.join(', ');
+}
+
+/**
+ * Inverse of renderPrompt for records without stored tokens (UX-03).
+ * Every item wrapped in parens = SDXL (one layer stripped), a last item
+ * joined by " and " = Flux, otherwise Pony. render(parse(body)) == body;
+ * Flux renders lost their weights, so only the tags come back.
+ */
+export function parseImageBody(body: string): { model: AIModel; tokens: string[] } {
+  const items = body.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+  if (items.length === 0) return { model: 'Pony', tokens: [] };
+  if (items.every((s) => s.startsWith('(') && s.endsWith(')'))) {
+    return { model: 'SDXL', tokens: items.map((s) => s.slice(1, -1).trim()) };
+  }
+  const last = items[items.length - 1] as string;
+  const cut = last.lastIndexOf(' and ');
+  if (cut > 0) {
+    return { model: 'Flux', tokens: [...items.slice(0, -1), last.slice(0, cut).trim(), last.slice(cut + 5).trim()] };
+  }
+  return { model: 'Pony', tokens: items };
+}
+
+/** Constructor state of an image template: stored fields, else parsed from the (filled) body. */
+export function imageInit(tpl: LlmTpl): { model: AIModel; tokens: string[] } {
+  const parsed = parseImageBody(fillBody(tpl.body, tpl.defaults));
+  if (tpl.tokens) return { model: tpl.model ?? parsed.model, tokens: [...tpl.tokens] };
+  return parsed;
 }
 
 /** Promote legacy image saves to editable templates while keeping their ids and note links. */
@@ -46,8 +77,10 @@ export function migrateImageSavesToTemplates(
     while (usedIds.has(templateId)) templateId = `${baseId}-${suffix++}`;
     usedIds.add(templateId);
 
-    const body = renderPrompt(p.model ?? 'Pony', p.tokens ?? []) || p.title || 'prompt';
-    nextCustomTpls.push({ id: templateId, name: p.title, body, defaults: {}, kind: 'image' });
+    const model = p.model ?? 'Pony';
+    const tokens = p.tokens ?? [];
+    const body = renderPrompt(model, tokens) || p.title || 'prompt';
+    nextCustomTpls.push({ id: templateId, name: p.title, body, defaults: {}, kind: 'image', model, tokens: [...tokens] });
     return { ...p, kind: 'llm', templateId, params: {} };
   });
 
@@ -84,6 +117,18 @@ export function listSlots(body: string): string[] {
  */
 export function fillBody(body: string, values: Record<string, string>): string {
   return body.replace(slotRe(), (_m, raw: string) => values[cleanSlot(raw)] ?? '');
+}
+
+/**
+ * UX-02: a slot alone on a body line (code, query) or with a multiline
+ * default takes a textarea; inline slots stay one-line inputs.
+ */
+export function isBlockSlot(body: string, slot: string, def = ''): boolean {
+  if (def.includes('\n')) return true;
+  return body.split('\n').some((line) => {
+    const m = /^\s*\{\{\s*([^{}]+?)\s*\}\}\s*$/.exec(line);
+    return !!m && cleanSlot(m[1]) === slot;
+  });
 }
 
 /** Slots with no non-blank value — the card warns about these. */

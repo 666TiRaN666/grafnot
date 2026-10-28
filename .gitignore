@@ -4,3 +4,8 @@ dist/
 *.log
 .DS_Store
 Thumbs.db
+# T2b: audit run artifact (date-dependent bytes, see scripts/audit-targets.cjs)
+docs/ux-audit-raw.json
+# Vendored third-party agent skills (no license files); reinstall from skills-lock.json
+.agents/
+.opencode/

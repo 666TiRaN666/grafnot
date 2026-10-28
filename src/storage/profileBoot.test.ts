@@ -10,7 +10,7 @@ import {
   shouldPersist,
   verifyStoredMatches,
 } from "./profileBoot";
-import { loadStore, saveStore } from "../store";
+import { SCHEMA_VERSION, loadStore, saveStore } from "../store";
 
 function fakeWindow(backing: Record<string, string> = {}) {
   const m = new Map<string, string>(Object.entries(backing));
@@ -35,6 +35,40 @@ afterEach(() => {
 const legacyNote = { id: "n1", title: "Old", content: "", text: "hello", linkedIds: [], calcs: [], updated: 5 };
 
 describe("profileBoot", () => {
+  it("keeps the existing registry intact after a transient read failure and recovers on retry", () => {
+    const original = JSON.stringify({ profiles: [{ id: "p1", name: "One", created: 1 }, { id: "p2", name: "Two", created: 2 }], activeId: "p2" });
+    const { map, localStorage } = fakeWindow({ "grafnot-profiles-v1": original, "grafnot-store-p1": "first", "grafnot-store-p2": "second" });
+    const get = localStorage.getItem;
+    let denied = true;
+    localStorage.getItem = (key) => {
+      if (key === "grafnot-profiles-v1" && denied) throw new Error("temporary registry read failure");
+      return get(key);
+    };
+    const failed = ensureRegistryCached();
+    expect(map.get("grafnot-profiles-v1")).toBe(original);
+    expect(failed.registryFailed).toBe(true);
+    expect(failed).toHaveProperty("registryReadFailed", true);
+    expect(failed.registry.profiles).toEqual([]);
+    expect([...map.keys()].sort()).toEqual(["grafnot-profiles-v1", "grafnot-store-p1", "grafnot-store-p2"]);
+    denied = false;
+    expect(ensureRegistryCached()).toBe(failed);
+    resetRegistryCache();
+    const recovered = ensureRegistryCached();
+    expect(recovered.registry).toEqual(JSON.parse(original));
+    expect(recovered.registryFailed).not.toBe(true);
+    expect(map.get("grafnot-profiles-v1")).toBe(original);
+  });
+  it("does not start legacy migration when the registry cannot be read", () => {
+    const raw = JSON.stringify({ notes: [legacyNote], tasks: [], activeId: "n1" });
+    const { map, localStorage } = fakeWindow({ "grafnot-store-v2": raw, "grafnot-theme": "dark" });
+    const get = localStorage.getItem;
+    localStorage.getItem = (key) => {
+      if (key === "grafnot-profiles-v1") throw new Error("read denied");
+      return get(key);
+    };
+    expect(ensureRegistryCached().registryFailed).toBe(true);
+    expect([...map.entries()]).toEqual([["grafnot-store-v2", raw], ["grafnot-theme", "dark"]]);
+  });
   it("boots once: a repeated initializer run duplicates nothing", () => {
     const { map, localStorage } = fakeWindow({
       "grafnot-store-v2": JSON.stringify({ notes: [legacyNote], tasks: [], activeId: "n1" }),
@@ -183,6 +217,60 @@ describe("loadProfileStore", () => {
       expect(r.droppedItems).toBe(0);
     }
   });
+  it("preserves unknown fields through profile load, edit, save and reload", () => {
+    const extra = { extensionData: { nested: [null, false, { text: "keep" }] }, emptyExtension: null };
+    const storage = objStorage({ "grafnot-store-p1": JSON.stringify({ ...JSON.parse(good()), ...extra }) });
+    const loaded = loadProfileStore("p1", storage);
+    expect(loaded).toHaveProperty("rest", extra);
+    if (loaded.kind !== "ok") throw new Error("profile did not load");
+    expect(saveStore({ ...loaded.store, tasks: [{ id: "new-task", text: "Edited", done: false }] }, "p1", storage, { rest: loaded.rest })).toBe(true);
+    const reloaded = loadProfileStore("p1", storage);
+    expect(reloaded).toHaveProperty("rest", extra);
+    if (reloaded.kind !== "ok") throw new Error("profile did not reload");
+    expect(reloaded.store.tasks[0].text).toBe("Edited");
+  });
+  it("keeps unknown fields isolated between profiles and absent stores", () => {
+    const storage = objStorage({
+      "grafnot-store-p1": JSON.stringify({ ...JSON.parse(good()), extensionData: { owner: "one" } }),
+      "grafnot-store-p2": JSON.stringify({ ...JSON.parse(good()), otherExtension: [2] }),
+    });
+    expect(loadProfileStore("p1", storage)).toHaveProperty("rest", { extensionData: { owner: "one" } });
+    expect(loadProfileStore("p2", storage)).toHaveProperty("rest", { otherExtension: [2] });
+    expect(loadProfileStore("new", storage)).toHaveProperty("rest", {});
+  });
+  it("blocks read failures without inventing raw data or writing", () => {
+    let writes = 0;
+    const storage = {
+      getItem: () => { throw new Error("read denied"); },
+      setItem: () => { writes += 1; },
+      removeItem: () => { writes += 1; },
+    };
+    const result = loadProfileStore("p1", storage);
+    expect(result).toEqual({ kind: "blocked", reason: "unavailable", backupKey: null });
+    expect(shouldPersist(true, result.kind === "blocked", true)).toBe(false);
+    expect(writes).toBe(0);
+  });
+  it("blocks when accessing localStorage itself throws", () => {
+    globalThis.window = Object.defineProperty({}, "localStorage", {
+      get: () => { throw new Error("SecurityError"); },
+    }) as Window & typeof globalThis;
+    expect(loadProfileStore("p1")).toEqual({ kind: "blocked", reason: "unavailable", backupKey: null });
+  });
+  it("retries a failed read and recovers the original data without writing", () => {
+    const raw = good();
+    const storage = objStorage({ "grafnot-store-p1": raw });
+    const get = storage.getItem;
+    let denied = true;
+    storage.getItem = (key) => {
+      if (denied) throw new Error("read denied");
+      return get(key);
+    };
+    expect(loadProfileStore("p1", storage).kind).toBe("blocked");
+    denied = false;
+    expect(loadProfileStore("p1", storage).kind).toBe("ok");
+    expect(storage.getItem("grafnot-store-p1")).toBe(raw);
+    expect(Object.keys(storage).filter((key) => key.includes(":corrupt-"))).toEqual([]);
+  });
   it("blocks corrupt payloads, backs them up, keeps raw", () => {
     const raw = '{"notes": [broken';
     const s = objStorage({ "grafnot-store-p1": raw });
@@ -197,7 +285,7 @@ describe("loadProfileStore", () => {
     }
   });
   it("blocks future payloads", () => {
-    const raw = JSON.stringify({ schemaVersion: 6, notes: [], tasks: [], activeId: "" });
+    const raw = JSON.stringify({ schemaVersion: 7, notes: [], tasks: [], activeId: "" });
     const s = objStorage({ "grafnot-store-p1": raw });
     const r = loadProfileStore("p1", s);
     expect(r.kind).toBe("blocked");
@@ -224,6 +312,7 @@ describe("loadProfileStore", () => {
     expect(loadProfileStore("p1", objStorage())).toEqual({
       kind: "ok",
       store: freshStore(),
+      rest: {},
       droppedLinks: 0,
       droppedItems: 0,
     });
@@ -271,7 +360,7 @@ describe("legacy adoption under quota and damage (STAGE_09, red first)", () => {
     expect([...m.keys()].filter((k) => k.startsWith("grafnot-store-"))).toEqual(storesBefore);
   });
   it("waits for an explicit choice when legacy is unreadable", () => {
-    for (const raw of ["{oops", JSON.stringify({ schemaVersion: 6, notes: [], tasks: [], activeId: "" })]) {
+    for (const raw of ["{oops", JSON.stringify({ schemaVersion: 7, notes: [], tasks: [], activeId: "" })]) {
       const { map } = fakeWindow({ "grafnot-store-v2": raw });
       resetRegistryCache();
       const r = ensureRegistryCached();
@@ -289,13 +378,112 @@ describe("legacy adoption under quota and damage (STAGE_09, red first)", () => {
     expect(r.adoption).toBe("done");
     expect(r.registry.profiles).toHaveLength(1);
   });
+  it("keeps legacy and prefs when only registry writes fail, reuses the verified copy on retry", () => {
+    const raw = JSON.stringify({ notes: [legacyNote], tasks: [], activeId: "n1" });
+    const storage = objStorage({ "grafnot-store-v2": raw, "grafnot-theme": "dark", "grafnot-lang": "EN" });
+    globalThis.window = { localStorage: storage } as Window & typeof globalThis;
+    const set = storage.setItem;
+    let denied = true;
+    storage.setItem = (key, value) => {
+      if (key === "grafnot-profiles-v1" && denied) throw new Error("registry quota");
+      set(key, value);
+    };
+    const first = ensureRegistryCached();
+    expect(first.registry.profiles).toHaveLength(0);
+    expect(first.adoption).not.toBe("done");
+    expect(storage.getItem("grafnot-store-v2")).toBe(raw);
+    expect(storage.getItem("grafnot-theme")).toBe("dark");
+    expect(storage.getItem("grafnot-lang")).toBe("EN");
+    const copies = () => Object.keys(storage).filter((key) => key.startsWith("grafnot-store-") && key !== "grafnot-store-v2");
+    const initialCopies = copies();
+    expect(initialCopies).toHaveLength(1);
+    resetRegistryCache();
+    expect(ensureRegistryCached().registry.profiles).toHaveLength(0);
+    expect(copies()).toEqual(initialCopies);
+    denied = false;
+    resetRegistryCache();
+    const final = ensureRegistryCached();
+    expect(final.adoption).toBe("done");
+    expect(final.registry.profiles).toHaveLength(1);
+    expect("grafnot-store-" + final.registry.activeId).toBe(initialCopies[0]);
+    expect(copies()).toEqual(initialCopies);
+    expect(storage.getItem("grafnot-store-v2")).toBeNull();
+    expect(storage.getItem("grafnot-theme:" + final.registry.activeId)).toBe("dark");
+    expect(storage.getItem("grafnot-lang:" + final.registry.activeId)).toBe("EN");
+    expect(storage.getItem("grafnot-theme")).toBeNull();
+    expect(storage.getItem("grafnot-adoption-pending-v1")).toBeNull();
+    expect(JSON.parse(storage.getItem(initialCopies[0])!).notes[0].id).toBe("n1");
+  });
+  it("blocks an empty first launch on registry failure and preserves bare prefs", () => {
+    const storage = objStorage({ "grafnot-theme": "dark" });
+    globalThis.window = { localStorage: storage } as Window & typeof globalThis;
+    const set = storage.setItem;
+    storage.setItem = (key, value) => {
+      if (key === "grafnot-profiles-v1") throw new Error("registry quota");
+      set(key, value);
+    };
+    expect(ensureRegistryCached().registry.profiles).toHaveLength(0);
+    expect(storage.getItem("grafnot-theme")).toBe("dark");
+    expect(Object.keys(storage).filter((key) => key.startsWith("grafnot-theme:"))).toEqual([]);
+    storage.setItem = set;
+    resetRegistryCache();
+    const final = ensureRegistryCached();
+    expect(final.registry.profiles).toHaveLength(1);
+    expect(storage.getItem("grafnot-theme:" + final.registry.activeId)).toBe("dark");
+  });
+  it("blocks failed registry recovery and retries without changing profile stores", () => {
+    const raw = JSON.stringify({ notes: [legacyNote], tasks: [], activeId: "n1" });
+    const storage = objStorage({ "grafnot-profiles-v1": "{broken", "grafnot-store-old": raw });
+    globalThis.window = { localStorage: storage } as Window & typeof globalThis;
+    const set = storage.setItem;
+    storage.setItem = (key, value) => {
+      if (key === "grafnot-profiles-v1") throw new Error("registry quota");
+      set(key, value);
+    };
+    const failed = ensureRegistryCached();
+    expect(failed.registry.profiles).toHaveLength(0);
+    expect(failed.recovered).toBe(false);
+    expect(storage.getItem("grafnot-profiles-v1")).toBe("{broken");
+    expect(storage.getItem("grafnot-store-old")).toBe(raw);
+    storage.setItem = set;
+    resetRegistryCache();
+    const final = ensureRegistryCached();
+    expect(final.recovered).toBe(true);
+    expect(final.registry.profiles.map((profile) => profile.id)).toEqual(["old"]);
+    expect(storage.getItem("grafnot-store-old")).toBe(raw);
+  });
+  it("does not remove legacy data after a silent registry short write", () => {
+    const raw = JSON.stringify({ notes: [legacyNote], tasks: [], activeId: "n1" });
+    const storage = objStorage({ "grafnot-store-v2": raw });
+    globalThis.window = { localStorage: storage } as Window & typeof globalThis;
+    const set = storage.setItem;
+    storage.setItem = (key, value) => set(key, key === "grafnot-profiles-v1" ? "{}" : value);
+    expect(ensureRegistryCached().adoption).not.toBe("done");
+    expect(storage.getItem("grafnot-store-v2")).toBe(raw);
+  });
+  it.each(["throw", "short-write"])("keeps legacy when the pending destination cannot be saved: %s", (mode) => {
+    const raw = JSON.stringify({ notes: [legacyNote], tasks: [], activeId: "n1" });
+    const storage = objStorage({ "grafnot-store-v2": raw });
+    globalThis.window = { localStorage: storage } as Window & typeof globalThis;
+    const set = storage.setItem;
+    storage.setItem = (key, value) => {
+      if (key === "grafnot-adoption-pending-v1") {
+        if (mode === "throw") throw new Error("quota");
+        set(key, "{}");
+      } else set(key, value);
+    };
+    expect(ensureRegistryCached().adoption).toBe("failed");
+    expect(storage.getItem("grafnot-store-v2")).toBe(raw);
+    expect(storage.getItem("grafnot-profiles-v1")).toBeNull();
+    expect(Object.keys(storage).filter((key) => key.startsWith("grafnot-store-"))).toEqual(["grafnot-store-v2"]);
+  });
   it("verifyStoredMatches compares canonical content", () => {
     const s = objStorage();
     const store = { ...freshStore(), notes: [legacyNote] };
     saveStore(store, "p1", s);
-    expect(verifyStoredMatches(s, "p1", { ...store, schemaVersion: 5 })).toBe(true);
-    s.setItem("grafnot-store-p1", JSON.stringify({ ...store, notes: [], schemaVersion: 5 }));
-    expect(verifyStoredMatches(s, "p1", { ...store, schemaVersion: 5 })).toBe(false);
-    expect(verifyStoredMatches(s, "nope", { ...store, schemaVersion: 5 })).toBe(false);
+    expect(verifyStoredMatches(s, "p1", { ...store, schemaVersion: SCHEMA_VERSION })).toBe(true);
+    s.setItem("grafnot-store-p1", JSON.stringify({ ...store, notes: [], schemaVersion: SCHEMA_VERSION }));
+    expect(verifyStoredMatches(s, "p1", { ...store, schemaVersion: SCHEMA_VERSION })).toBe(false);
+    expect(verifyStoredMatches(s, "nope", { ...store, schemaVersion: SCHEMA_VERSION })).toBe(false);
   });
 });

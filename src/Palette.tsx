@@ -45,6 +45,7 @@ export function Palette({
         <input
           className="s-pal-in"
           data-testid="palette-input"
+          autoComplete="off"
           autoFocus
           value={q}
           onChange={(e) => {

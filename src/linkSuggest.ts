@@ -13,7 +13,7 @@ export function matchLinkCandidate(n: Pick<Note, "id" | "title"> & { text?: stri
  * Null when there is no open pair (closed `]]`, newline or nested `[` reset it).
  */
 export function parseBracketQuery(before: string): string | null {
-  const m = /\[\[([^\[\]\n]*)$/.exec(before);
+  const m = /\[\[([^[\]\n]*)$/.exec(before);
   return m ? (m[1] ?? "") : null;
 }
 

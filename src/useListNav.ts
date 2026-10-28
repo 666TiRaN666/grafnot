@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { clampActive, moveActive } from "./promptUtils";
 
 /** Shared ArrowUp and ArrowDown plus Enter pattern for dropdowns and thumbnail lists. Replaces duplicated handlers in Ctrl K search, tag dropdown and template list. Focus stays in the input, active row highlights, Enter picks. */
 export function useListNav(len: number, onPick?: (i: number) => void) {
   const [active, setActive] = useState(0);
-  useEffect(() => {
-    setActive((a) => clampActive(a, len));
-  }, [len]);
+  // Clamp at render, not in an effect: every consumer (highlight, Enter pick,
+  // hover set) already works on clamped values, so no extra render pass is
+  // needed when the list shrinks. Stored state may lag one render behind,
+  // but all stable states are identical to the effect version.
+  const shown = clampActive(active, len);
   const reset = useCallback(() => setActive(0), []);
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -19,11 +21,11 @@ export function useListNav(len: number, onPick?: (i: number) => void) {
       } else if (e.key === "Enter") {
         if (len > 0) {
           e.preventDefault();
-          onPick?.(clampActive(active, len));
+          onPick?.(shown);
         }
       }
     },
-    [len, active, onPick],
+    [len, shown, onPick],
   );
-  return { active, setActive, reset, onKeyDown };
+  return { active: shown, setActive, reset, onKeyDown };
 }

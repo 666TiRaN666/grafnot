@@ -18,9 +18,9 @@ export function parseRoute(hash: string): Route {
   if (head === 'notes') return segs[1] ? { section: 'notes', param: segs[1] } : { section: 'notes' };
   if (head === 'plan') {
     const view = segs[1];
-    return view !== undefined && PLAN_VIEWS.has(view)
-      ? { section: 'plan', param: view }
-      : { section: 'notes' };
+    if (view === undefined || !PLAN_VIEWS.has(view)) return { section: 'notes' };
+    // UX-01: the list nests an open task (list/<taskId>); task ids never contain '/'.
+    return view === 'list' && segs[2] ? { section: 'plan', param: `list/${segs[2]}` } : { section: 'plan', param: view };
   }
   if (head === 'map') return segs[1] ? { section: 'map', param: segs[1] } : { section: 'map' };
   // S9: prompts nests one level (edit/<id>); item ids never contain '/'.
@@ -37,8 +37,10 @@ export function buildRoute(route: Route): string {
     : `#/${route.section}`;
 }
 
-export function navigate(route: Route): void {
-  window.location.hash = buildRoute(route);
+/** `replace` swaps the history entry (still fires hashchange). */
+export function navigate(route: Route, opts?: { replace?: boolean }): void {
+  if (opts?.replace) window.location.replace(buildRoute(route));
+  else window.location.hash = buildRoute(route);
 }
 
 /** Reactive hash route. Deliberately NOT subscribed anywhere yet (S1). */

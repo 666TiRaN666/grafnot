@@ -1,0 +1,203 @@
+{
+  "session": "2026-10-28/2026-10-29 Asia/Qyzylorda",
+  "sourceReportSha256": "B6C12F59C5A21F596188DB532BC873B7233A026A84D4F44294505E056E72BD75",
+  "unit": {
+    "isolatedCopy": true,
+    "files": 34,
+    "total": 300,
+    "passed": 300,
+    "failed": 0,
+    "command": "node vitest.mjs run --reporter=json --outputFile=<TEMP>/grafnot-redteam-vitest.json",
+    "filesAndCounts": [
+      {
+        "file": "weight-guard.test.js",
+        "tests": 6
+      },
+      {
+        "file": "activeId.test.ts",
+        "tests": 3
+      },
+      {
+        "file": "builderModel.test.ts",
+        "tests": 4
+      },
+      {
+        "file": "clipboard.test.ts",
+        "tests": 3
+      },
+      {
+        "file": "graphLayout.test.ts",
+        "tests": 5
+      },
+      {
+        "file": "imageTags.test.ts",
+        "tests": 5
+      },
+      {
+        "file": "linkSuggest.test.ts",
+        "tests": 8
+      },
+      {
+        "file": "listPrefs.test.ts",
+        "tests": 11
+      },
+      {
+        "file": "mapCamera.test.ts",
+        "tests": 4
+      },
+      {
+        "file": "mobileNav.test.ts",
+        "tests": 1
+      },
+      {
+        "file": "paletteModel.test.ts",
+        "tests": 7
+      },
+      {
+        "file": "prefs.test.ts",
+        "tests": 8
+      },
+      {
+        "file": "profiles.test.ts",
+        "tests": 32
+      },
+      {
+        "file": "promptData.test.ts",
+        "tests": 4
+      },
+      {
+        "file": "promptLibrary.test.ts",
+        "tests": 4
+      },
+      {
+        "file": "promptSearch.test.ts",
+        "tests": 5
+      },
+      {
+        "file": "promptUtils.test.ts",
+        "tests": 16
+      },
+      {
+        "file": "settings.test.ts",
+        "tests": 2
+      },
+      {
+        "file": "shortcuts.test.ts",
+        "tests": 2
+      },
+      {
+        "file": "snippetTerms.test.ts",
+        "tests": 2
+      },
+      {
+        "file": "store.test.ts",
+        "tests": 41
+      },
+      {
+        "file": "syncWording.test.ts",
+        "tests": 3
+      },
+      {
+        "file": "taskGroups.test.ts",
+        "tests": 16
+      },
+      {
+        "file": "toast.test.ts",
+        "tests": 5
+      },
+      {
+        "file": "tplFilter.test.ts",
+        "tests": 13
+      },
+      {
+        "file": "useArmConfirm.test.ts",
+        "tests": 10
+      },
+      {
+        "file": "useListState.test.ts",
+        "tests": 4
+      },
+      {
+        "file": "weekCal.test.ts",
+        "tests": 3
+      },
+      {
+        "file": "workbenchModel.test.ts",
+        "tests": 2
+      },
+      {
+        "file": "placement.test.ts",
+        "tests": 4
+      },
+      {
+        "file": "router.test.ts",
+        "tests": 6
+      },
+      {
+        "file": "useUndo.test.ts",
+        "tests": 3
+      },
+      {
+        "file": "profileBoot.test.ts",
+        "tests": 55
+      },
+      {
+        "file": "newId.test.ts",
+        "tests": 3
+      }
+    ]
+  },
+  "diagnostics": {
+    "malformedNote": {
+      "loadStatus": "ok",
+      "textType": "number",
+      "renderError": "result.store.notes[0].text.trim is not a function",
+      "droppedItems": 0
+    },
+    "emptyString": {
+      "status": "absent"
+    },
+    "trashedGraphMembershipAfterMigration": [],
+    "matrixFailureInjection": {
+      "childStatus": 1,
+      "reportedExit": 0,
+      "lastLine": "MATRIX: all green",
+      "sample": "2026-10-12  GREEN  ?"
+    }
+  },
+  "browser": {
+    "origin": "http://127.0.0.1:59177",
+    "syntheticDataOnly": true,
+    "routeEdit": "Alpha -> Beta -> Back -> typing replaced Beta body with Alpha text",
+    "undoLink": "unlink Beta->Alpha -> open Alpha -> Undo created Alpha->Alpha",
+    "undoProfile": "delete graph in A -> enter empty B -> Undo -> graph from A appeared in B",
+    "week": {
+      "viewport": 1366,
+      "documentScrollWidth": 1591,
+      "planWeekScrollWidth": 1314,
+      "planWeekClientWidth": 1042
+    },
+    "mobile": {
+      "viewport": 390,
+      "statusDisplay": "none",
+      "statusWidth": 0,
+      "statusHeight": 0
+    }
+  },
+  "fullE2ERun": false,
+  "fullGatesRun": false,
+  "cleanup": {
+    "previewStopped": true,
+    "ports5199and59177Free": true,
+    "browserTabClosed": true,
+    "viewportReset": true,
+    "tempScriptsAndLogsRemoved": true,
+    "dependencyJunctionRemoved": true,
+    "projectDependenciesPreserved": true,
+    "tempDirectoriesRetained": [
+      "C:/Users/ushuz/AppData/Local/Temp/opencode/grafnot-redteam-testcopy",
+      "C:/Users/ushuz/AppData/Local/Temp/opencode/grafnot-redteam-dist"
+    ],
+    "reason": "Automatic approval review rejected recursive cleanup; no bypass attempted"
+  }
+}

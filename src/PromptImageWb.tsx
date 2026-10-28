@@ -7,7 +7,7 @@ import type { Note } from "./store";
 import { Hi, copyText } from "./widgets";
 import { prefKeyFor } from "./prefs";
 import { renderPrompt } from "./promptUtils";
-import { applyWeight, filterTags, moveTag, parseTagInput, stripWeight, tagWeight } from "./imageTags";
+import { filterTags, formatWeight, moveTag, parseTagInput, stripWeight, tagWeight } from "./imageTags";
 import { useListNav } from "./useListNav";
 import { NoteAttach } from "./NoteAttach";
 
@@ -33,6 +33,8 @@ function loadRecent(profileId: string): string[] {
 export function PromptImageWb({
   lang,
   tplName,
+  initModel,
+  initTokens,
   mine,
   notes,
   onSaveTpl,
@@ -44,17 +46,27 @@ export function PromptImageWb({
 }: {
   lang: Lang;
   tplName: string;
+  /** UX-03: the template's constructor state (stored or parsed, see imageInit). */
+  initModel: AIModel;
+  initTokens: string[];
   mine: boolean;
   notes: Note[];
-  onSaveTpl: (d: { name: string; body: string; defaults: Record<string, string>; kind: "image" }) => void;
+  onSaveTpl: (d: {
+    name: string;
+    body: string;
+    defaults: Record<string, string>;
+    kind: "image";
+    model: AIModel;
+    tokens: string[];
+  }) => void;
   onAppendNote: (noteId: string, text: string) => void;
   onOpenNote: (id: string) => void;
   notify: (msg: string) => void;
   notifyAction: (text: string, actionLabel: string, fn: () => void) => void;
   profileId: string;
 }) {
-  const [model, setModel] = useState<AIModel>("Pony");
-  const [tokens, setTokens] = useState<string[]>([]);
+  const [model, setModel] = useState<AIModel>(initModel);
+  const [tokens, setTokens] = useState<string[]>(initTokens);
   const [input, setInput] = useState("");
   const [menuIdx, setMenuIdx] = useState<number | null>(null);
   const [binding, setBinding] = useState<string | undefined>(undefined);
@@ -326,21 +338,22 @@ export function PromptImageWb({
                 </button>
                 {menuIdx === i && (
                   <span className="t-menu" role="menu">
-                    {(["low", "normal", "high"] as const).map((w) => (
-                      <button
-                        key={w}
-                        type="button"
-                        role="menuitemradio"
-                        aria-checked={tagWeight(t) === w}
-                        className="t-menuitem"
-                        onClick={() => {
-                          setTokens((p) => p.map((x, j) => (j === i ? applyWeight(x, w) : x)));
-                          setMenuIdx(null);
-                        }}
-                      >
-                        {w === "low" ? tr("tagWLow", lang) : w === "high" ? tr("tagWHigh", lang) : tr("tagWNrm", lang)}
-                      </button>
-                    ))}
+                    {model !== "Flux" &&
+                      ((["low", "normal", "high"] as const).map((w) => (
+                        <button
+                          key={w}
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={tagWeight(t) === w}
+                          className="t-menuitem"
+                          onClick={() => {
+                            setTokens((p) => p.map((x, j) => (j === i ? formatWeight(model, x, w) : x)));
+                            setMenuIdx(null);
+                          }}
+                        >
+                          {w === "low" ? tr("tagWLow", lang) : w === "high" ? tr("tagWHigh", lang) : tr("tagWNrm", lang)}
+                        </button>
+                      )))}
                     <button
                       type="button"
                       role="menuitem"
@@ -381,7 +394,7 @@ export function PromptImageWb({
               type="button"
               className="g-btn sm"
               onClick={() =>
-                onSaveTpl({ name: saveName, body: result, defaults: {}, kind: "image" })
+                onSaveTpl({ name: saveName, body: result, defaults: {}, kind: "image", model, tokens: [...tokens] })
               }
             >
               {tr("saveAsTpl", lang)}
