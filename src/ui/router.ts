@@ -43,6 +43,20 @@ export function navigate(route: Route, opts?: { replace?: boolean }): void {
   else window.location.hash = buildRoute(route);
 }
 
+// Back/Forward vs a new navigation (§7.12: a traversal restores the note's
+// temporary panel). Only the Navigation API tells them apart (Chromium);
+// elsewhere every change counts as a new navigation.
+let traversing = false;
+if (typeof window !== 'undefined') {
+  const nav: unknown = Reflect.get(window, 'navigation');
+  if (nav instanceof EventTarget) {
+    nav.addEventListener('navigate', (e) => {
+      traversing = Reflect.get(e, 'navigationType') === 'traverse';
+    });
+  }
+}
+export const lastNavigationWasTraversal = (): boolean => traversing;
+
 /** Reactive hash route. Deliberately NOT subscribed anywhere yet (S1). */
 export function useRoute(): Route {
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.hash));

@@ -44,6 +44,9 @@ export interface BootResult {
   adoption: AdoptionStatus;
   registryFailed?: boolean;
   registryReadFailed?: boolean;
+  /** W13: a healthy registry whose stored activeId names one of its
+   * profiles; only then does startup reopen it without the picker. */
+  lastProfileKnown?: boolean;
 }
 
 /** Canonical form for write verification: key order must not matter, our own
@@ -126,7 +129,7 @@ export function ensureRegistry(): BootResult {
   const res = loadProfilesResult();
   if (res.status === 'unavailable') return { ...registryFailure(), registryReadFailed: true };
   if (res.status === 'ok' && res.registry.profiles.length > 0) {
-    return { registry: res.registry, droppedLinks: 0, recovered: false, adoption: 'none' };
+    return { registry: res.registry, droppedLinks: 0, recovered: false, adoption: 'none', lastProfileKnown: res.activeFallback !== true };
   }
   let lang: Lang = 'RU';
   try {

@@ -8,6 +8,7 @@ import { buildTplEntries, fillBody, listSlots, promptPreview, imageInit } from '
 import { requiredSlots } from './workbenchModel';
 import { copyText } from './widgets';
 import { useListNav } from './useListNav';
+import { useSheetSwipe } from './ui/useSheetSwipe';
 
 export interface PromptChoice { title: string; text: string; templateId?: string; params?: Record<string, string>; source?: PromptSave; kind?: PromptSave['kind']; model?: PromptSave['model']; tokens?: string[] }
 export function PromptInsert({ lang, templates, saves, valid, onInsert, onClose, onDraft }: {
@@ -21,6 +22,7 @@ export function PromptInsert({ lang, templates, saves, valid, onInsert, onClose,
   const [bind, setBind] = useState(false);
   const [shown, setShown] = useState(50);
   const first = useRef<HTMLInputElement>(null);
+  const swipe = useSheetSwipe(onClose);
   const pool = useMemo(() => [
     ...buildTplEntries(LLM_TEMPLATES, templates).map(e => ({ id: e.tpl.id, title: e.tpl.name, body: e.tpl.body, defaults: e.tpl.defaults, templateId: e.tpl.id, source: undefined as PromptSave | undefined, kind: e.kind, image: e.kind === 'image' ? imageInit(e.tpl) : undefined })),
     ...saves.map(p => ({ id: 'save-' + p.id, title: p.title, body: promptPreview(p, templates), defaults: {} as Record<string, string>, templateId: undefined, source: p, kind: p.kind, image: p.kind === 'image' ? { model: p.model, tokens: p.tokens } : undefined })),
@@ -33,7 +35,8 @@ export function PromptInsert({ lang, templates, saves, valid, onInsert, onClose,
   useEffect(() => { onDraft(text); }, [text, onDraft]);
   const pick = (i: number) => { const e = hits[i]; if (e) { setSelected(e.id); setValues({ ...e.defaults }); } };
   const nav = useListNav(Math.min(shown, hits.length), pick);
-  return <aside role="dialog" aria-label={tr('insertPrompt', lang)} className="prompt-insert" data-testid="prompt-insert" onKeyDown={e => { if (e.key === "Escape" && !e.nativeEvent.isComposing) { e.preventDefault(); e.stopPropagation(); onClose(); } }}>
+  return <aside role="dialog" aria-label={tr('insertPrompt', lang)} className="prompt-insert" data-testid="prompt-insert" data-sheet="" onKeyDown={e => { if (e.key === "Escape" && !e.nativeEvent.isComposing) { e.preventDefault(); e.stopPropagation(); onClose(); } }}>
+    <div className="sheet-grip" aria-hidden="true" {...swipe} />
     <div className="ctx-heading"><strong>{tr('insertPrompt', lang)}</strong><button type="button" className="g-modal-x" aria-label={tr('closeBtn', lang)} onClick={onClose}>×</button></div>
     {!valid && <p role="status" className="g-status-bad">{tr('promptInsertInvalid', lang)}</p>}
     <label className="prompt-field">{tr('search_ph', lang)}<input ref={first} autoFocus className="g-in" data-testid="prompt-insert-search" value={query} onKeyDown={nav.onKeyDown} onChange={e => { setQuery(e.target.value); setSelected(null); setShown(50); nav.reset(); }} /></label>

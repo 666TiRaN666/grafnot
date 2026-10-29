@@ -153,6 +153,40 @@ module.exports = async function(t) {
     await page.waitForFunction(() => JSON.parse(localStorage.getItem('grafnot-store-p1')).notes.find(n => n.id === 'a').text.endsWith('line 79Z'));
   });
 
+  await check('W9 Back to a note brings its temporary panel back', async () => {
+    await reseed(page, seed());
+    await page.goto(t.URL + '#/notes/a', { waitUntil: 'networkidle' });
+    await page.getByTestId('ctx-all-links').click();
+    await page.getByTestId('ctx-panel').getByRole('button', { name: 'Beta', exact: true }).click();
+    await page.waitForFunction(() => location.hash === '#/notes/b');
+    assert(await page.getByTestId('ctx-panel').count() === 0, 'opening a linked note kept the temporary panel');
+    await page.goBack();
+    await page.waitForFunction(() => location.hash === '#/notes/a');
+    await page.getByTestId('ctx-panel').waitFor();
+  });
+
+  await check('W7 a phone sheet closes by pulling its grip down', async () => {
+    const ctx = await t.browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true, storageState: t.storageStateFor(seed()) });
+    const pg = await ctx.newPage();
+    try {
+      await pg.goto(t.URL + '#/notes/a', { waitUntil: 'networkidle' });
+      await pg.getByTestId('ctx-all-links').click();
+      const grip = await pg.getByTestId('sheet-grip').boundingBox();
+      assert(grip && grip.height >= 20, 'sheet grip missing on the phone');
+      const x = grip.x + grip.width / 2, y = grip.y + grip.height / 2;
+      await pg.mouse.move(x, y);
+      await pg.mouse.down();
+      await pg.mouse.move(x, y + 40, { steps: 4 });
+      await pg.mouse.up();
+      assert(await pg.getByTestId('ctx-panel').count() === 1, 'a short pull closed the sheet');
+      await pg.mouse.move(x, y);
+      await pg.mouse.down();
+      await pg.mouse.move(x, y + 160, { steps: 8 });
+      await pg.mouse.up();
+      await pg.getByTestId('ctx-panel').waitFor({ state: 'detached' });
+    } finally { await ctx.close(); }
+  });
+
   await check('W8 palette opens a note with the caret at the first match', async () => {
     await reseed(page, seedProfiles({
       profiles: [{ id: 'p1', name: 'Основной', created: 1 }], activeId: 'p1',
@@ -226,13 +260,58 @@ module.exports = async function(t) {
     } finally { await ctx.close(); }
   });
 
+  const twoProfiles = (activeId) => seedProfiles({
+    profiles: [{ id: 'p1', name: 'One', created: 1 }, { id: 'p2', name: 'Two', created: 2 }], activeId,
+    stores: { p1: v5store([seedNote('one', 'One note', { content: '<p>one body</p>', text: 'one body' })], 'one'), p2: v5store([seedNote('two', 'Two note', { content: '<p>two body</p>', text: 'two body' })], 'two') },
+  });
+
+  await check('W13 a healthy registry reopens the last profile; a missing one asks', async () => {
+    await reseed(page, twoProfiles('p2'));
+    await page.getByTestId('note-item').filter({ hasText: 'Two note' }).waitFor();
+    assert(await page.getByTestId('profile-picker').count() === 0, 'picker shown for a known last profile');
+    await reseed(page, twoProfiles('gone'));
+    await page.getByTestId('profile-picker').waitFor();
+    const reg = await page.evaluate(() => JSON.parse(localStorage.getItem('grafnot-profiles-v1')));
+    assert(reg.profiles.length === 2, 'a missing last profile created or dropped profiles');
+  });
+
+  await check('W14 a file restores into a new profile; a damaged file changes nothing', async () => {
+    await reseed(page, seed());
+    const before = await page.evaluate(() => localStorage.getItem('grafnot-store-p1'));
+    await page.goto(t.URL + '#/settings/data', { waitUntil: 'networkidle' });
+    const file = JSON.stringify(v5store([seedNote('x', 'Imported', { content: '<p>imported body</p>', text: 'imported body', linkedIds: ['ghost'] })], 'x'));
+    await page.getByTestId('import-file').setInputFiles({ name: 'Курс.json', mimeType: 'application/json', buffer: Buffer.from(file) });
+    await page.getByTestId('note-item').filter({ hasText: 'Imported' }).waitFor();
+    const s = await page.evaluate(() => {
+      const reg = JSON.parse(localStorage.getItem('grafnot-profiles-v1'));
+      return { reg, p1: localStorage.getItem('grafnot-store-p1'), copy: JSON.parse(localStorage.getItem('grafnot-store-' + reg.activeId)) };
+    });
+    assert(s.reg.profiles.length === 2 && s.reg.activeId !== 'p1', 'restore did not open a new profile');
+    assert(s.reg.profiles.some(p => p.name === 'Курс'), 'new profile not named after the file');
+    assert(s.p1 === before, 'restore touched the current profile');
+    assert(s.copy.notes[0].text === 'imported body' && s.copy.notes[0].linkedIds.length === 0, 'restored copy differs or kept a dangling link');
+    await page.goto(t.URL + '#/settings/data', { waitUntil: 'networkidle' });
+    const keys = await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('grafnot-store-')).sort().join());
+    await page.getByTestId('import-file').setInputFiles({ name: 'bad.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ notes: [{ id: 'a', title: 'A', linkedIds: [3] }], tasks: [] })) });
+    await page.getByTestId('import-error').waitFor();
+    const after = await page.evaluate(() => ({ n: JSON.parse(localStorage.getItem('grafnot-profiles-v1')).profiles.length, keys: Object.keys(localStorage).filter(k => k.startsWith('grafnot-store-')).sort().join() }));
+    assert(after.n === 2 && after.keys === keys, 'a damaged file changed profiles or stores');
+  });
+
+  await check('W14 current-version export carries what is on screen', async () => {
+    await reseed(page, seed());
+    await body().click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.insertText(' fresh edit');
+    await page.goto(t.URL + '#/settings/data', { waitUntil: 'networkidle' });
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.getByTestId('export-current').click()]);
+    const text = require('fs').readFileSync(await dl.path(), 'utf8');
+    const data = JSON.parse(text);
+    assert(data.notes.find(n => n.id === 'a').text.endsWith('fresh edit'), 'current version export misses the edit');
+  });
+
   await check('W13 profile menu enters the explicitly focused profile', async () => {
-    await reseed(page, seedProfiles({
-      profiles: [{ id: 'p1', name: 'One', created: 1 }, { id: 'p2', name: 'Two', created: 2 }], activeId: 'p1',
-      stores: { p1: v5store([seedNote('one', 'One note', { content: '<p>one body</p>', text: 'one body' })], 'one'), p2: v5store([seedNote('two', 'Two note', { content: '<p>two body</p>', text: 'two body' })], 'two') },
-    }));
-    await page.getByTestId('profile-row-p1').getByRole('button', { name: 'Войти' }).click();
-    await page.getByTestId('profile-picker').waitFor({ state: 'detached' });
+    await reseed(page, twoProfiles('p1'));
     await page.getByTestId('note-list').waitFor();
     await page.getByTestId('profile-menu-open').click();
     await page.getByRole('menuitem', { name: 'Two', exact: true }).focus();

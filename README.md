@@ -12,7 +12,7 @@ npm run build      # tsc + сборка в dist/
 npm test           # unit-тесты (vitest)
 npm run check:weight  # отчёт веса JS-бандла + предохранитель от baseline (лимитов нет)
 npm run preview    # раздача собранного (для ручной проверки и e2e)
-npm run e2e        # 202 e2e-проверки (Playwright, нужен preview :5199)
+npm run e2e        # 207 e2e-проверок (Playwright, нужен preview :5199)
 npm run e2e:matrix   # S5 + список задач под 12 фиксированными датами: сам собирает dist и поднимает свой preview :5199 (не в CI)
 npm run check:i18n  # missing/parity/dead-гейт i18n-ключей (RU/EN/KZ)
 npm run check:i18n:selftest  # мутационный самотест гейта (4 фикстуры)
@@ -21,7 +21,7 @@ npm run gates -- --e2e                     # + сборка, вес, свой pr
 npm run gates -- --groups=G20-plan,G21-week  # + сборка, вес, preview, только эти e2e-группы
 ```
 
-E2E: 202 e2e-проверки на Playwright поверх `vite preview` (вход `e2e/check6.cjs`, обвязка `e2e/harness.cjs`, группы `e2e/groups/<имя>.cjs`; часть групп: `GROUPS=G20-plan,G21-week npm run e2e`)
+E2E: 207 e2e-проверок на Playwright поверх `vite preview` (вход `e2e/check6.cjs`, обвязка `e2e/harness.cjs`, группы `e2e/groups/<имя>.cjs`; часть групп: `GROUPS=G20-plan,G21-week npm run e2e`)
 (пустой старт, редактор, задачи, неделя, связи, вычисления, карта, переименование, панели, промпты, корзина/undo, мобильная навигация, тосты, профили,
 блокировки битого стора, ErrorBoundary, честные статусы сохранения, две вкладки, восстановление реестра, адопция legacy).
 Сьют не зависит от дня недели и часового пояса: даты сидов вида `@today+N`/`@mon+N` раскрываются внутри страницы (зона Asia/Almaty, T2); `npm run e2e:matrix` гоняет S5 и список задач по 12 датам (Пн…Вс, границы месяца/года).
@@ -47,7 +47,7 @@ E2E: 202 e2e-проверки на Playwright поверх `vite preview` (вх�
 - **Календарь** — неделя Пн–Вс + Входящие, навигация и сегодня, попап добавления у ячейки, отдельный чекбокс, drag задач по дням с Undo. На desktop колонки от 150 px прокручиваются внутри недели; на mobile видны все семь дней и повестка выбранного дня.
 - **Карта** — несколько именованных графов + обзор; SVG force-directed layout, drag узлов, пан, зум к курсору, превью, сироты и битые связи. Маршруты графа и выбранной заметки; «На карте» из заметки и возврат восстанавливают её выделение, прокрутку и контекст.
 - **Промпт-помощник** — статический словарь тегов (v1.0.0-sample, 57 тегов, версия и дата в UI), image-промпты сохраняются как редактируемые шаблоны (модель и теги с весами хранятся в шаблоне и восстанавливаются при открытии; у записей до v6 теги разбираются из текста `parseImageBody`, у старых Flux-записей веса уже потеряны — возвращаются только теги; встроенный «Арт: персонаж» открывается со своими тегами), заполненные шаблоны можно привязать к заметкам (многострочный текст вставляется блоком кода дословно), поле слота на отдельной строке тела (`{{код}}`, `{{запрос}}`) — многострочное (`isBlockSlot`: Enter — перенос, Ctrl+Enter — копировать), синтаксис под модель, клавиатурная навигация, варнинг рискованных тегов, свёрнутые миниатюры шаблонов (поиск, чипы, лимит), Ctrl+K находит сохранённые промпты.
-- **Оболочка** — настройки отдельной страницей, меню профиля в навигации desktop и шапке mobile, пять мобильных вкладок. «+» подписан по разделу; режимы: по разделу, всегда заметка, выбор заметки/задачи. При уменьшении visualViewport с активным полем таббар скрывается. Статус сохранения виден на обеих ширинах, mobile-кнопка ведёт к существующим действиям восстановления или настройкам данных. Сохранены баннеры failed/conflict/blocked, экспорт из памяти и raw-восстановление. Экспорт в Настройках явно назван сохранённой копией.
+- **Оболочка** — настройки отдельной страницей, меню профиля в навигации desktop и шапке mobile, пять мобильных вкладок. «+» подписан по разделу; режимы: по разделу, всегда заметка, выбор заметки/задачи. При уменьшении visualViewport с активным полем таббар скрывается. Статус сохранения виден на обеих ширинах, mobile-кнопка ведёт к существующим действиям восстановления или настройкам данных. Сохранены баннеры failed/conflict/blocked, экспорт из памяти и raw-восстановление. Запуск открывает последний профиль, если реестр прочитан и его `activeId` указывает на существующий профиль; иначе — выбор профиля (повреждённый или недоступный реестр по-прежнему даёт баннер). Настройки → Данные: «Скачать текущую версию» (из памяти, с ещё не записанными изменениями), «Скачать сохранённую копию» (из браузера) и «Восстановить из файла» — строгая проверка файла (типы, повторные id, будущая схема), запись в новый профиль, чтение назад и сверка отпечатка; при любой ошибке реестр и текущие данные не меняются. Нижние листы на телефоне закрываются свайпом за ручку; Back/Forward к заметке возвращает её временную панель.
 - **Оболочка «Лист» (W5)** — одна поверхность с разделительными линиями, навигация 224/64 px, иконки 18 px, поиск и статус сохранения в навигации на desktop; на mobile поиск и статус остаются в шапке. На странице по одному `palette-open` и `save-state`. Кнопка «Новая заметка» содержит один «+». Неделя прокручивается внутри своей области, не расширяя страницу.
 - Навигация автоматически свёрнута при ширине <1200 px; явный выбор сохраняется в `grafnot-side-mode:<id>`. Старый `grafnot-side:<id>` не определяет режим. `Alt+0` возвращает автоматическую навигацию и закрывает контекст, `Ctrl+Alt+N` создаёт заметку. Светлая/тёмная темы, RU/EN/KZ.
 
@@ -104,7 +104,9 @@ src/
   ui/navMode.ts   — автоматический и явный режимы навигации (чистые) + тесты
   ui/useMedia.ts  — общий хук медиазапросов для оболочки и недели
   Palette.tsx     — поиск и команды Ctrl+K, группы по четыре + раскрытие порциями по 50
-  paletteModel.ts — filterPalette (чистая) + тесты
+  paletteModel.ts — filterPalette, firstMatchPos (чистые) + тесты
+  importStore.ts  — W14: строгая проверка файла данных и отпечаток для чтения назад (чистые) + тесты
+  ui/useSheetSwipe.ts — W7: закрытие нижнего листа свайпом за ручку
   SettingsPage.tsx — настройки страницей #/settings/<section> (профили, вид, корзина, клавиши, данные)
    settingsNav.ts  — секции настроек (тип, список, заголовки; чистое)
    shortcuts.ts    — единый реестр шорткатов S12 (16 записей с P2; из него Клавиши + G28-матрица)
@@ -134,7 +136,7 @@ src/
   data.ts         — шаблоны {name, body, defaults} + 4 встроенных; SearchItem (+kind=prompt)
    index.css       — обе темы, rail-режимы, адаптив, подсветка совпадений, coarse-цели 44px (S11)
    JourneyMap.md — персона, эмоциональная кривая, этапы и точки роста
-   promptUtils.test.ts, tplFilter.test.ts, store.test.ts, trashRestore.test.ts, graphLayout.test.ts, promptData.test.ts, placement/router/useUndo.test.ts, weight-guard.test.js, paletteModel.test.ts, linkSuggest.test.ts, taskGroups.test.ts, weekCal.test.ts, promptLibrary.test.ts, workbenchModel.test.ts, imageTags.test.ts, builderModel.test.ts, mapCamera.test.ts, navMode.test.ts, noteName.test.ts, rolloutModel.test.ts — 187 тестов ядра
+   promptUtils.test.ts, tplFilter.test.ts, store.test.ts, trashRestore.test.ts, graphLayout.test.ts, promptData.test.ts, placement/router/useUndo.test.ts, weight-guard.test.js, paletteModel.test.ts, linkSuggest.test.ts, taskGroups.test.ts, weekCal.test.ts, promptLibrary.test.ts, workbenchModel.test.ts, imageTags.test.ts, builderModel.test.ts, mapCamera.test.ts, navMode.test.ts, noteName.test.ts, rolloutModel.test.ts, importStore.test.ts — 193 теста ядра
    syncWording/settings/snippetTerms/promptSearch/listPrefs/mobileNav/shortcuts/toast/useListState/useArmConfirm/profiles/prefs/activeId/clipboard/newId/profileBoot.test.ts — 149 тестов UX-проходов и профилей
 scripts/check-weight.js (+ weight-guard.js) — отчёт веса бандла + предохранитель
 scripts/check-i18n.js — missing/parity/dead-гейт i18n-ключей (+ scripts/check-i18n.selftest.js — мутационный самотест гейта)
@@ -142,7 +144,7 @@ scripts/audit-targets.cjs — аудит целей N1 (report/enforce, desktop+
 scripts/check-css-unused.cjs — поиск мёртвых .g-классов
 scripts/gates.cjs, scripts/e2e-weekday-matrix.cjs — раннеры; scripts/runner-lib.cjs — общий вердикт, окружение e2e и свой preview (+ scripts/runner.selftest.cjs)
 e2e/check6.cjs — вход e2e и порядок групп; e2e/harness.cjs — сиды, хелперы, раннер; e2e/manifest.cjs — EXPECTED_CHECKS/GROUP_SIZES
-e2e/groups/*.cjs — 202 e2e-проверки в 36 группах (G0–G35; редактор, задачи, карта, промпты, профили, защита данных, оболочка и идентичность заметки; G35 — контракты W7–W13: первый проход и доводка поиска, возврата, вставки промпта и тоста на телефоне)
+e2e/groups/*.cjs — 207 e2e-проверок в 36 группах (G0–G35; редактор, задачи, карта, промпты, профили, защита данных, оболочка и идентичность заметки; G35 — контракты W7–W13: первый проход и доводка поиска, возврата, вставки промпта и тоста на телефоне)
 docs/ux-baseline.md — база S0 «до» (аудит 375 элементов, 5 сценариев; сырой json аудита — локальный артефакт прогона, не в git)
 docs/fitts-report.md — S13 «до/после» по 5 сценариям (D, W, ID) + бюджеты G29
 start.bat         — быстрый запуск dev-сервера на Windows
@@ -168,6 +170,8 @@ start.bat         — быстрый запуск dev-сервера на Window
 | ctx-block, ctx-all-links, ctx-open-tasks/prompts, ctx-show-map; ctx-panel, ctx-tabs, ctx-tab-links/tasks/prompts, ctx-pin, ctx-close | Компактный блок и три вкладки контекста; similar/snip удалены | W7 |
 | insert-open, insert-menu, insert-item-*; calc-block, calc-name | Вставка и необязательные вычисления | W7 |
 | prompt-insert, prompt-insert-search/choice/field-N/preview/submit | Вставка заполненного промпта в заметку | W10 |
+| sheet-grip | Ручка нижнего листа контекста на телефоне (свайп вниз закрывает) | W7 |
+| export-current, export-stored, import-open, import-file, import-error | Настройки → Данные: текущая версия из памяти, сохранённая копия, восстановление в новый профиль | W14 |
 | profile-menu-open, profile-menu; add-mode, create-note/task | Меню профиля и режим создания mobile | W12/W13 |
 | task-composer, task-composer-title, task-row | Композер/поле/строка Планировщика | Есть (S4; фильтр active/done/all и лимит-сег удалены) |
 | task-due-today/tomorrow/week/none, task-add, task-search | Чипы срока/Добавить/поиск (`/`) | Есть (S4) |

@@ -92,6 +92,9 @@ export interface RegistryResult {
   status: RegistryStatus;
   registry: ProfileRegistry;
   raw?: string;
+  /** 'ok' only: the stored activeId named no profile and was replaced by the
+   * first one. Startup then asks instead of opening that fallback (W13). */
+  activeFallback?: boolean;
 }
 
 export function loadProfilesResult(storage?: Pick<ProfileStorage, "getItem">): RegistryResult {
@@ -122,7 +125,7 @@ export function loadProfilesResult(storage?: Pick<ProfileStorage, "getItem">): R
     }
     const active = typeof rec.activeId === "string" ? rec.activeId : "";
     const activeOk = profiles.some((p) => p.id === active);
-    return { status: 'ok', registry: { profiles, activeId: activeOk ? active : (profiles[0]?.id ?? "") } };
+    return { status: 'ok', registry: { profiles, activeId: activeOk ? active : (profiles[0]?.id ?? "") }, activeFallback: !activeOk };
   } catch {
     return raw !== null ? { status: 'corrupt', registry: emptyRegistry(), raw } : { status: 'unavailable', registry: emptyRegistry() };
   }

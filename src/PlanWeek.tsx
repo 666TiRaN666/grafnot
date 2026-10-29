@@ -75,7 +75,9 @@ export function PlanWeek({
 
   const monthTitle = useMemo(() => {
     const [y, m, d] = days[0]?.split("-").map(Number) ?? [2026, 1, 1];
-    return new Intl.DateTimeFormat(loc, { month: "long", year: "numeric" }).format(new Date(y, (m || 1) - 1, d || 1));
+    const t = new Intl.DateTimeFormat(loc, { month: "long", year: "numeric" }).format(new Date(y, (m || 1) - 1, d || 1));
+    // First letter only: CSS capitalize also raised the RU year mark ("2026 Г.").
+    return t.charAt(0).toLocaleUpperCase(loc) + t.slice(1);
   }, [days, loc]);
   const wd = (iso: string) => {
     const [y, m, d] = iso.split("-").map(Number);
@@ -183,7 +185,7 @@ export function PlanWeek({
   return (
     <div className="g-page w-week" data-testid="plan-week">
       <div className="g-page-h">
-        <h2 className="g-h2 w-month">{monthTitle}</h2>
+        <h2 className="g-h2">{monthTitle}</h2>
         <div className="g-cal-nav">
           <button type="button" className="g-btn sm" onClick={() => setOffset((o) => o - 1)} aria-label="‹">
             ‹

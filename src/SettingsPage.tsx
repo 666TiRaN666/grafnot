@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { tr } from './i18n';
 import { noteAccessibleName, noteDisplayName } from './noteName';
 import type { Lang, Theme } from './i18n';
@@ -8,7 +8,19 @@ import { ConfirmDialog } from './ui/primitives';
 import { SETTINGS_SECTIONS, settingsSectionTitle } from './settingsNav';
 import type { SettingsSection } from './settingsNav';
 import type { AddMode } from './rolloutModel';
+import type { ImportReason } from './importStore';
 import { SHORTCUTS } from './shortcuts';
+
+/** Why a file was not restored, in user words: nothing was changed. */
+function importErrorText(why: ImportReason | 'write', lang: Lang): string {
+  switch (why) {
+    case 'future': return tr('importErrFuture', lang);
+    case 'type': return tr('importErrType', lang);
+    case 'duplicate': return tr('importErrDuplicate', lang);
+    case 'write': return tr('importErrWrite', lang);
+    default: return tr('importErrFormat', lang);
+  }
+}
 
 /** S2 settings as a page (#/settings/<section>), not a modal. Destructive
  * actions (profile delete, trash purge) confirm through ConfirmDialog. */
@@ -31,7 +43,7 @@ export function SettingsPage({
   onRestoreTask,
   onPurgeNote,
   onPurgeTask,
-  onExportData, addMode, onAddMode, saveState,
+  onExportData, onExportCurrent, onImportFile, addMode, onAddMode, saveState,
 }: {
   lang: Lang;
   section: SettingsSection;
@@ -52,6 +64,10 @@ export function SettingsPage({
   onPurgeNote: (id: string) => void;
   onPurgeTask: (id: string) => void;
   onExportData: () => void;
+  /** W14: the version on screen, including edits not yet written. */
+  onExportCurrent: () => void;
+  /** W14: restore into a new profile; resolves null on success, else the reason. */
+  onImportFile: (file: File) => Promise<ImportReason | 'write' | null>;
   addMode: AddMode; onAddMode: (mode: AddMode) => void; saveState: string;
 }) {
   const [trashQ, setTrashQ] = useState('');
@@ -60,6 +76,9 @@ export function SettingsPage({
   const [renameDraft, setRenameDraft] = useState('');
   const [pendingPurge, setPendingPurge] = useState<{ kind: 'note' | 'task'; id: string; title: string } | null>(null);
   const [pendingProfile, setPendingProfile] = useState<{ id: string; name: string } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<ImportReason | 'write' | null>(null);
 
   const needle = trashQ.trim().toLowerCase();
   const shownTrash = needle ? trash.filter((n) => `${n.title} ${n.text}`.toLowerCase().includes(needle)) : trash;
@@ -281,10 +300,35 @@ export function SettingsPage({
       )}
 
       {section === 'data' && (
-        <div className="g-field">
+        <div className="g-field s-data">
+          <h3 className="s-data-h">{tr('exportT', lang)}</h3>
           <p data-testid="data-export-hint" className="muted">{tr('exportStoredHint', lang)}</p>
           {saveState !== 'saved' && <p role="status" className="g-status-bad">{tr('exportPendingHint', lang)}</p>}
-          <button type="button" className="g-btn" onClick={onExportData}>{tr('exportStoredData', lang)}</button>
+          <div className="s-data-actions">
+            <button type="button" className="g-btn primary" data-testid="export-current" onClick={onExportCurrent}>{tr('exportCurrentData', lang)}</button>
+            <button type="button" className="g-btn" data-testid="export-stored" onClick={onExportData}>{tr('exportStoredData', lang)}</button>
+          </div>
+          <h3 className="s-data-h">{tr('importT', lang)}</h3>
+          <p className="muted">{tr('importHint', lang)}</p>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".json,application/json"
+            data-testid="import-file"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = '';
+              if (!file) return;
+              setImportError(null);
+              setImporting(true);
+              void onImportFile(file).then((why) => { setImporting(false); setImportError(why); });
+            }}
+          />
+          <div className="s-data-actions">
+            <button type="button" className="g-btn" data-testid="import-open" disabled={importing} onClick={() => fileRef.current?.click()}>{tr('importFile', lang)}</button>
+          </div>
+          {importError && <p role="alert" data-testid="import-error" className="g-status-bad">{importErrorText(importError, lang)}</p>}
         </div>
       )}
 

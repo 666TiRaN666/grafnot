@@ -81,7 +81,8 @@ module.exports = async function (t) {
     });
     await check('rest stays isolated across profile switches, switch flush and new profile creation', async () => {
       const otherExtra = { otherExtension: { owner: 'two' } };
-      const seed = seedProfiles({ profiles: [{ id: 'rest-one', name: 'One', created: 1 }, { id: 'rest-two', name: 'Two', created: 2 }], activeId: 'rest-one', stores: { 'rest-one': restStore('One note', extra), 'rest-two': restStore('Two note', otherExtra) } });
+      // W13: no known last profile, so startup still goes through the picker.
+      const seed = seedProfiles({ profiles: [{ id: 'rest-one', name: 'One', created: 1 }, { id: 'rest-two', name: 'Two', created: 2 }], activeId: '', stores: { 'rest-one': restStore('One note', extra), 'rest-two': restStore('Two note', otherExtra) } });
       const isolated = await browser.newContext({ storageState: storageStateFor(seed) });
       try {
         const probe = await isolated.newPage(); attachErrorGuards(probe);

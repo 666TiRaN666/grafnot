@@ -160,7 +160,7 @@ module.exports = async function (t) {
   await check('D2 graph delete Undo never reaches the next profile', async () => {
     const two = seedProfiles({
       profiles: [{ id: 'p1', name: 'Основной', created: 1 }, { id: 'p2', name: 'Второй', created: 2 }],
-      activeId: 'p1',
+      activeId: '', // W13: no known last profile, startup asks
       stores: {
         p1: v5store([seedNote('a', 'Alpha')], 'a', { graphs: [{ id: 'g1', title: 'Курс', noteIds: ['a'] }] }),
         p2: v5store([seedNote('m', 'Mu')], 'm'),
@@ -341,7 +341,7 @@ module.exports = async function (t) {
   await check('W6 immediate profile switch never reuses the old creation focus', async () => {
     const s = seedProfiles({
       profiles: [{ id: 'p1', name: 'One', created: 1 }, { id: 'p2', name: 'Two', created: 2 }],
-      activeId: 'p1', stores: { p1: v5store([seedNote('a', 'Alpha')], 'a'), p2: v5store([seedNote('p2n', 'Other')], 'p2n') },
+      activeId: '', stores: { p1: v5store([seedNote('a', 'Alpha')], 'a'), p2: v5store([seedNote('p2n', 'Other')], 'p2n') }, // W13: startup asks
     });
     await reseed(page, s);
     await page.getByTestId('profile-row-p1').getByRole('button').first().click();

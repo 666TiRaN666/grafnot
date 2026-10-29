@@ -5,6 +5,7 @@ import type { Graph, Note, PromptSave, TaskItem } from './store';
 import type { NotesActions } from './NotesView';
 import type { ContextTab } from './rolloutModel';
 import { noteAccessibleName, noteDisplayName } from './noteName';
+import { useSheetSwipe } from './ui/useSheetSwipe';
 
 export function NoteContext({ lang, note, notes, graphs, tasks, prompts, actions, tab, onTab, pinned, canPin, onPin, onClose, onOpenNote, onOpenPlan, onOpenPrompt, onUnbind, onAddLink, onTask, onInsertPrompt, onShowMap, autoFocus }: {
   lang: Lang; note: Note; notes: Note[]; graphs: Graph[]; tasks: TaskItem[]; prompts: PromptSave[]; actions: NotesActions;
@@ -13,6 +14,7 @@ export function NoteContext({ lang, note, notes, graphs, tasks, prompts, actions
   onAddLink: () => void; onTask: () => void; onInsertPrompt: () => void; onShowMap: () => void; autoFocus: boolean;
 }) {
   const box = useRef<HTMLElement>(null);
+  const swipe = useSheetSwipe(onClose);
   const [shown, setShown] = useState(6);
   const tabs: { id: ContextTab; label: string }[] = [{ id: 'links', label: tr('linkedT', lang) }, { id: 'tasks', label: tr('noteTasksT', lang) }, { id: 'prompts', label: tr('promptsT', lang) }];
   const incoming = notes.filter(n => n.id !== note.id && n.linkedIds.includes(note.id));
@@ -49,10 +51,11 @@ export function NoteContext({ lang, note, notes, graphs, tasks, prompts, actions
   </li>)}</ul>;
   return <>
     {!pinned && <div className="ctx-scrim" aria-hidden="true" onPointerDown={onClose} />}
-    <aside ref={box} data-testid="ctx-panel" className={'note-context ' + (pinned ? 'is-pinned' : 'is-temporary')} role={pinned ? 'complementary' : 'dialog'} aria-label={tr('ctxTitle', lang)}>
+    <aside ref={box} data-testid="ctx-panel" data-sheet={pinned ? undefined : ''} className={'note-context ' + (pinned ? 'is-pinned' : 'is-temporary')} role={pinned ? 'complementary' : 'dialog'} aria-label={tr('ctxTitle', lang)}>
+      {!pinned && <div className="sheet-grip" data-testid="sheet-grip" aria-hidden="true" {...swipe} />}
       <div className="ctx-heading">
         <span>{tr('ctxTitle', lang)}</span>
-        <button type="button" className="g-btn sm ghost" data-testid="ctx-pin" disabled={!canPin} title={!canPin ? tr('ctxPinUnavailable', lang) : undefined} aria-pressed={pinned} onClick={onPin}>{pinned ? tr('ctxUnpin', lang) : tr('ctxPin', lang)}</button>
+        <button type="button" className="g-btn sm ghost ctx-pinbtn" data-testid="ctx-pin" disabled={!canPin} title={!canPin ? tr('ctxPinUnavailable', lang) : undefined} aria-pressed={pinned} onClick={onPin}>{pinned ? tr('ctxUnpin', lang) : tr('ctxPin', lang)}</button>
         <button type="button" className="g-modal-x" data-testid="ctx-close" aria-label={tr('closeBtn', lang)} onClick={onClose}>×</button>
       </div>
       <div className="n-tabs" data-testid="ctx-tabs" role="tablist" onKeyDown={e => {

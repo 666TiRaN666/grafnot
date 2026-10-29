@@ -4,6 +4,8 @@ import { tr } from './i18n';
 import type { LlmTpl } from './data';
 import { LEGACY_STORE_KEY, SCHEMA_VERSION, appendPromptText, loadStoreResult, saveStore, storeKeyFor } from './store';
 import type { CalcBlock, Graph, Note, PromptSave, Store } from './store';
+import { parseImport, storeDigest } from './importStore';
+import type { ImportReason } from './importStore';
 import { purgeNote, restoreNote, trashNote } from './trashRestore';
 import { ProfilePicker } from "./ProfilePicker";
 import type { ProfileRegistry } from "./profiles";
@@ -104,7 +106,7 @@ export default function App() {
   // session max once with no module-global counter.
   const [boot] = useState(() => {
     const reg = ensureRegistryCached();
-    return { registry: reg.registry, dropped: reg.droppedLinks, recovered: reg.recovered, adoption: reg.adoption, registryFailed: reg.registryFailed === true, registryReadFailed: reg.registryReadFailed === true };
+    return { registry: reg.registry, dropped: reg.droppedLinks, recovered: reg.recovered, adoption: reg.adoption, registryFailed: reg.registryFailed === true, registryReadFailed: reg.registryReadFailed === true, lastProfileKnown: reg.lastProfileKnown === true };
   });
   const [registry, setRegistry] = useState<ProfileRegistry>(boot.registry);
   const registryRef = useRef(registry);
@@ -113,9 +115,13 @@ export default function App() {
   // download + verified import (STAGE_09). Refreshed whenever the picker
   // shows; cleared by a successful import.
   const [legacyPresent, setLegacyPresent] = useState<boolean>(() => hasLegacyKey());
-  const [profileId, setProfileId] = useState<string | null>(() =>
-    registry.profiles.length === 1 ? (registry.profiles[0]?.id ?? null) : null,
-  );
+  // W13 (Stage2 §7.1): a healthy registry reopens its last profile. A failed
+  // or rebuilt registry, or a last id that no longer exists, keeps the
+  // picker; a lone profile opens as before.
+  const [profileId, setProfileId] = useState<string | null>(() => {
+    if (boot.lastProfileKnown && registry.profiles.some((p) => p.id === registry.activeId)) return registry.activeId;
+    return registry.profiles.length === 1 ? (registry.profiles[0]?.id ?? null) : null;
+  });
   const [theme, setTheme] = useState<Theme>(() => (load(prefKeyFor('theme', profileId ?? undefined), 'light') === 'dark' ? 'dark' : 'light'));
   const [lang, setLang] = useState<Lang>(() => {
     const v = load(prefKeyFor('lang', profileId ?? undefined), 'RU');
@@ -843,6 +849,46 @@ export default function App() {
     try { window.localStorage.removeItem(LEGACY_STORE_KEY); } catch { /* leave the original available for export */ }
     setLegacyPresent(hasLegacyKey());
     await enterProfile(next.activeId);
+  };
+
+  /** W14 (D5): a file opens as a NEW profile. The registry entry is saved
+   * only after the written copy reads back identical; the current profile
+   * and its data are never touched. Returns null on success, else why not. */
+  const importFileAsProfile = async (file: File): Promise<ImportReason | 'write' | null> => {
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      return 'json';
+    }
+    const parsed = parseImport(text);
+    if (!parsed.ok) return parsed.reason;
+    if (!flushSave()) {
+      notify(tr('toastSwitchBlocked', lang));
+      return 'write';
+    }
+    const base = file.name.replace(/\.json$/i, '').trim().slice(0, 40) || tr('importProfileName', lang);
+    let written: string | null = null;
+    const next = await persistRegistry(current => {
+      const created = createProfile(current, base);
+      written = created.profile.id;
+      const expected = { ...parsed.rest, ...parsed.store, schemaVersion: SCHEMA_VERSION };
+      const saved = saveStore(parsed.store, created.profile.id, window.localStorage, { rest: parsed.rest });
+      const back = saved ? loadStoreResult(created.profile.id, window.localStorage) : null;
+      if (!saved || !verifyStoredMatches(window.localStorage, created.profile.id, expected) || back?.status !== 'ok' || !back.store || storeDigest(back.store) !== storeDigest(parsed.store)) {
+        throw new Error('imported copy did not read back');
+      }
+      return created.registry;
+    });
+    if (!next) {
+      // No registry entry points at a half-written copy.
+      if (written) try { window.localStorage.removeItem(storeKeyFor(written)); } catch { /* nothing else to undo */ }
+      return 'write';
+    }
+    await enterProfile(next.activeId);
+    notify(tr('toastImported', lang).replace('{n}', String(parsed.report.notes)).replace('{t}', String(parsed.report.tasks)));
+    if (parsed.report.dropped > 0) notify(`${tr('brokenCleaned', lang)}: ${parsed.report.dropped}`);
+    return null;
   };
 
   /** Failed-save rescue: export the live memory store (storage holds older
@@ -1838,6 +1884,8 @@ export default function App() {
               onExportData={() => {
                 if (profileId && !exportRaw(storeKeyFor(profileId))) notify(tr('toastBackupFailed', lang));
               }}
+              onExportCurrent={downloadMemory}
+              onImportFile={importFileAsProfile}
             />
             </Suspense>
           )}

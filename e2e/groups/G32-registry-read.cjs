@@ -34,11 +34,9 @@ module.exports = async function (t) {
           assert(held.reg === seed['grafnot-profiles-v1'] && held.one === seed['grafnot-store-read-one'] && held.two === seed['grafnot-store-read-two'], 'original registry or data changed during read failure');
           assert(held.registryWrites === 0 && held.profileWrites === 0 && held.pending === null, 'startup wrote data or began migration after failed registry read');
           await probe.getByTestId('registry-retry').click();
-          await probe.getByTestId('profile-row-read-one').waitFor(); await probe.getByTestId('profile-row-read-two').waitFor();
-          assert(await probe.evaluate(() => localStorage.getItem('grafnot-profiles-v1')) === seed['grafnot-profiles-v1'], 'retry rewrote the original registry');
-          // Picker starts in the selected bare language; profile entry loads its own defaults.
-          await probe.getByTestId('profile-row-read-two').getByRole('button').first().click();
+          // W13: once readable, the healthy registry reopens its last profile (read-two).
           await probe.getByTestId('note-item').filter({ hasText: 'Original note B' }).waitFor();
+          assert(await probe.evaluate(() => localStorage.getItem('grafnot-profiles-v1')) === seed['grafnot-profiles-v1'], 'retry rewrote the original registry');
         } finally { await isolated.close(); }
       }
     });
@@ -67,7 +65,7 @@ module.exports = async function (t) {
           }
           await probe.evaluate(() => sessionStorage.setItem('allow-registry-read', '1'));
           await probe.getByTestId('registry-retry').click();
-          if (seed['grafnot-profiles-v1']) { await probe.getByTestId('profile-row-read-one').waitFor(); await probe.getByTestId('profile-row-read-two').waitFor(); }
+          if (seed['grafnot-profiles-v1']) { await probe.getByTestId('note-item').filter({ hasText: 'Original note B' }).waitFor(); }
           else { await probe.getByTestId('note-item').filter({ hasText: 'Legacy after retry' }).waitFor(); }
         } finally { await isolated.close(); }
       }

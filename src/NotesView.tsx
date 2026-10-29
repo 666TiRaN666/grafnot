@@ -14,6 +14,7 @@ const PromptInsert = lazy(() => import("./PromptInsert").then(m => ({ default: m
 import type { Graph, Note, PromptSave, TaskItem } from "./store";
 import { copyText, Hi } from "./widgets";
 import { firstMatchPos } from "./paletteModel";
+import { lastNavigationWasTraversal } from "./ui/router";
 import { noteAccessibleName, noteDisplayName, noteUpdatedLabel } from "./noteName";
 import { PREVIEW_LEN } from "./promptUtils";
 import { useListState } from "./useListState";
@@ -616,10 +617,10 @@ export function NotesView({
   const shownNote = useRef<string | null>(null);
   useLayoutEffect(() => {
     const ed = editorRef.current, saved = noteId ? sessions.get(noteId) : undefined;
-    // A temporary panel comes back only on a return from another section
-    // (mount, see useState above); switching notes here closes it.
+    // A temporary panel comes back on a return from another section (mount,
+    // see useState above) or on Back/Forward; opening another note closes it.
     if (shownNote.current !== null && shownNote.current !== noteId) {
-      setCtxOpen(rightOpen);
+      setCtxOpen(rightOpen || (lastNavigationWasTraversal() && (saved?.open ?? false)));
       setTab(saved?.tab ?? 'links');
     }
     shownNote.current = noteId;

@@ -4,7 +4,8 @@ module.exports = async function (t) {
 
   // ---------- GROUP G31-registry-sync: registry operations use the latest shared state ----------
   if (await groupActive('G31-registry-sync')) {
-    const registrySeed = () => seedProfiles({ profiles: [{ id: 'p1', name: 'One', created: 1 }, { id: 'p2', name: 'Two', created: 2 }], activeId: 'p1', stores: { p1: v5store([seedNote('n1', 'One note')], 'n1'), p2: v5store([seedNote('n2', 'Two note')], 'n2') } });
+    // W13: no known last profile, so both tabs start on the picker.
+    const registrySeed = () => seedProfiles({ profiles: [{ id: 'p1', name: 'One', created: 1 }, { id: 'p2', name: 'Two', created: 2 }], activeId: '', stores: { p1: v5store([seedNote('n1', 'One note')], 'n1'), p2: v5store([seedNote('n2', 'Two note')], 'n2') } });
     const createNamed = async (pg, name) => {
       await pg.getByTestId('profile-name-in').fill(name);
       await pg.getByTestId('profile-name-in').press('Enter');

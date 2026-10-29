@@ -316,6 +316,10 @@ button.g-noteopen::after { content: ""; position: absolute; inset: 0; }
 
 .g-ops { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .g-field { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--muted); margin: 8px 0; }
+/* Settings → Data (W14): export and restore, one line of buttons each. */
+.s-data { max-width: 640px; font-size: 13.5px; gap: 8px; }
+.s-data-h { margin: 12px 0 0; font-size: 15px; color: var(--u-text, var(--text)); }
+.s-data-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .g-tpl-err { color: #b3261e; font-size: 12.5px; margin: 4px 0; }
 
 
@@ -454,7 +458,6 @@ button.g-noteopen::after { content: ""; position: absolute; inset: 0; }
 .w-popup input { width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--bg); color: var(--text); font-size: 14px; }
 .w-popup-actions { display: flex; gap: 8px; margin-top: 10px; }
 .w-popup-actions .g-btn { flex: 1; min-height: 44px; }
-.w-month { text-transform: capitalize; }
 .w-panelwrap { position: fixed; top: 0; right: 0; bottom: 0; width: min(360px, 94vw); z-index: 55; background: var(--card); border-left: 1px solid var(--border); box-shadow: var(--shadow); padding: 16px; overflow: auto; }
 .w-mobile { margin-top: 12px; }
 @media (max-width: 760px) {
@@ -632,6 +635,7 @@ circle.g-vnode.dim { opacity: .2; }
 .n-morewrap [data-testid="insert-menu"] { max-width: calc(100vw - 32px); }
 .note-context-links .g-linkbtn { overflow-wrap: anywhere; max-width: 100%; }
 .ctx-scrim { position: fixed; inset: 0; z-index: 59; background: transparent; }
+.sheet-grip { display: none; }
 .note-context { box-sizing: border-box; width: 320px; flex: 0 0 320px; background: var(--u-card); color: var(--u-text); padding: 16px; overflow-wrap: anywhere; }
 .note-context.is-pinned { position: sticky; top: 16px; border-left: 1px solid var(--u-line); max-height: calc(100dvh - 32px); overflow-y: auto; }
 .note-context.is-temporary { position: fixed; right: 16px; top: 64px; z-index: 60; border: 1px solid var(--u-line); box-shadow: var(--u-shadow-pop); border-radius: var(--u-r-md); max-height: calc(100dvh - 88px); overflow-y: auto; }
@@ -656,6 +660,11 @@ circle.g-vnode.dim { opacity: .2; }
 @media (max-width: 760px) {
   .note-context.is-temporary, .prompt-insert { top: auto; bottom: 0; left: 0; right: 0; width: 100%; max-height: 85dvh; border-radius: var(--u-r-lg) var(--u-r-lg) 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); }
   .ctx-scrim { background: var(--u-scrim); }
+  /* A phone never has room to pin: the disabled button is noise there. */
+  .ctx-pinbtn { display: none; }
+  /* W7: pull the sheet down by its grip (useSheetSwipe); × stays the other path. */
+  .sheet-grip { display: block; height: 24px; margin: -12px -16px 4px; touch-action: none; cursor: grab; position: relative; }
+  .sheet-grip::after { content: ''; position: absolute; left: 50%; top: 10px; width: 36px; height: 4px; margin-left: -18px; border-radius: 2px; background: var(--u-line); }
   .note-context-tools .g-btn { min-height: 44px; }
   .n-morewrap [data-testid="insert-menu"] { left: 0; right: auto; }
   .n-titlebar { flex-wrap: wrap; }
