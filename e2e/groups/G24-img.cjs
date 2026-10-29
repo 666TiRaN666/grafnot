@@ -23,16 +23,21 @@ module.exports = async function (t) {
     await page.locator('[data-testid="tag-chip"]', { hasText: 'blue hair' }).waitFor();
   });
 
-  await check('S8 reorder alt arrows', async () => {
-    // Built-in art opens with its default tags (UX-03): reorder the two added last.
+  await check('S8 tags sort into lanes; Alt+arrows reorder inside a lane', async () => {
+    // Built-in art opens with its default tags (UX-03); a new tag lands in its lane.
     await page.getByTestId('tag-input').fill('night');
     await page.keyboard.press('Enter');
-    const order = () => page.locator('[data-testid="tag-chip"]').allInnerTexts();
-    assert((await order()).join('|').includes('blue hair'), 'added chip lost');
-    await page.locator('[data-testid="tag-chip"]', { hasText: 'blue hair' }).click();
-    await page.keyboard.press('Alt+ArrowRight');
-    const o = await order();
-    assert(o[o.length - 2].includes('night') && o[o.length - 1].includes('blue hair'), 'chips not swapped: ' + o.join('|'));
+    await page.getByTestId('lane-scene').locator('[data-testid="tag-chip"]', { hasText: 'night' }).waitFor();
+    const look = () => page.getByTestId('lane-look').locator('[data-testid="tag-chip"]').allInnerTexts();
+    const before = await look();
+    assert(before.length >= 2 && before[before.length - 1].includes('blue hair'), 'look lane: ' + before.join('|'));
+    await page.getByTestId('lane-look').locator('[data-testid="tag-chip"]', { hasText: 'blue hair' }).click();
+    await page.keyboard.press('Alt+ArrowLeft');
+    const after = await look();
+    assert(after[after.length - 2].includes('blue hair') && after[after.length - 1] === before[before.length - 2], 'chips not swapped: ' + after.join('|'));
+    // The prompt follows lane order: quality first, the place after the look.
+    const res = await page.getByTestId('prompt-result').innerText();
+    assert(res.indexOf('masterpiece') < res.indexOf('blue hair') && res.indexOf('blue hair') < res.indexOf('night'), 'prompt not in lane order: ' + res);
   });
 
   await check('S8 model switch changes result', async () => {
@@ -136,5 +141,49 @@ module.exports = async function (t) {
       () => (document.querySelector('[data-testid="prompt-result"]')?.textContent || '') === '((blue eyes)), watercolor',
       null, { timeout: 8000 },
     );
+  });
+
+  const model = (m) => page.getByTestId('prompt-workbench').getByRole('button', { name: m, exact: true }).click();
+  const result = () => page.getByTestId('prompt-result').innerText();
+
+  await check('Image: negative prompt, frame and syntax differ per model and survive a save', async () => {
+    await openImageWb();
+    await chips().first().waitFor();
+    await model('Pony');
+    await page.getByTestId('neg-preset').click();
+    assert(await page.getByTestId('neg-chip').count() === 9, 'negative preset not added');
+    assert((await page.getByTestId('prompt-negative').innerText()).includes('bad hands'), 'negative prompt missing');
+    await page.getByTestId('aspect-2:3').click();
+    assert((await page.getByTestId('prompt-params').innerText()).includes('832 × 1216'), 'frame size missing');
+    await page.getByTestId('pony-score').check();
+    assert((await result()).startsWith('score_9, score_8_up, score_7_up, masterpiece'), 'Pony quality prefix missing');
+    await model('Midjourney');
+    const mj = await result();
+    assert(mj.includes('--ar 2:3') && mj.includes('--no lowres') && !mj.includes('score_9'), 'Midjourney parameters wrong: ' + mj);
+    assert(await page.getByTestId('prompt-negative').count() === 0, 'Midjourney shows a separate negative prompt');
+    await model('Flux');
+    assert(await page.getByTestId('neg-input').isDisabled(), 'Flux accepts a negative prompt');
+    const flux = await result();
+    assert(!flux.includes('--ar') && !flux.includes('score_9'), 'Flux carries foreign syntax: ' + flux);
+    await model('Midjourney');
+    await page.getByRole('button', { name: 'Сохранить как шаблон' }).click();
+    await page.locator('[data-testid="prompt-item"]', { hasText: '(Midjourney)' }).first().waitFor();
+    await page.waitForFunction(() => (JSON.parse(localStorage.getItem('grafnot-store-p1') || '{}').customTpls || []).some((t) => t.model === 'Midjourney' && t.aspect === '2:3' && (t.negative || []).length === 9), null, { timeout: 8000 });
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.getByTestId('nav-prompt').click();
+    await page.locator('[data-testid="prompt-item"]', { hasText: '(Midjourney)' }).first().click();
+    await page.getByTestId('tag-input').waitFor();
+    assert(await page.getByTestId('aspect-2:3').getAttribute('aria-pressed') === 'true', 'frame not restored');
+    assert(await page.getByTestId('neg-chip').count() === 9, 'negative not restored');
+  });
+
+  await check('Image: a tag moved to another lane takes the prompt order with it', async () => {
+    await openImageWb();
+    const chip = page.getByTestId('lane-scene').locator('[data-testid="tag-chip"]', { hasText: 'sunset' });
+    await chip.waitFor();
+    await chip.getByLabel('Меню').click();
+    await page.getByTestId('tag-cat').selectOption('light');
+    await page.getByTestId('lane-light').locator('[data-testid="tag-chip"]', { hasText: 'sunset' }).waitFor();
+    assert(await page.getByTestId('lane-scene').count() === 0, 'empty lane still shown');
   });
 };

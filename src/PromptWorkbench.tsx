@@ -7,6 +7,7 @@ import { copyText } from "./widgets";
 import { fillBody, isBlockSlot, listSlots, missingSlots, resolveParams, splitSlots } from "./promptUtils";
 import { buildSaveTitle, requiredSlots } from "./workbenchModel";
 import { NoteAttach } from "./NoteAttach";
+import { estimateTokens } from "./skillModel";
 import type { PromptSave } from "./store";
 
 export function PromptWorkbench({
@@ -301,7 +302,7 @@ export function PromptWorkbench({
             )}
           </div>
           <div className="muted small">
-            {(result.length ?? 0)} {tr("charsT", lang)}
+            {(result.length ?? 0)} {tr("charsT", lang)} · ≈ {estimateTokens(result)} {tr("tokensT", lang)}
           </div>
           <button
             type="button"

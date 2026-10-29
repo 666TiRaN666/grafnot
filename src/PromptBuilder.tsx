@@ -30,7 +30,9 @@ export function PromptBuilder({
   const [name, setName] = useState(initial.name);
   const [body, setBody] = useState(initial.body);
   const [defaults, setDefaults] = useState<Record<string, string>>(() => ({ ...initial.defaults }));
-  const [kind, setKind] = useState<"text" | "image">(initial.kind === "image" ? "image" : "text");
+  // Text templates only: images have their own constructor; an edited
+  // template keeps the kind it had.
+  const kind = initial.kind;
   const bodyRef = useRef<HTMLTextAreaElement | null>(null);
   const pendingSel = useRef<{ start: number; end: number } | null>(null);
 
@@ -121,24 +123,6 @@ export function PromptBuilder({
             </div>
           )}
           <div className="w-prev mono">{preview || "—"}</div>
-          <div className="t-duechips" role="group" aria-label={tr("fldType", lang)}>
-            {(
-              [
-                ["text", tr("segTxt", lang)],
-                ["image", tr("badgeImg", lang)],
-              ] as const
-            ).map(([k, label]) => (
-              <button
-                key={k}
-                type="button"
-                className={"t-chip" + (kind === k ? " active" : "")}
-                aria-pressed={kind === k}
-                onClick={() => setKind(k)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
         </div>
         <div className="b-right">
           <div className="g-card-t">{tr("fldFields", lang)}</div>
@@ -168,7 +152,7 @@ export function PromptBuilder({
           className="g-btn primary"
           disabled={!canSave}
           onClick={() =>
-            onSave({ name: name.trim(), body, defaults, ...(kind === "image" ? { kind: "image" as const } : {}) })
+            onSave({ name: name.trim(), body, defaults, ...(kind ? { kind } : {}) })
           }
         >
           {tr("saveBtn", lang)}

@@ -22,6 +22,8 @@ export function isRisky(rate: number): boolean {
 export function renderPrompt(model: AIModel, tokens: string[]): string {
   if (tokens.length === 0) return '';
   if (model === 'SDXL') return tokens.map((t) => `(${t})`).join(', ');
+  // Midjourney reads plain text; emphasis brackets would be literal.
+  if (model === 'Midjourney') return tokens.map((t) => stripWeight(t)).join(', ');
   if (model === 'Flux') {
     // P3: weights set under Pony/SDXL are kept in tokens but stripped here —
     // Flux would otherwise copy brackets as literal text it does not understand.
@@ -201,10 +203,11 @@ export function validateTemplate(d: { name: string; body: string }): string[] {
 }
 
 /** Display kind for thumbnail. Built-in art is inferred by id; custom image templates store an explicit kind. */
-export type TplKind = "llm" | "image";
+export type TplKind = "llm" | "image" | "skill";
 
 export function getTplKind(t: LlmTpl): TplKind {
   if (t.kind === "image") return "image";
+  if (t.kind === "skill") return "skill";
   if (t.id === "art") return "image";
   return "llm";
 }

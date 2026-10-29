@@ -77,7 +77,7 @@ describe('v5 -> v6 image templates (UX-03)', () => {
         { id: 'i1', name: 'Img', body: 'a and b', defaults: {}, kind: 'image', model: 'Flux', tokens: ['((a))', 'b'] },
         { id: 'i0', name: 'Old', body: '(a)', defaults: {}, kind: 'image' },
         { id: 't0', name: 'Txt', body: 'x {{y}}', defaults: { y: '1' } },
-        { id: 'bad', name: 'Bad', body: 'q', defaults: {}, kind: 'image', model: 'Midjourney', tokens: [1, 'ok'] },
+        { id: 'bad', name: 'Bad', body: 'q', defaults: {}, kind: 'image', model: 'Dalle', tokens: [1, 'ok'] },
       ] as never,
     });
     expect(store.customTpls).toEqual([
@@ -85,6 +85,28 @@ describe('v5 -> v6 image templates (UX-03)', () => {
       { id: 'i0', name: 'Old', body: '(a)', defaults: {}, kind: 'image' },
       { id: 't0', name: 'Txt', body: 'x {{y}}', defaults: { y: '1' } },
       { id: 'bad', name: 'Bad', body: 'q', defaults: {}, kind: 'image' },
+    ]);
+  });
+});
+
+describe('image extras and skills in custom templates', () => {
+  it('keeps negative, frame, Pony prefix, lanes and the skill spec; damaged parts drop alone', () => {
+    const skill = { format: 'skill', name: 'code-review', description: 'd', whenToUse: 'w', steps: 's', rules: '', output: '', examples: [{ input: 'i', output: 'o' }] };
+    const { store } = migrate({
+      ...legacy(),
+      schemaVersion: 7,
+      customTpls: [
+        { id: 'm1', name: 'MJ', body: 'a', defaults: {}, kind: 'image', model: 'Midjourney', tokens: ['a'], negative: ['blurry'], aspect: '2:3', ponyScore: true, tagCats: { a: 'scene', b: 'nope' } },
+        { id: 'm2', name: 'Broken', body: 'a', defaults: {}, kind: 'image', negative: [3], aspect: '5:7', ponyScore: 'yes' },
+        { id: 's1', name: 'Skill', body: '---', defaults: {}, kind: 'skill', skill },
+        { id: 's2', name: 'Bad skill', body: 'x', defaults: {}, kind: 'skill', skill: { format: 'poem' } },
+      ] as never,
+    });
+    expect(store.customTpls).toEqual([
+      { id: 'm1', name: 'MJ', body: 'a', defaults: {}, kind: 'image', model: 'Midjourney', tokens: ['a'], negative: ['blurry'], aspect: '2:3', ponyScore: true, tagCats: { a: 'scene' } },
+      { id: 'm2', name: 'Broken', body: 'a', defaults: {}, kind: 'image' },
+      { id: 's1', name: 'Skill', body: '---', defaults: {}, kind: 'skill', skill },
+      { id: 's2', name: 'Bad skill', body: 'x', defaults: {} },
     ]);
   });
 });

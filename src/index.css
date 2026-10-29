@@ -526,6 +526,48 @@ button.g-noteopen::after { content: ""; position: absolute; inset: 0; }
 .w-prev { font-size: 13px; white-space: pre-wrap; word-break: break-word; background: var(--bg); border: 1px solid var(--border-soft); border-radius: 10px; padding: 12px; margin-bottom: 8px; max-height: 40vh; overflow: auto; }
 .w-miss { display: inline-block; background: var(--accent-soft); color: var(--accent-ink); border: 1px dashed var(--accent); border-radius: 6px; padding: 4px 8px; min-height: 32px; cursor: pointer; font: inherit; }
 .w-copy { width: 100%; min-height: 48px; margin: 8px 0; font-size: 15px; }
+/* Image constructor: sections with lanes instead of a field form. */
+.i-form { display: flex; flex-direction: column; gap: 18px; }
+.i-sec { display: flex; flex-direction: column; gap: 8px; }
+.i-sec + .i-sec { border-top: 1px solid var(--u-line, var(--border)); padding-top: 14px; }
+.i-sec-h, .i-res-h { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--u-muted, var(--muted)); }
+.i-res-h { margin: 6px 0 4px; }
+.i-hint { margin: 0; }
+.i-opt { font-size: 13px; }
+.i-aspects { display: flex; flex-wrap: wrap; gap: 6px; }
+.i-aspect { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 3px; width: 48px; height: 56px; padding: 6px 4px; border: 1px solid var(--u-line, var(--border)); border-radius: 8px; background: none; color: var(--u-muted, var(--muted)); font-size: 11.5px; cursor: pointer; }
+.i-aspect.active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); font-weight: 700; }
+.i-frame { display: block; max-width: 24px; max-height: 24px; width: 24px; border: 1.5px solid currentColor; border-radius: 3px; }
+.i-aspect .i-frame { height: auto; }
+.i-inwrap { position: relative; }
+.i-inwrap > input { width: 100%; box-sizing: border-box; }
+.i-lanes { display: flex; flex-direction: column; gap: 8px; }
+.i-lane { display: flex; flex-direction: column; gap: 2px; padding-left: 10px; border-left: 2px solid var(--u-line, var(--border)); }
+.i-lane-h { font-size: 12px; color: var(--u-muted, var(--muted)); }
+.i-lane .t-chips { margin-top: 2px; gap: 6px; }
+.i-lane .t-tagtext { white-space: nowrap; }
+/* Lanes need width: below ~720px of detail the result moves under the form. */
+.i-work .w-cols, .k-work .w-cols { flex-wrap: wrap; }
+.i-work .w-form, .k-work .w-form { min-width: min(420px, 100%); }
+.i-work .w-result, .k-work .w-result { width: 300px; flex-grow: 1; }
+.i-catbadge { font-size: 11px; color: var(--u-muted, var(--muted)); border: 1px solid var(--u-line, var(--border)); border-radius: 6px; padding: 0 6px; margin-left: 6px; }
+.i-catpick { display: flex; flex-direction: column; gap: 4px; cursor: default; }
+.i-catpick select { min-height: 32px; }
+.i-negrow { display: flex; gap: 8px; }
+.i-negrow input { flex: 1; min-width: 0; }
+.i-neg.off .t-chips { opacity: .5; }
+.t-tagchip.neg { background: var(--u-warn-soft, var(--bg)); }
+.i-negprev { border-style: dashed; }
+/* Skill builder */
+.k-form { display: flex; flex-direction: column; gap: 10px; }
+.k-namerow { display: flex; gap: 8px; }
+.k-namerow input { flex: 1; min-width: 0; }
+.k-examples { display: flex; flex-direction: column; gap: 8px; }
+.k-example { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: start; }
+.k-preview { margin: 0 0 8px; max-height: 55vh; }
+.k-lint { margin: 6px 0 10px; padding-left: 18px; font-size: 13px; }
+.k-work .w-result-row { flex-wrap: wrap; }
+@media (max-width: 760px) { .k-example { grid-template-columns: 1fr; } }
 .w-result-row { display: flex; gap: 8px; }
 .w-result-row .g-btn { flex: 1; min-height: 44px; }
 .w-result-row .n-morewrap { flex: 1; display: flex; }
@@ -539,6 +581,8 @@ button.g-noteopen::after { content: ""; position: absolute; inset: 0; }
 @media (max-width: 900px) {
   .w-cols { flex-direction: column; }
   .w-result { width: 100%; position: sticky; bottom: 0; top: auto; border-radius: 16px 16px 0 0; z-index: 20; }
+  /* Tall results (image, skill) would cover the form: they follow it instead. */
+  .i-work .w-result, .k-work .w-result { position: static; border-radius: 12px; }
 }
 @media (pointer: coarse) {
   .w-copy { min-height: 52px; }

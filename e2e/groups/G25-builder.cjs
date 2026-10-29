@@ -10,7 +10,9 @@ module.exports = async function (t) {
   }));
   const openBuilder = async () => {
     await page.getByTestId('nav-prompt').click();
-    await page.getByTestId('prompt-library').getByRole('button', { name: '+ Новый шаблон' }).click();
+    // «+ Новый шаблон» opens a choice: text template, image prompt or skill.
+    await page.getByTestId('prompt-new').click();
+    await page.getByTestId('prompt-new-text').click();
     await page.getByTestId('prompt-builder').waitFor();
   };
 
@@ -43,14 +45,20 @@ module.exports = async function (t) {
     await page.locator('[data-testid="prompt-item"]', { hasText: 'My Tpl' }).waitFor();
   });
 
-  await check('S9 type switch image', async () => {
-    await openBuilder();
-    await page.getByTestId('builder-name').fill('Img T');
-    await page.getByTestId('builder-body').fill('a, b');
-    await page.getByRole('button', { name: 'Картинка', exact: true }).click();
-    await page.getByTestId('prompt-builder').getByRole('button', { name: 'Сохранить', exact: true }).click();
-    const row = page.locator('[data-testid="prompt-item"]', { hasText: 'Img T' });
-    await row.waitFor();
-    assert((await row.innerText()).includes('Картинка'), 'no image badge');
+  await check('S9 a new image prompt opens the constructor, saved with the image badge', async () => {
+    // Images no longer share the text form: the menu opens the tag constructor.
+    await page.getByTestId('nav-prompt').click();
+    await page.getByTestId('prompt-new').click();
+    await page.getByTestId('prompt-new-image').click();
+    await page.getByTestId('tag-input').waitFor();
+    assert(await page.getByTestId('prompt-builder').count() === 0, 'image prompt opened the text form');
+    await page.getByTestId('tag-input').fill('cat');
+    await page.keyboard.press('Enter');
+    await page.getByTestId('tag-input').fill('forest');
+    await page.keyboard.press('Enter');
+    await page.getByRole('button', { name: 'Сохранить как шаблон' }).click();
+    const row = page.locator('[data-testid="prompt-item"]', { hasText: 'cat, forest' });
+    await row.first().waitFor();
+    assert((await row.first().innerText()).includes('Картинка'), 'no image badge');
   });
 };

@@ -12,11 +12,15 @@ describe('prompt dataset integrity', () => {
       expect(t.tag.length).toBeGreaterThan(0);
       expect(tags.has(t.tag)).toBe(false);
       tags.add(t.tag);
+      // Sample stats exist for the three SD-family models (Midjourney has none).
       for (const m of ['Pony', 'SDXL', 'Flux'] as const) {
-        expect(t.perModel[m].rate).toBeGreaterThanOrEqual(0);
-        expect(t.perModel[m].rate).toBeLessThanOrEqual(100);
-        expect(t.perModel[m].samples).toBeGreaterThanOrEqual(0);
+        const st = t.perModel[m];
+        expect(st).toBeDefined();
+        expect(st?.rate ?? -1).toBeGreaterThanOrEqual(0);
+        expect(st?.rate ?? 101).toBeLessThanOrEqual(100);
+        expect(st?.samples ?? -1).toBeGreaterThanOrEqual(0);
       }
+      expect(['quality', 'subject', 'look', 'outfit', 'pose', 'scene', 'light', 'style', 'camera', 'other']).toContain(t.cat);
     }
   });
 
@@ -28,7 +32,7 @@ describe('prompt dataset integrity', () => {
   it('UI totals derive from the table (recomputed independently)', () => {
     let samples = 0;
     for (const t of TAG_DATA) {
-      samples += t.perModel.Pony.samples + t.perModel.SDXL.samples + t.perModel.Flux.samples;
+      samples += (t.perModel.Pony?.samples ?? 0) + (t.perModel.SDXL?.samples ?? 0) + (t.perModel.Flux?.samples ?? 0);
     }
     expect(samples).toBeGreaterThan(300000);
     expect(Number.isInteger(samples)).toBe(true);

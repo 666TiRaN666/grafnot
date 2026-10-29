@@ -37,12 +37,14 @@ export function PromptLib({
   selectedId: string | null;
   onSelect: (id: string) => void;
   onRenameSave: (id: string, title: string) => void;
-  onCreate: () => void;
+  /** New text template, image prompt or skill. */
+  onCreate: (kind: "text" | "image" | "skill") => void;
   profileId: string;
 }) {
   const [seg, setSeg] = useState<LibSeg>("all");
   const [compact, setCompact] = useState(() => loadDensity(profileId));
   const [moreOpen, setMoreOpen] = useState(false);
+  const [newOpen, setNewOpen] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -88,6 +90,7 @@ export function PromptLib({
     { id: "all", label: tr("tplFAll", lang) },
     { id: "image", label: tr("tplFImg", lang) },
     { id: "text", label: tr("segTxt", lang) },
+    { id: "skill", label: tr("segSkill", lang) },
     { id: "mine", label: tr("tplFMine", lang) },
     { id: "recent", label: tr("segRecent", lang) },
   ];
@@ -107,9 +110,20 @@ export function PromptLib({
         <span className="p-lib-title">
           {tr("libT", lang)} ({list.filtered.length})
         </span>
-        <button type="button" className="g-btn sm primary" onClick={onCreate}>
-          {tr("newTpl", lang)}
-        </button>
+        <span className="n-morewrap">
+          <button type="button" className="g-btn sm primary" data-testid="prompt-new" aria-expanded={newOpen} onClick={() => setNewOpen((v) => !v)}>
+            {tr("newTpl", lang)} ▾
+          </button>
+          {newOpen && (
+            <span className="n-menu" role="menu">
+              {([["text", tr("newText", lang)], ["image", tr("newImage", lang)], ["skill", tr("newSkill", lang)]] as const).map(([k, label]) => (
+                <button key={k} type="button" role="menuitem" className="n-menuitem" data-testid={`prompt-new-${k}`} onClick={() => { setNewOpen(false); onCreate(k); }}>
+                  {label}
+                </button>
+              ))}
+            </span>
+          )}
+        </span>
         <span className="n-morewrap">
           <button
             type="button"
@@ -166,10 +180,10 @@ export function PromptLib({
       </div>
       {entries.length === 0 ? (
         <div className="p-lib-empty">
-          <button type="button" className="g-btn primary p-lib-cta" onClick={onCreate}>
+          <button type="button" className="g-btn primary p-lib-cta" onClick={() => onCreate("image")}>
             {tr("libEmptyImg", lang)}
           </button>
-          <button type="button" className="g-btn p-lib-cta" onClick={onCreate}>
+          <button type="button" className="g-btn p-lib-cta" onClick={() => onCreate("text")}>
             {tr("libEmptyTxt", lang)}
           </button>
         </div>
@@ -196,7 +210,7 @@ export function PromptLib({
               renamingId === e.id ? (
                 <div key={e.id} className="pl-row renaming" data-testid="prompt-item">
                   <span className="pl-ico" aria-hidden="true">
-                    {e.type === "image" ? "🎨" : "💬"}
+                    {e.type === "image" ? "🎨" : e.type === "skill" ? "🧩" : "💬"}
                   </span>
                   <input
                     autoFocus
@@ -229,7 +243,7 @@ export function PromptLib({
                   onClick={() => onSelect(e.id)}
                 >
                   <span className="pl-ico" aria-hidden="true">
-                    {e.type === "image" ? "🎨" : "💬"}
+                    {e.type === "image" ? "🎨" : e.type === "skill" ? "🧩" : "💬"}
                   </span>
                   <span className="pl-body">
                     <span className="pl-title">{<Hi text={e.title} q={list.query} />}</span>
@@ -252,7 +266,7 @@ export function PromptLib({
                     </button>
                   )}
                   <span className="pl-badges">
-                    <span className="pl-badge">{e.type === "image" ? tr("badgeImg", lang) : tr("segTxt", lang)}</span>
+                    <span className="pl-badge">{e.type === "image" ? tr("badgeImg", lang) : e.type === "skill" ? tr("badgeSkill", lang) : tr("segTxt", lang)}</span>
                     <span className="pl-badge">
                       {e.origin === "builtin" ? tr("orgBuiltin", lang) : e.origin === "custom" ? tr("orgMine", lang) : tr("orgSaved", lang)}
                     </span>

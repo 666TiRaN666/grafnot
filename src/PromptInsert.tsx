@@ -24,7 +24,7 @@ export function PromptInsert({ lang, templates, saves, valid, onInsert, onClose,
   const first = useRef<HTMLInputElement>(null);
   const swipe = useSheetSwipe(onClose);
   const pool = useMemo(() => [
-    ...buildTplEntries(LLM_TEMPLATES, templates).map(e => ({ id: e.tpl.id, title: e.tpl.name, body: e.tpl.body, defaults: e.tpl.defaults, templateId: e.tpl.id, source: undefined as PromptSave | undefined, kind: e.kind, image: e.kind === 'image' ? imageInit(e.tpl) : undefined })),
+    ...buildTplEntries(LLM_TEMPLATES, templates).map(e => ({ id: e.tpl.id, title: e.tpl.name, body: e.tpl.body, defaults: e.tpl.defaults, templateId: e.tpl.id, source: undefined as PromptSave | undefined, kind: e.kind === 'image' ? 'image' as const : 'llm' as const, image: e.kind === 'image' ? imageInit(e.tpl) : undefined })),
     ...saves.map(p => ({ id: 'save-' + p.id, title: p.title, body: promptPreview(p, templates), defaults: {} as Record<string, string>, templateId: undefined, source: p, kind: p.kind, image: p.kind === 'image' ? { model: p.model, tokens: p.tokens } : undefined })),
   ], [templates, saves]);
   const hits = pool.filter(e => (e.title + ' ' + e.body).toLowerCase().includes(query.trim().toLowerCase()));

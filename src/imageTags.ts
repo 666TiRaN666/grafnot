@@ -60,7 +60,10 @@ export function applyWeight(tag: string, w: TagWeight): string {
   return base;
 }
 
-export type WeightModel = "Pony" | "SDXL" | "Flux";
+export type WeightModel = "Pony" | "SDXL" | "Flux" | "Midjourney";
+
+/** Models that understand bracket emphasis (the chip menu shows weights only for these). */
+export const hasWeights = (model: WeightModel): boolean => model === "Pony" || model === "SDXL";
 
 /**
  * Per-model weight formatting (P3). Pony (danbooru emphasis) and SDXL
@@ -71,6 +74,6 @@ export type WeightModel = "Pony" | "SDXL" | "Flux";
  * renderPrompt strips at render time for Flux for the same reason.
  */
 export function formatWeight(model: WeightModel, tag: string, w: TagWeight): string {
-  if (model === "Flux") return stripWeight(tag);
+  if (!hasWeights(model)) return stripWeight(tag);
   return applyWeight(tag, w);
 }

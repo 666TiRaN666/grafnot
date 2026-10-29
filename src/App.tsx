@@ -48,6 +48,8 @@ import { PromptLib } from './PromptLib';
 import { PromptBuilder } from './PromptBuilder';
 import { PromptWorkbench } from './PromptWorkbench';
 import { PromptImageWb } from './PromptImageWb';
+import { SkillBuilder } from './SkillBuilder';
+import { emptySkill } from './skillModel';
 import { isSettingsSection } from './settingsNav';
 import type { SettingsSection } from './settingsNav';
 // Settings and the palette open on demand: they travel in their own chunks,
@@ -1804,7 +1806,7 @@ export default function App() {
                   selectedId={route.param ?? null}
                   onSelect={(id) => go('prompts', id)}
                   onRenameSave={renamePrompt}
-                  onCreate={() => go('prompts', 'new')}
+                  onCreate={(kind) => go('prompts', kind === 'image' ? 'new-image' : kind === 'skill' ? 'new-skill' : 'new')}
                   profileId={profileId}
                 />
                 <div className="p-detail">
@@ -1850,14 +1852,38 @@ export default function App() {
                       notify={notify}
                       notifyAction={notifyAction}
                     />
-                  ) : wbEntry && wbEntry.kind === "image" ? (
-                    <PromptImageWb
-                      key={wbEntry.tpl.id}
+                  ) : promptParam === 'new-skill' || (wbEntry && wbEntry.kind === 'skill') ? (
+                    // A built-in skill is a worked example: saving makes the user's copy.
+                    <SkillBuilder
+                      key={wbEntry?.tpl.id ?? 'new-skill'}
                       lang={lang}
-                      tplName={wbEntry.tpl.name}
+                      title={wbEntry ? wbEntry.tpl.name : tr("newSkill", lang)}
+                      initial={wbEntry?.tpl.skill ?? emptySkill()}
+                      saveLabel={wbEntry && !wbEntry.mine ? tr("skSaveCopy", lang) : tr("saveBtn", lang)}
+                      onSave={(spec, body) => {
+                        const d = { name: spec.name.trim() || tr("newSkill", lang), body, defaults: {}, kind: 'skill' as const, skill: spec };
+                        if (wbEntry?.mine) {
+                          updateCustomTpl(wbEntry.tpl.id, d);
+                        } else {
+                          const id = saveCustomTpl(d);
+                          go('prompts', id);
+                        }
+                      }}
+                      onCancel={() => go('prompts')}
+                      notify={notify}
+                    />
+                  ) : promptParam === 'new-image' || (wbEntry && wbEntry.kind === "image") ? (
+                    <PromptImageWb
+                      key={wbEntry?.tpl.id ?? 'new-image'}
+                      lang={lang}
+                      tplName={wbEntry ? wbEntry.tpl.name : tr("newImage", lang)}
                       initModel={wbImage?.model ?? 'Pony'}
                       initTokens={wbImage?.tokens ?? []}
-                      mine={wbEntry.mine}
+                      initNegative={wbEntry?.tpl.negative ?? []}
+                      initAspect={wbEntry?.tpl.aspect ?? '1:1'}
+                      initPonyScore={wbEntry?.tpl.ponyScore ?? false}
+                      initTagCats={wbEntry?.tpl.tagCats ?? {}}
+                      mine={wbEntry ? wbEntry.mine : true}
                       notes={notes}
                       onSaveTpl={(d) => {
                         const id = saveCustomTpl(d);

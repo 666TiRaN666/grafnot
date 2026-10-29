@@ -12,7 +12,9 @@ module.exports = async function (t) {
 
   await check('P13 template builder creates edits deletes', async () => {
     await page.getByTestId('nav-prompt').click();
-    await page.getByTestId('prompt-library').getByRole('button', { name: '+ Новый шаблон' }).click();
+    // «+ Новый шаблон» opens a choice: text template, image prompt or skill.
+    await page.getByTestId('prompt-new').click();
+    await page.getByTestId('prompt-new-text').click();
     await page.getByTestId('prompt-builder').waitFor();
     const templateName = 'Blue eyes template';
     await page.getByTestId('builder-name').fill(templateName);

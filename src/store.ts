@@ -1,5 +1,5 @@
 import type { JSONContent } from '@tiptap/core';
-import type { AIModel, LlmTpl } from './data';
+import type { AIModel, AspectId, LlmTpl, SkillSpec, TagCat } from './data';
 import { newId } from './utils/newId';
 
 export interface Note {
@@ -135,9 +135,40 @@ export interface StoredTpl {
   kind?: unknown;
   model?: unknown;
   tokens?: unknown;
+  negative?: unknown;
+  aspect?: unknown;
+  ponyScore?: unknown;
+  tagCats?: unknown;
+  skill?: unknown;
 }
 
-const AI_MODELS: readonly unknown[] = ['Pony', 'SDXL', 'Flux'];
+const AI_MODELS: readonly unknown[] = ['Pony', 'SDXL', 'Flux', 'Midjourney'];
+const ASPECT_IDS: readonly unknown[] = ['1:1', '4:5', '3:4', '2:3', '9:16', '16:9', '3:2'];
+const TAG_CATS: readonly unknown[] = ['quality', 'subject', 'look', 'outfit', 'pose', 'scene', 'light', 'style', 'camera', 'other'];
+const SKILL_FORMATS: readonly unknown[] = ['skill', 'system', 'agents'];
+const isStrList = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
+
+/** A stored skill spec, or null when any part is damaged (the template
+ * then stays a plain text template with its rendered body). */
+function readSkill(v: unknown): SkillSpec | null {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const s = v as Record<string, unknown>;
+  const text = ['name', 'description', 'whenToUse', 'steps', 'rules', 'output'] as const;
+  if (!SKILL_FORMATS.includes(s.format) || !text.every((k) => typeof s[k] === 'string')) return null;
+  const examples = Array.isArray(s.examples) ? s.examples : [];
+  const okEx = examples.every((e) => !!e && typeof e === 'object' && typeof (e as Record<string, unknown>).input === 'string' && typeof (e as Record<string, unknown>).output === 'string');
+  if (!okEx) return null;
+  return {
+    format: s.format as SkillSpec['format'],
+    name: s.name as string,
+    description: s.description as string,
+    whenToUse: s.whenToUse as string,
+    steps: s.steps as string,
+    rules: s.rules as string,
+    output: s.output as string,
+    examples: (examples as { input: string; output: string }[]).map((e) => ({ input: e.input, output: e.output })),
+  };
+}
 
 export interface LooseStore {
   notes: LooseNote[];
@@ -214,7 +245,23 @@ function convertTpls(raw: Array<LooseTpl | StoredTpl> | undefined): LlmTpl[] {
       // (the workbench then re-reads tags from the body).
       if (st.kind === 'image') tpl.kind = 'image';
       if (AI_MODELS.includes(st.model)) tpl.model = st.model as AIModel;
-      if (Array.isArray(st.tokens) && st.tokens.every((x) => typeof x === 'string')) tpl.tokens = [...st.tokens];
+      if (isStrList(st.tokens)) tpl.tokens = [...st.tokens];
+      // Image constructor extras: each kept only when well-formed.
+      if (isStrList(st.negative)) tpl.negative = [...st.negative];
+      if (ASPECT_IDS.includes(st.aspect)) tpl.aspect = st.aspect as AspectId;
+      if (typeof st.ponyScore === 'boolean') tpl.ponyScore = st.ponyScore;
+      if (st.tagCats && typeof st.tagCats === 'object' && !Array.isArray(st.tagCats)) {
+        const cats: Record<string, TagCat> = {};
+        for (const [k, v] of Object.entries(st.tagCats)) if (TAG_CATS.includes(v)) cats[k] = v as TagCat;
+        if (Object.keys(cats).length) tpl.tagCats = cats;
+      }
+      if (st.kind === 'skill') {
+        const skill = readSkill(st.skill);
+        if (skill) {
+          tpl.kind = 'skill';
+          tpl.skill = skill;
+        }
+      }
       out.push(tpl);
       continue;
     }

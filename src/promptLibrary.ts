@@ -2,8 +2,12 @@ import type { LlmTpl } from "./data";
 import type { PromptSave } from "./store";
 import { getTplKind, makeSnippet, promptPreview } from "./promptUtils";
 
+/** Library type of a template; a skill shows its description, not its markdown. */
+const typeOf = (t: LlmTpl): LibType => { const k = getTplKind(t); return k === "image" ? "image" : k === "skill" ? "skill" : "text"; };
+const snippetOf = (t: LlmTpl): string => makeSnippet(t.skill ? t.skill.description || t.body : t.body);
+
 export type LibOrigin = "builtin" | "custom" | "save";
-export type LibType = "image" | "text";
+export type LibType = "image" | "text" | "skill";
 
 export interface LibEntry {
   id: string;
@@ -15,7 +19,7 @@ export interface LibEntry {
   ts: number;
 }
 
-export type LibSeg = "all" | "image" | "text" | "mine" | "recent";
+export type LibSeg = "all" | "image" | "text" | "skill" | "mine" | "recent";
 
 /** One list over everything: built-in templates, customs, saved prompts. */
 export function buildLibrary(builtin: LlmTpl[], custom: LlmTpl[], saves: PromptSave[]): LibEntry[] {
@@ -23,16 +27,16 @@ export function buildLibrary(builtin: LlmTpl[], custom: LlmTpl[], saves: PromptS
     ...builtin.map((t): LibEntry => ({
       id: t.id,
       title: t.name,
-      snippet: makeSnippet(t.body),
-      type: getTplKind(t) === "image" ? "image" : "text",
+      snippet: snippetOf(t),
+      type: typeOf(t),
       origin: "builtin",
       ts: 0,
     })),
     ...custom.map((t): LibEntry => ({
       id: t.id,
       title: t.name,
-      snippet: makeSnippet(t.body),
-      type: getTplKind(t) === "image" ? "image" : "text",
+      snippet: snippetOf(t),
+      type: typeOf(t),
       origin: "custom",
       ts: 0,
     })),
@@ -54,6 +58,7 @@ export function filterLibrary(entries: LibEntry[], q: string, seg: LibSeg): LibE
   const kept = entries.filter((e) => {
     if (seg === "image" && e.type !== "image") return false;
     if (seg === "text" && e.type !== "text") return false;
+    if (seg === "skill" && e.type !== "skill") return false;
     if (seg === "mine" && e.origin === "builtin") return false;
     if (seg === "recent" && e.origin === "builtin") return false;
     if (needle && !`${e.title} ${e.snippet}`.toLowerCase().includes(needle)) return false;
