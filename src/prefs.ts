@@ -7,6 +7,8 @@ export const PREF_KEYS = {
   theme: "grafnot-theme",
   lang: "grafnot-lang",
   side: "grafnot-side",
+  /** W5: explicit rail choice ('open'/'closed'); absent = auto (see ui/navMode). */
+  sideMode: "grafnot-side-mode",
   right: "grafnot-right",
   hint: "grafnot-hint-first",
   section: "grafnot-section",

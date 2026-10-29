@@ -5,6 +5,7 @@ import type { Note, TaskItem } from "./store";
 import { todayISO } from "./taskGroups";
 import { weekRange } from "./weekCal";
 import { TaskPanel } from "./PlanList";
+import { useMedia } from "./ui/useMedia";
 
 /** Pointer travel that turns a press into a drag (S10 map uses the same). */
 const DRAG_PX = 4;
@@ -49,13 +50,7 @@ export function PlanWeek({
   const touchX = useRef<number | null>(null);
   // Mobile agenda and desktop grid never share the DOM: duplicate testids
   // and hidden chips would otherwise poison selectors and hit-testing.
-  const [narrow, setNarrow] = useState(() => window.matchMedia("(max-width: 760px)").matches);
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 760px)");
-    const h = () => setNarrow(mq.matches);
-    mq.addEventListener("change", h);
-    return () => mq.removeEventListener("change", h);
-  }, []);
+  const narrow = useMedia("(max-width: 760px)");
 
   const loc = lang === "KZ" ? "kk-KZ" : lang === "EN" ? "en-US" : "ru-RU";
   const days = useMemo(() => weekRange(offset, today), [offset, today]);

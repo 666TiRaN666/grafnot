@@ -110,16 +110,16 @@ module.exports = async function (t) {
   });
 
   await check('P14 no cloud sync wording', async () => {
-    // The header honestly shows Сохраняется… while a save is armed: let the
+    // The status honestly shows Сохраняется… while a save is armed: let the
     // debounce window settle so the wording assertions read a final state.
     await page.waitForFunction(
-      () => !document.querySelector('.g-status')?.textContent?.includes('Сохраняется'),
+      () => !document.querySelector('[data-testid="save-state"]')?.textContent?.includes('Сохраняется'),
       null,
       { timeout: 8000 },
     );
-    const top = await page.getByTestId('page-header').innerText();
-    assert(top.includes('Сохранено локально'), `topbar: ${top}`);
-    assert(!top.includes('синхронизировано'), 'sync illusion in topbar');
+    const status = await page.getByTestId('save-state').innerText();
+    assert(status.includes('Сохранено локально'), `save-state: ${status}`);
+    assert(!status.includes('синхронизировано'), 'sync illusion in save-state');
     assert((await page.getByRole('button', { name: 'Синхронизировать' }).count()) === 0, 'sync button present');
     const main = await page.locator('.g-main').innerText();
     assert(!main.includes('синхронизировано') && !main.includes('Синхронизировать'), 'sync wording on page');

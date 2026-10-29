@@ -12,7 +12,7 @@ npm run build      # tsc + сборка в dist/
 npm test           # unit-тесты (vitest)
 npm run check:weight  # отчёт веса JS-бандла + предохранитель от baseline (лимитов нет)
 npm run preview    # раздача собранного (для ручной проверки и e2e)
-npm run e2e        # 181 e2e-проверка (Playwright, нужен preview :5199)
+npm run e2e        # 184 e2e-проверки (Playwright, нужен preview :5199)
 npm run e2e:matrix   # S5 + список задач под 12 фиксированными датами: сам собирает dist и поднимает свой preview :5199 (не в CI)
 npm run check:i18n  # missing/parity/dead-гейт i18n-ключей (RU/EN/KZ)
 npm run check:i18n:selftest  # мутационный самотест гейта (4 фикстуры)
@@ -21,7 +21,7 @@ npm run gates -- --e2e                     # + сборка, вес, свой pr
 npm run gates -- --groups=G20-plan,G21-week  # + сборка, вес, preview, только эти e2e-группы
 ```
 
-E2E: 181 e2e-проверка на Playwright поверх `vite preview` (вход `e2e/check6.cjs`, обвязка `e2e/harness.cjs`, группы `e2e/groups/<имя>.cjs`; часть групп: `GROUPS=G20-plan,G21-week npm run e2e`)
+E2E: 184 e2e-проверки на Playwright поверх `vite preview` (вход `e2e/check6.cjs`, обвязка `e2e/harness.cjs`, группы `e2e/groups/<имя>.cjs`; часть групп: `GROUPS=G20-plan,G21-week npm run e2e`)
 (пустой старт, редактор, задачи, неделя, связи, вычисления, карта, переименование, панели, промпты, корзина/undo, мобильная навигация, тосты, профили,
 блокировки битого стора, ErrorBoundary, честные статусы сохранения, две вкладки, восстановление реестра, адопция legacy).
 Сьют не зависит от дня недели и часового пояса: даты сидов вида `@today+N`/`@mon+N` раскрываются внутри страницы (зона Asia/Almaty, T2); `npm run e2e:matrix` гоняет S5 и список задач по 12 датам (Пн…Вс, границы месяца/года).
@@ -45,8 +45,9 @@ E2E: 181 e2e-проверка на Playwright поверх `vite preview` (вх�
 - **Календарь** — вид «Неделя» (сетка Пн–Вс + Входящие, навигация, сегодня), попап добавления у ячейки, чипы с отдельным чекбоксом, drag задач по дням с Undo, mobile-полоса дней + повестка.
 - **Карта знаний** — несколько именованных графов + обзор; SVG-граф: force-directed layout, drag узлов (хит-зона r=24), пан, зум к курсору, клик → превью; сироты и битые в разрезе графа; Pro-замок до 20 заметок.
 - **Промпт-помощник** — статический словарь тегов (v1.0.0-sample, 57 тегов, версия и дата в UI), image-промпты сохраняются как редактируемые шаблоны (модель и теги с весами хранятся в шаблоне и восстанавливаются при открытии; у записей до v6 теги разбираются из текста `parseImageBody`, у старых Flux-записей веса уже потеряны — возвращаются только теги; встроенный «Арт: персонаж» открывается со своими тегами), заполненные шаблоны можно привязать к заметкам (многострочный текст вставляется блоком кода дословно), поле слота на отдельной строке тела (`{{код}}`, `{{запрос}}`) — многострочное (`isBlockSlot`: Enter — перенос, Ctrl+Enter — копировать), синтаксис под модель, клавиатурная навигация, варнинг рискованных тегов, свёрнутые миниатюры шаблонов (поиск, чипы, лимит), Ctrl+K находит сохранённые промпты.
-- **Шелл** — модалка настроек (тема, язык, лимит списков; открывает и аватар; оттуда же смена профиля), шторка «Ещё» в мобильном таббаре (Карта, Промпты), справка по хоткеям («?» у поиска), тосты с ручным закрытием, честный статус сохранения в шапке («Сохранено локально · время» / «Сохраняется…» / «⚠ НЕ сохранено» + постоянный баннер с экспортом из памяти и повтором), баннер конфликта вкладок (принять чужую / перезаписать моей / скачать мою), блокирующий экран битого стора (raw-экспорт, резервная копия, пустой старт только по подтверждению).
-- Сворачиваемые сайдбар-рейл и правая панель (персист), `Alt+0` — сбросить панели, `Ctrl+Alt+N` — новая заметка. Светлая/тёмная темы, RU/EN/KZ, мобильный таббар.
+- **Шелл** — модалка настроек (тема, язык, лимит списков; открывает и аватар; оттуда же смена профиля), шторка «Ещё» в мобильном таббаре (Карта, Промпты), справка по хоткеям («?» у поиска), тосты с ручным закрытием, честный статус сохранения в навигации на desktop и в шапке на mobile («Сохранено локально · время» / «Сохраняется…» / «⚠ НЕ сохранено» + постоянный баннер с экспортом из памяти и повтором), баннер конфликта вкладок (принять чужую / перезаписать моей / скачать мою), блокирующий экран битого стора (raw-экспорт, резервная копия, пустой старт только по подтверждению).
+- **Оболочка «Лист» (W5)** — одна поверхность с разделительными линиями, навигация 224/64 px, иконки 18 px, поиск и статус сохранения в навигации на desktop; на mobile поиск и статус остаются в шапке. На странице по одному `palette-open` и `save-state`. Кнопка «Новая заметка» содержит один «+». Неделя прокручивается внутри своей области, не расширяя страницу.
+- Навигация автоматически свёрнута при ширине <1200 px; явный выбор пользователя сохраняется в `grafnot-side-mode:<id>`. Старый `grafnot-side:<id>` не определяет режим. `Alt+0` возвращает автоматический режим навигации и раскрывает правую панель, `Ctrl+Alt+N` — новая заметка. Светлая/тёмная темы, RU/EN/KZ, мобильный таббар.
 
 ## Модель данных (`src/store.ts`)
 
@@ -75,7 +76,7 @@ Store { notes, tasks, trash, trashTasks, graphs, prompts, customTpls, activeId, 
 
 - **Реестр** — `grafnot-profiles-v1`: список профилей (`id`, имя, `created`) + `activeId` последнего активного.
 - **Реестр в нескольких вкладках (F1):** создание, вход, переименование, удаление и ручной импорт выполняются через Web Locks с повторным чтением актуального реестра и проверкой записи. Список профилей обновляется по storage-событиям. Удалённый в другой вкладке профиль не восстанавливается старой записью; несохранённые правки остаются доступны для экспорта. Для изменения реестра нужен Web Locks API (HTTPS или localhost); без общей блокировки запись отклоняется.
-- **Ключи профиля:** стор — `grafnot-store-<id>`; префы — `grafnot-theme|lang|side|right|hint-first:<id>`, `grafnot-list-limits:<id>`, `grafnot-tpl-limit:<id>`. Голые ключи — только legacy-путь до миграции.
+- **Ключи профиля:** стор — `grafnot-store-<id>`; префы — `grafnot-theme|lang|side|side-mode|right|hint-first:<id>`, `grafnot-list-limits:<id>`, `grafnot-tpl-limit:<id>`. Голые ключи — только legacy-путь до миграции.
 - **Вход:** один профиль — автовход; несколько — экран `ProfilePicker` (вход, создание пустого, переименование, удаление через arm-confirm). Смена — кнопкой в настройках; дерево перемонтируется (`key={profileId}`), сессия (поиск, модалки, активный промпт) сбрасывается.
 - **Миграция legacy:** первый запуск без реестра переносит `grafnot-store-v2` и голые префы в профиль «Основной» только после проверенной записи (read-back равен записанному); при нехватке места — блокирующий экран (скачать legacy / повторить / начать с пустого), реестр не создаётся, legacy цел, фантомных профилей нет. Нечитаемый legacy — блокировка до явного выбора; уцелевший остаток позже импортируется из пикера как отдельный профиль (тоже с проверкой записи).
 - **Ошибка чтения реестра (F2):** исключение getItem — отдельный статус unavailable, а не первый запуск. До успешного чтения создание реестра, восстановление и legacy-миграция не запускаются. Блокирующий экран с повтором запуска сохраняет исходные профили и различает ошибки чтения и записи. Только отсутствующий ключ (null) считается первым запуском; пустая строка — повреждённые данные.
@@ -92,6 +93,8 @@ Store { notes, tasks, trash, trashTasks, graphs, prompts, customTpls, activeId, 
 ```
 src/
   App.tsx         — стор, действия, каркас (rail/tabbar/шапка), палитра (Ctrl+K), роутер хешей, хоткеи
+  ui/navMode.ts   — автоматический и явный режимы навигации (чистые) + тесты
+  ui/useMedia.ts  — общий хук медиазапросов для оболочки и недели
   Palette.tsx     — Quick Add / палитра (группы по 3–4, Enter/Esc)
   paletteModel.ts — filterPalette (чистая) + тесты
   SettingsPage.tsx — настройки страницей #/settings/<section> (профили, вид, корзина, клавиши, данные)
@@ -123,7 +126,7 @@ src/
   data.ts         — шаблоны {name, body, defaults} + 4 встроенных; SearchItem (+kind=prompt)
    index.css       — обе темы, rail-режимы, адаптив, подсветка совпадений, coarse-цели 44px (S11)
    JourneyMap.md — персона, эмоциональная кривая, этапы и точки роста
-   promptUtils.test.ts, tplFilter.test.ts, store.test.ts, trashRestore.test.ts, graphLayout.test.ts, promptData.test.ts, placement/router/useUndo.test.ts, weight-guard.test.js, paletteModel.test.ts, linkSuggest.test.ts, taskGroups.test.ts, weekCal.test.ts, promptLibrary.test.ts, workbenchModel.test.ts, imageTags.test.ts, builderModel.test.ts, mapCamera.test.ts — 165 тестов ядра
+   promptUtils.test.ts, tplFilter.test.ts, store.test.ts, trashRestore.test.ts, graphLayout.test.ts, promptData.test.ts, placement/router/useUndo.test.ts, weight-guard.test.js, paletteModel.test.ts, linkSuggest.test.ts, taskGroups.test.ts, weekCal.test.ts, promptLibrary.test.ts, workbenchModel.test.ts, imageTags.test.ts, builderModel.test.ts, mapCamera.test.ts, navMode.test.ts — 169 тестов ядра
    syncWording/settings/snippetTerms/promptSearch/listPrefs/mobileNav/shortcuts/toast/useListState/useArmConfirm/profiles/prefs/activeId/clipboard/newId/profileBoot.test.ts — 149 тестов UX-проходов и профилей
 scripts/check-weight.js (+ weight-guard.js) — отчёт веса бандла + предохранитель
 scripts/check-i18n.js — missing/parity/dead-гейт i18n-ключей (+ scripts/check-i18n.selftest.js — мутационный самотест гейта)
@@ -131,7 +134,7 @@ scripts/audit-targets.cjs — аудит целей N1 (report/enforce, desktop+
 scripts/check-css-unused.cjs — поиск мёртвых .g-классов
 scripts/gates.cjs, scripts/e2e-weekday-matrix.cjs — раннеры; scripts/runner-lib.cjs — общий вердикт, окружение e2e и свой preview (+ scripts/runner.selftest.cjs)
 e2e/check6.cjs — вход e2e и порядок групп; e2e/harness.cjs — сиды, хелперы, раннер; e2e/manifest.cjs — EXPECTED_CHECKS/GROUP_SIZES
-e2e/groups/*.cjs — 181 e2e-проверка в 35 группах (P5–P28 база, P29 блокировки стора, P30 ErrorBoundary, P31 сохранения, P32 две вкладки, P33 реестр, P34–P36 адопция legacy, S2–S13 разделы после редизайна, G33 показанная заметка — цель команд, G34 восстановление из корзины)
+e2e/groups/*.cjs — 184 e2e-проверки в 35 группах (P5–P28 база, P29 блокировки стора, P30 ErrorBoundary, P31 сохранения, P32 две вкладки, P33 реестр, P34–P36 адопция legacy, S2–S13 разделы после редизайна, G33 показанная заметка — цель команд, G34 восстановление из корзины)
 docs/ux-baseline.md — база S0 «до» (аудит 375 элементов, 5 сценариев; сырой json аудита — локальный артефакт прогона, не в git)
 docs/fitts-report.md — S13 «до/после» по 5 сценариям (D, W, ID) + бюджеты G29
 start.bat         — быстрый запуск dev-сервера на Windows
@@ -144,7 +147,7 @@ start.bat         — быстрый запуск dev-сервера на Window
 | nav-notes, nav-plan, nav-map, nav-prompt, nav-settings | Навигация rail (ровно 4 раздела + настройки) | Есть (S2: nav-home/tasks/cal/trash заменены) |
 | tabbar, tab-notes, tab-plan, tab-add, tab-map, tab-prompts | Мобильный таббар (5 кнопок) | Есть (S2, заменяет bottombar+«Ещё») |
 | quickadd, palette-open, palette, palette-input, palette-item-N | Quick Add / палитра Ctrl+K | Есть (S2) |
-| page-header, save-state | Шапка страницы + статус сохранения | Есть (S2, topbar удалён) |
+| page-header, save-state | Заголовок страницы + единственный статус сохранения: навигация desktop, шапка mobile | Есть (W5: размещение статуса зависит от ширины) |
 | plan-view-list, plan-view-week | Переключатель Планировщика | Есть (S2) |
 | notes-back | Назад из редактора к списку | Есть (S2) |
 | settings-page, settings-nav-profiles/appearance/trash/keys/data | Настройки страницей (модалки удалены) | Есть (S2) |

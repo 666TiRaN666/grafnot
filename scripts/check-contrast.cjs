@@ -28,24 +28,49 @@ function ratio(a, b) {
   return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
 }
 
+// [fg, bg, minimum]: text pairs 4.5:1; control boundaries, status dots and
+// the focus ring 3:1 (WCAG 1.4.11). W5 adds the «Лист» roles
+// (docs/actual/Stage3_Visual_System.md §2, §13).
 const PAIRS = [
   ['--u-text', '--u-bg'],
   ['--u-muted', '--u-bg'],
   ['--u-on-accent', '--u-accent'],
   ['--u-on-danger', '--u-danger'],
+  ['--u-text', '--u-card'],
+  ['--u-text', '--u-sel'],
+  ['--u-text', '--u-hover'],
+  ['--u-muted', '--u-card'],
+  ['--u-muted', '--u-sel'],
+  ['--u-muted', '--u-hover'],
+  ['--u-subtle', '--u-card'],
+  ['--u-subtle', '--u-bg'],
+  ['--u-subtle', '--u-sel'],
+  ['--u-accent', '--u-card'],
+  ['--u-accent', '--u-bg'],
+  ['--u-accent', '--u-sel'],
+  ['--u-accent', '--u-accent-soft'],
+  ['--u-danger', '--u-card'],
+  ['--u-warn', '--u-warn-soft'],
+  ['--u-warn', '--u-card'],
+  ['--u-ok', '--u-card', 3],
+  ['--u-control', '--u-card', 3],
+  ['--u-control', '--u-bg', 3],
+  ['--u-control', '--u-hover', 3],
+  ['--u-focus', '--u-card', 3],
+  ['--u-focus', '--u-bg', 3],
 ];
 
 let fail = 0;
 for (const theme of ['light', 'dark']) {
   const vars = block(theme);
-  for (const [fg, bg] of PAIRS) {
+  for (const [fg, bg, min = 4.5] of PAIRS) {
     if (!vars[fg] || !vars[bg]) {
       console.error(`MISSING ${theme} ${fg} or ${bg}`);
       fail++;
       continue;
     }
     const r = ratio(vars[fg], vars[bg]);
-    const ok = r >= 4.5;
+    const ok = r >= min;
     console.log(`${theme} ${fg}/${bg}: ${r.toFixed(2)} ${ok ? 'OK' : 'FAIL'}`);
     if (!ok) fail++;
   }

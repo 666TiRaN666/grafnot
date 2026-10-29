@@ -174,6 +174,7 @@ export type IconName =
   | 'sliders'
   | 'menu'
   | 'panel'
+  | 'search'
   | 'prompt';
 
 const PATHS: Record<IconName, ReactNode> = {
@@ -249,9 +250,16 @@ const PATHS: Record<IconName, ReactNode> = {
       <line x1="15" y1="5" x2="15" y2="19" />
     </>
   ),
+  search: (
+    <>
+      <circle cx="11" cy="11" r="6.5" />
+      <line x1="16" y1="16" x2="20.5" y2="20.5" />
+    </>
+  ),
 };
 
-export function Icon({ n, size = 19 }: { n: IconName; size?: number }) {
+/** «Лист» icons: 18 px outline, colour inherited (Stage3_Visual_System.md §7). */
+export function Icon({ n, size = 18 }: { n: IconName; size?: number }) {
   return (
     <span className="g-ico">
       <svg

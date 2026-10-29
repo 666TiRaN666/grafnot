@@ -45,6 +45,9 @@ const Palette = lazy(() => import('./Palette').then((m) => ({ default: m.Palette
 import type { PaletteEntry } from './paletteModel';
 import { navigate, parseRoute, useRoute } from './ui/router';
 import type { RouteSection } from './ui/router';
+import { NAV_AUTO_MIN, navOpen, parseNavMode } from './ui/navMode';
+import type { NavMode } from './ui/navMode';
+import { useMedia } from './ui/useMedia';
 import { exportRaw, exportMemory } from "./exportRaw";
 import { SNIPPET_LEN, buildTplEntries, imageInit, makeSnippet, promptPreview } from "./promptUtils";
 import { LLM_TEMPLATES } from "./data";
@@ -102,7 +105,15 @@ export default function App() {
     const v = load(prefKeyFor('lang', profileId ?? undefined), 'RU');
     return v === 'EN' || v === 'KZ' || v === 'RU' ? v : 'RU';
   });
-  const [sideOpen, setSideOpen] = useState(() => load(prefKeyFor('side', profileId ?? undefined), '1') === '1');
+  // W5: rail mode = explicit choice (grafnot-side-mode) or auto by window
+  // width. The legacy grafnot-side pref is not read: it was rewritten on
+  // every mount and cannot tell a user choice from the default.
+  const [sideMode, setSideMode] = useState<NavMode>(() => parseNavMode(load(prefKeyFor('sideMode', profileId ?? undefined), 'auto')));
+  const wideEnough = useMedia(`(min-width: ${NAV_AUTO_MIN}px)`);
+  const sideOpen = navOpen(sideMode, wideEnough);
+  // Search and save status live in the rail on desktop, in the header on
+  // phones (the rail is hidden there): one element each, testids stay unique.
+  const isPhone = useMedia('(max-width: 760px)');
   const [rightOpen, setRightOpen] = useState(() => load(prefKeyFor('right', profileId ?? undefined), '1') === '1');
   const [bootStore] = useState(() => {
     if (!profileId)
@@ -298,8 +309,9 @@ export default function App() {
     go('map');
   };
 
+  // Alt+0: panels back to their defaults (rail: auto by window width).
   const resetPanels = () => {
-    setSideOpen(true);
+    setSideMode('auto');
     setRightOpen(true);
   };
 
@@ -314,8 +326,8 @@ export default function App() {
   }, [lang, profileId]);
 
   useEffect(() => {
-    if (profileId) save(prefKeyFor('side', profileId), sideOpen ? '1' : '0');
-  }, [sideOpen, profileId]);
+    if (profileId) save(prefKeyFor('sideMode', profileId), sideMode);
+  }, [sideMode, profileId]);
 
   useEffect(() => {
     if (profileId) save(prefKeyFor('right', profileId), rightOpen ? '1' : '0');
@@ -679,7 +691,7 @@ export default function App() {
     setTheme(load(prefKeyFor('theme', id), 'light') === 'dark' ? 'dark' : 'light');
     const v = load(prefKeyFor('lang', id), 'RU');
     setLang(v === 'EN' || v === 'KZ' || v === 'RU' ? v : 'RU');
-    setSideOpen(load(prefKeyFor('side', id), '1') === '1');
+    setSideMode(parseNavMode(load(prefKeyFor('sideMode', id), 'auto')));
     setRightOpen(load(prefKeyFor('right', id), '1') === '1');
     resetSession();
     setProfileId(id);
@@ -706,7 +718,7 @@ export default function App() {
     setStoreBlocked(null);
     setStore(fresh);
     setTheme('light');
-    setSideOpen(true);
+    setSideMode('auto');
     setRightOpen(true);
     resetSession();
     setProfileId(profile.id);
@@ -1270,6 +1282,38 @@ export default function App() {
           })()
         : null;
 
+  const shellBlocked = storeBlocked !== null || boot.registryFailed;
+  const saveText =
+    saveState === 'saved'
+      ? lastSavedAt
+        ? `${tr("savedLocal", lang)} · ${lastSavedAt}`
+        : tr("savedLocal", lang)
+      : saveState === 'pending'
+        ? tr('savePending', lang)
+        : saveState === 'failed'
+          ? tr('saveFailed', lang)
+          : tr('saveConflict', lang);
+  // W5: one search entry and one save status per page — in the rail on
+  // desktop, in the header bar on phones (the rail is hidden there).
+  const searchBtn = isPhone ? (
+    <button type="button" data-testid="palette-open" disabled={shellBlocked} className="s-searchbtn" onClick={() => setPaletteOpen(true)}>
+      <span>{tr('search_ph', lang)}</span>
+      <kbd className="g-kbd">Ctrl K</kbd>
+    </button>
+  ) : (
+    <button type="button" data-testid="palette-open" disabled={shellBlocked} className="s-navbtn s-search" title={tr('search_ph', lang)} aria-label={tr('navSearch', lang)} onClick={() => setPaletteOpen(true)}>
+      <Icon n="search" />
+      {sideOpen && <span className="s-navlbl">{tr('navSearch', lang)}</span>}
+      {sideOpen && <kbd className="g-kbd">Ctrl K</kbd>}
+    </button>
+  );
+  const saveStatus = (
+    <div data-testid="save-state" role="status" aria-live="polite" title={saveText} className={`g-status${saveState === 'saved' ? '' : ' g-status-bad'}`}>
+      <span className="g-pulse" />
+      <span className="s-statustext">{saveText}</span>
+    </div>
+  );
+
   return (
     <ErrorBoundary key="root" lang={lang} profileId={profileId} onHome={() => go('notes')}>
     <div className="g-app" data-theme={theme}>
@@ -1277,25 +1321,27 @@ export default function App() {
         <aside className={`s-rail${sideOpen ? '' : ' collapsed'}`}>
           <button
             type="button"
-            className="s-railbtn"
+            className="s-railbtn s-toggle"
             title={tr('menu', lang)}
             aria-label={tr('menu', lang)}
-            onClick={() => setSideOpen((v) => !v)}
+            aria-expanded={sideOpen}
+            onClick={() => setSideMode(sideOpen ? 'closed' : 'open')}
           >
             <Icon n="menu" />
           </button>
           <button
             type="button"
-            title={tr('newNote', lang)}
-            aria-label={tr('newNote', lang)}
+            title={tr('navNewNote', lang)}
+            aria-label={tr('navNewNote', lang)}
             data-testid="quickadd"
-            disabled={storeBlocked !== null || boot.registryFailed}
+            disabled={shellBlocked}
             className="s-railbtn s-create"
             onClick={() => setPaletteOpen(true)}
           >
             <Icon n="plus" />
-            {sideOpen && <span className="s-navlbl">{tr('newNote', lang)}</span>}
+            {sideOpen && <span className="s-navlbl">{tr('navNewNote', lang)}</span>}
           </button>
+          {!isPhone && searchBtn}
           <div className="s-nav">
             {shellBtn('note', 'nav-notes', tr('notebooks', lang), section === 'notes', () => go('notes'))}
             {shellBtn('tasks', 'nav-plan', tr('planT', lang), section === 'plan', () => go('plan', 'list'), openCount)}
@@ -1303,6 +1349,7 @@ export default function App() {
             {shellBtn('prompt', 'nav-prompt', tr('nav_prompt', lang), section === 'prompts', () => go('prompts'))}
           </div>
           <div className="s-railfoot">
+            {!isPhone && saveStatus}
             {shellBtn('sliders', 'nav-settings', tr('settings', lang), section === 'settings', () => go('settings', 'profiles'), trash.length + trashTasks.length)}
           </div>
         </aside>
@@ -1310,22 +1357,8 @@ export default function App() {
         <div className="s-main">
           <header data-testid="page-header" className="s-header">
             <h1 className="s-title">{sectionTitle}</h1>
-            <button type="button" data-testid="palette-open" disabled={storeBlocked !== null || boot.registryFailed} className="s-searchbtn" onClick={() => setPaletteOpen(true)}>
-              <span>{tr('search_ph', lang)}</span>
-              <kbd className="g-kbd">Ctrl K</kbd>
-            </button>
-            <div data-testid="save-state" role="status" aria-live="polite" className={`g-status${saveState === 'saved' ? '' : ' g-status-bad'}`}>
-              <span className="g-pulse" />
-              {saveState === 'saved'
-                ? lastSavedAt
-                  ? `${tr("savedLocal", lang)} · ${lastSavedAt}`
-                  : tr("savedLocal", lang)
-                : saveState === 'pending'
-                  ? tr('savePending', lang)
-                  : saveState === 'failed'
-                    ? tr('saveFailed', lang)
-                    : tr('saveConflict', lang)}
-            </div>
+            {isPhone && searchBtn}
+            {isPhone && saveStatus}
           </header>
           <div className="s-strip">
             {saveState === 'failed' && (

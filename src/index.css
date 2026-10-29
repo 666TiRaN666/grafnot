@@ -23,7 +23,10 @@
   --shadow-lg: 0 12px 32px rgba(0,0,0,.5);
   --topbar: rgba(21,24,29,.9);
 }
-.g-app { background: var(--bg); color: var(--text); transition: background .25s, color .25s; }
+/* W5 «Лист»: the whole app is one surface; areas are split by lines. The
+   page itself has no frame around it. */
+body { margin: 0; }
+.g-app { background: var(--u-card); color: var(--text); transition: background .25s, color .25s; }
 .g-app ::selection { background: var(--accent-soft); }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
@@ -34,9 +37,10 @@ button { font-family: inherit; }
   .g-app *, .g-app *::before, .g-app *::after { transition: none !important; animation: none !important; }
 }
 
-/* page header (S2 shell) */
-.s-header { display: flex; align-items: center; gap: 14px; padding: 0 20px; min-height: 60px; background: var(--topbar); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 20; }
-.s-title { margin: 0; font-size: 17px; font-weight: 800; letter-spacing: -.02em; white-space: nowrap; }
+/* page header: a quiet section-title row on desktop (search and save status
+   live in the rail, W5); phones keep the sticky bar (see max-width 760px). */
+.s-header { display: flex; align-items: center; gap: 14px; padding: 16px 0 4px; }
+.s-title { margin: 0; font-size: 15px; font-weight: 650; white-space: nowrap; color: var(--u-text); }
 .s-searchbtn { flex: 1 1 auto; max-width: 520px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 8px 8px 8px 14px; color: var(--muted); cursor: pointer; transition: border-color .15s, box-shadow .15s; min-height: 40px; }
 .s-searchbtn:hover { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .g-kbd { font-family: inherit; font-size: 11px; color: var(--muted); background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; white-space: nowrap; }
@@ -44,6 +48,10 @@ button { font-family: inherit; }
 .g-status-bad { color: var(--danger); font-weight: 700; }
 .g-pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); animation: pulse 2s infinite; }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+/* The save dot is a state, not an activity: no endless pulse (W5); the
+   lazy-chunk loader keeps it because it explains waiting. */
+.g-status .g-pulse { animation: none; background: var(--u-ok); flex: none; }
+.g-status-bad .g-pulse { background: var(--u-danger); }
 .s-header .g-status { margin-left: auto; }
 
 /* buttons */
@@ -64,25 +72,33 @@ button { font-family: inherit; }
 
 /* tabs */
 
-/* shell frame (S2): rail 224/64 + content + mobile tabbar */
-.s-shell { display: flex; gap: 20px; padding: 20px 24px 24px; max-width: 1460px; margin: 0 auto; align-items: flex-start; min-height: 100vh; }
-.s-rail { width: 224px; flex-shrink: 0; background: var(--side); border: 1px solid var(--border); border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 8px; position: sticky; top: 76px; box-shadow: var(--shadow); }
-.s-rail.collapsed { width: 64px; padding: 14px 8px; }
-.s-railbtn { display: flex; align-items: center; justify-content: center; gap: 10px; background: none; border: 1px solid transparent; border-radius: 10px; color: var(--muted); cursor: pointer; min-height: 44px; padding: 8px; font-size: 13.5px; }
-.s-railbtn:hover { background: var(--bg); color: var(--text); }
-.s-rail.collapsed .s-railbtn { padding: 8px 4px; }
-.s-create { background: var(--accent); color: #fff; font-weight: 700; }
-.s-create:hover { filter: brightness(1.07); color: #fff; }
-.s-nav { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
-.s-navbtn { text-align: left; background: none; border: 1px solid transparent; color: var(--muted); border-radius: 10px; padding: 8px 12px; cursor: pointer; display: flex; align-items: center; gap: 10px; font-size: 13.5px; min-height: 44px; transition: background .15s, color .15s; }
-.s-navbtn:hover { background: var(--bg); color: var(--text); }
-.s-navbtn.active { background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
-.s-rail.collapsed .s-navbtn { justify-content: center; padding: 8px 4px; }
-.s-rail.collapsed .s-navlbl { display: none; }
-.s-badge { background: var(--accent-soft); color: var(--accent-ink); border-radius: 20px; padding: 1px 9px; font-size: 12px; font-weight: 700; margin-left: auto; }
+/* shell frame (W5 «Лист»): full-height rail 224/64 split from the content
+   by a line, no cards; mobile tabbar below 760px. */
+.s-shell { display: flex; align-items: stretch; min-height: 100vh; }
+.s-rail { width: var(--u-nav-full); flex-shrink: 0; box-sizing: border-box; background: var(--u-card); border-right: 1px solid var(--u-line); padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+.s-rail.collapsed { width: var(--u-nav-mini); }
+.s-railbtn, .s-navbtn { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: none; border: none; border-radius: var(--u-r-sm); color: var(--u-muted); cursor: pointer; min-height: max(36px, var(--u-hit-min)); padding: 0 10px; font-size: 13.5px; transition: background var(--u-d1), color var(--u-d1); }
+.s-railbtn:hover, .s-navbtn:hover { background: var(--u-hover); color: var(--u-text); }
+.s-railbtn:disabled, .s-navbtn:disabled { opacity: .45; cursor: default; background: none; }
+.s-toggle { width: max(36px, var(--u-hit-min)); min-width: max(36px, var(--u-hit-min)); justify-content: center; padding: 0; margin-bottom: 4px; }
+.s-create { background: var(--u-accent-soft); color: var(--u-accent); font-weight: 600; margin-bottom: 4px; }
+.s-create:hover { background: var(--u-sel); color: var(--u-accent); }
+.s-search .g-kbd { margin-left: auto; }
+.s-nav { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
+.s-navbtn.active { background: var(--u-sel); color: var(--u-text); font-weight: 600; }
+.s-navbtn.active .g-ico { color: var(--u-accent); }
+.s-rail.collapsed .s-railbtn, .s-rail.collapsed .s-navbtn { justify-content: center; padding: 0; }
+.s-rail.collapsed .s-navlbl, .s-rail.collapsed .g-kbd, .s-rail.collapsed .s-statustext { display: none; }
+/* counters are plain numbers, not filled badges */
+.s-badge { color: var(--u-muted); font-size: 12px; margin-left: auto; font-variant-numeric: tabular-nums; }
+.s-rail.collapsed .s-badge { display: none; }
 .s-pro { font-size: 11px; font-weight: 800; color: var(--warn); background: var(--warn-soft); border-radius: 6px; padding: 2px 7px; letter-spacing: .04em; margin-left: auto; }
-.s-railfoot { margin-top: 32px; padding-top: 12px; border-top: 1px solid var(--border-soft); display: flex; flex-direction: column; gap: 8px; }
-.s-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.s-railfoot { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--u-line); display: flex; flex-direction: column; gap: 2px; }
+.s-rail .g-status { padding: 6px 10px; font-size: 12px; font-weight: 400; color: var(--u-muted); min-height: 28px; overflow: hidden; }
+.s-rail .g-status-bad { color: var(--u-danger); font-weight: 600; }
+.s-rail .s-statustext { overflow: hidden; text-overflow: ellipsis; }
+.s-rail.collapsed .g-status { justify-content: center; padding: 6px 0; }
+.s-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; padding: 0 24px 24px; }
 .s-strip:empty { display: none; }
 .g-main { flex: 1; min-width: 0; }
 .g-right { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; gap: 14px; }
@@ -192,7 +208,10 @@ button { font-family: inherit; }
   .s-shell { padding: 10px 12px 90px; }
   .s-rail { display: none; }
   .g-status { display: none; }
-  .s-header { padding: 0 12px; gap: 8px; }
+  /* Phones keep the pre-W5 sticky header bar until the M1 package (W12). */
+  .s-main { padding: 0; }
+  .s-header { padding: 0 12px; gap: 8px; min-height: 60px; background: var(--topbar); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 20; }
+  .s-title { font-size: 17px; font-weight: 800; letter-spacing: -.02em; }
   .s-tabbar { display: flex; position: fixed; bottom: 0; left: 0; right: 0; background: var(--topbar); backdrop-filter: blur(12px); border-top: 1px solid var(--border); padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); gap: 6px; z-index: 30; }
   .s-tabbtn { flex: 1; min-width: 0; border: 1px solid transparent; background: none; color: var(--muted); border-radius: 10px; padding: 10px 4px; cursor: pointer; font-size: 12px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 48px; justify-content: center; }
   .s-tabbtn span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
@@ -327,7 +346,9 @@ button.g-noteopen::after { content: ""; position: absolute; inset: 0; }
 /* S3 notes master-detail */
 .n-notes { display: flex; gap: 16px; align-items: flex-start; }
 .n-listpane { width: 300px; flex-shrink: 0; min-width: 0; }
-.n-detail { flex: 1; min-width: 0; }
+/* The editor is capped at 860px: the column must not grow past it, or the
+   context panel drifts away on wide full-bleed screens (W5). */
+.n-detail { flex: 1; min-width: 0; max-width: 860px; }
 .n-editor { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; max-width: 860px; }
 .n-titlebar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .n-titlebar .g-title-in { margin-bottom: 0; flex: 1; min-width: 0; }
@@ -412,7 +433,9 @@ button.g-noteopen::after { content: ""; position: absolute; inset: 0; }
 }
 
 /* S5 plan week: inbox column + 7 day cells, popup, drawer panel */
-.w-grid { display: grid; grid-template-columns: 240px repeat(7, minmax(140px, 1fr)); gap: 10px; margin-top: 14px; align-items: start; }
+/* W5: a week wider than the content column scrolls inside itself, never the
+   page (decided rule, Stage3_Visual_System.md §10.4; column sizes: W11). */
+.w-grid { display: grid; grid-template-columns: 240px repeat(7, minmax(140px, 1fr)); gap: 10px; margin-top: 14px; align-items: start; overflow-x: auto; padding-bottom: 4px; }
 .w-inbox { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 10px; min-height: 200px; }
 .w-inbox-list { display: flex; flex-direction: column; gap: 6px; max-height: 60vh; overflow: auto; }
 .w-day { background: var(--bg); border: 1px solid var(--border-soft); border-radius: 12px; padding: 6px; min-height: 220px; display: flex; flex-direction: column; gap: 6px; cursor: pointer; }

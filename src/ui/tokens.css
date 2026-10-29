@@ -19,6 +19,14 @@
   --u-d2: 180ms;
   --u-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif;
   --u-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+  /* W5 «Лист» layout (docs/actual/Stage3_Visual_System.md §5). */
+  --u-nav-full: 224px;
+  --u-nav-mini: 64px;
+  --u-list-w: 300px;
+  --u-panel-w: 320px;
+  --u-measure: 640px;
+  --u-measure-min: 560px;
+  --u-ed-pad: 40px;
 }
 @media (pointer: coarse) {
   :root {
@@ -36,6 +44,20 @@
   --u-card: #ffffff;
   --u-border: #d7dbe3;
   --u-focus: #2447c4;
+  /* W5 «Лист» roles (Stage3_Visual_System.md §2). */
+  --u-hover: #eef0f3;
+  --u-sel: #e4ebfb;
+  --u-accent-soft: #eaf0fd;
+  --u-subtle: #5b6474;
+  --u-line: #e4e7ec;
+  --u-control: #7f8796;
+  --u-warn: #a2410a;
+  --u-warn-soft: #fdf1e4;
+  --u-ok: #12704f;
+  --u-ok-soft: #e7f5ee;
+  --u-shadow-pop: 0 10px 30px rgba(16, 24, 40, 0.16), 0 1px 3px rgba(16, 24, 40, 0.08);
+  --u-shadow-row: 0 1px 2px rgba(16, 24, 40, 0.1), 0 0 0 1px rgba(16, 24, 40, 0.04);
+  --u-scrim: rgba(16, 24, 40, 0.32);
 }
 .g-app[data-theme='dark'] {
   --u-bg: #0e1013;
@@ -48,6 +70,20 @@
   --u-card: #171b21;
   --u-border: #333b47;
   --u-focus: #9dbcff;
+  /* W5 «Лист» roles (Stage3_Visual_System.md §2). */
+  --u-hover: #1f242c;
+  --u-sel: #20304f;
+  --u-accent-soft: #1b2742;
+  --u-subtle: #a3abb8;
+  --u-line: #262c35;
+  --u-control: #7a8494;
+  --u-warn: #fdb022;
+  --u-warn-soft: #2a2111;
+  --u-ok: #4ad99a;
+  --u-ok-soft: #0e241b;
+  --u-shadow-pop: 0 10px 30px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --u-shadow-row: 0 1px 2px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --u-scrim: rgba(0, 0, 0, 0.5);
 }
 @media (prefers-reduced-motion: reduce) {
   :root {

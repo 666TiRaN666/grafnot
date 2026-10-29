@@ -3,7 +3,7 @@ export type Theme = 'light' | 'dark';
 export type Page = 'home' | 'notes' | 'tasks' | 'cal' | 'map' | 'prompt';
 
 export const STR: Record<string, Record<Lang, string>> = {
-  nav_prompt: { RU: 'Промпт-помощник', EN: 'Prompt-assist', KZ: 'Промпт-көмекші' },
+  nav_prompt: { RU: 'Промпты', EN: 'Prompts', KZ: 'Промпттар' },
   nav_tasks: { RU: 'Задачи', EN: 'Tasks', KZ: 'Тапсырмалар' },
   emptyTasksActive: { RU: 'Нет активных задач — добавьте первую выше', EN: 'No active tasks — add the first one above', KZ: 'Белсенді тапсырма жоқ — жоғарыдан қосыңыз' },
 
@@ -23,10 +23,12 @@ export const STR: Record<string, Record<Lang, string>> = {
   makeTask: { RU: '+ Задача', EN: '+ Task', KZ: '+ Тапсырма' },
   search_ph: { RU: 'Поиск заметок, задач, дат…', EN: 'Search notes, tasks, dates…', KZ: 'Жазба, тапсырма, күн іздеу…' },
   newNote: { RU: '+ Новая заметка', EN: '+ New Note', KZ: '+ Жаңа жазба' },
+  navNewNote: { RU: 'Новая заметка', EN: 'New note', KZ: 'Жаңа жазба' },
+  navSearch: { RU: 'Поиск', EN: 'Search', KZ: 'Іздеу' },
   newNoteTitle: { RU: 'Новая заметка', EN: 'Untitled note', KZ: 'Жаңа жазба' },
-  notebooks: { RU: 'Тетради', EN: 'Notebooks', KZ: 'Дәптерлер' },
+  notebooks: { RU: 'Заметки', EN: 'Notes', KZ: 'Жазбалар' },
   tasks: { RU: 'Задачи', EN: 'Tasks', KZ: 'Тапсырмалар' },
-  kmap: { RU: 'Карта знаний', EN: 'Knowledge Map', KZ: 'Білім картасы' },
+  kmap: { RU: 'Карта', EN: 'Map', KZ: 'Карта' },
   settings: { RU: 'Настройки', EN: 'Settings', KZ: 'Баптаулар' },
   planT: { RU: 'План', EN: 'Plan', KZ: 'Жоспар' },
   planList: { RU: 'Список', EN: 'List', KZ: 'Тізім' },
