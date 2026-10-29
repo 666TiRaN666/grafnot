@@ -61,6 +61,7 @@ export const STR: Record<string, Record<Lang, string>> = {
   toastNewNote: { RU: 'Новая заметка создана', EN: 'New note created', KZ: 'Жаңа жазба жасалды' },
   toastNoteDeleted: { RU: 'Заметка в корзине', EN: 'Note moved to trash', KZ: 'Жазба себетке салынды' },
   undoToast: { RU: 'Отменить', EN: 'Undo', KZ: 'Болдырмау' },
+  toastUndoGone: { RU: 'Отмена недоступна: данные профиля сменились', EN: 'Undo is no longer available: profile data changed', KZ: 'Болдырмау қолжетімсіз: профиль деректері өзгерді' },
   emptyNoteTasks: { RU: 'Пока нет задач', EN: 'No tasks yet', KZ: 'Тапсырма жоқ' },
   linkCreate: { RU: 'Создать «{q}»', EN: 'Create "{q}"', KZ: '«{q}» жасау' },
   blkHeading: { RU: 'Заголовок', EN: 'Heading', KZ: 'Тақырып' },

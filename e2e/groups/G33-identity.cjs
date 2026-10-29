@@ -3,6 +3,8 @@
 // first makes the shown note differ from the last opened one (Back after a
 // list click, a deep link over a reload, or a manual hash change) and then
 // requires the command to change the shown note and nothing else.
+// D2 (W3): deferred toast actions (Undo) act on the entity and profile they
+// were armed for; a profile switch drops them visibly.
 module.exports = async function (t) {
   const { seedProfiles, v5store, seedNote, beginGroup, groupActive, reseed, check, assert, page } = t;
 
@@ -126,6 +128,66 @@ module.exports = async function (t) {
     await waitStore(() => (JSON.parse(window.localStorage.getItem('grafnot-store-p1')).notes.find((n) => n.id === 'a') || {}).linkedIds.includes('b'), 'link not in Alpha');
     const s = await storeOf();
     assert(noteOf(s, 'c').linkedIds.length === 0, 'link added to Gamma');
+  });
+
+  await check('D2 unlink Undo after opening another note restores the original note', async () => {
+    const linked = seedProfiles({
+      profiles: [{ id: 'p1', name: 'Основной', created: 1 }],
+      activeId: 'p1',
+      stores: {
+        p1: v5store([
+          seedNote('a', 'Alpha', { linkedIds: ['b'], updated: 3 }),
+          seedNote('b', 'Beta', { updated: 2 }),
+          seedNote('c', 'Gamma', { updated: 1 }),
+        ], 'a'),
+      },
+    });
+    await reseed(page, linked);
+    await hashIs('#/notes/a');
+    await page.locator('.g-card', { hasText: 'Связанное' }).locator('li', { hasText: 'Beta' }).locator('.g-unlink').click();
+    await page.locator('.g-toast-undo').waitFor();
+    await page.getByTestId('note-item').filter({ hasText: 'Gamma' }).first().click();
+    await titleIs('Gamma');
+    await page.locator('.g-toast-undo').first().click();
+    await waitStore(() => (JSON.parse(window.localStorage.getItem('grafnot-store-p1')).notes.find((n) => n.id === 'a') || {}).linkedIds.includes('b'), 'link not restored into Alpha');
+    const s = await storeOf();
+    assert(noteOf(s, 'c').linkedIds.length === 0, 'Undo added the link to Gamma');
+  });
+
+  await check('D2 graph delete Undo never reaches the next profile', async () => {
+    const two = seedProfiles({
+      profiles: [{ id: 'p1', name: 'Основной', created: 1 }, { id: 'p2', name: 'Второй', created: 2 }],
+      activeId: 'p1',
+      stores: {
+        p1: v5store([seedNote('a', 'Alpha')], 'a', { graphs: [{ id: 'g1', title: 'Курс', noteIds: ['a'] }] }),
+        p2: v5store([seedNote('m', 'Mu')], 'm'),
+      },
+    });
+    await reseed(page, two);
+    await page.getByTestId('profile-picker').waitFor();
+    await page.getByTestId('profile-row-p1').locator('button').first().click();
+    await page.getByTestId('nav-map').click();
+    await page.locator('svg.g-canvas').waitFor();
+    await page.getByTestId('map-graphs').click();
+    await page.getByTestId('map-graphs-pop').getByRole('menuitem', { name: /Курс/ }).click();
+    await page.getByTestId('map-menu').click();
+    await page.getByRole('menuitem', { name: 'Удалить граф' }).click();
+    await page.locator('.g-toast-undo').waitFor();
+    // Switch profiles while the Undo toast is still alive.
+    await page.getByTestId('nav-settings').click();
+    await page.getByRole('button', { name: 'Сменить профиль' }).click();
+    await page.locator('.g-modal').getByRole('button', { name: 'Сменить профиль', exact: true }).click();
+    await page.getByTestId('profile-picker').waitFor();
+    const told = await page.locator('.g-toasts', { hasText: 'Отмена недоступна' }).waitFor({ timeout: 3000 }).then(() => true, () => false);
+    await page.getByTestId('profile-row-p2').locator('button').first().click();
+    await page.getByTestId('nav-notes').waitFor();
+    // A stale Undo must be gone; if one is still offered, using it must not write here.
+    const stale = page.locator('.g-toast-undo');
+    if (await stale.count()) await stale.first().click();
+    await page.waitForTimeout(1200);
+    const p2 = await page.evaluate(() => JSON.parse(window.localStorage.getItem('grafnot-store-p2') || 'null'));
+    assert(p2 && p2.graphs.length === 0, 'graph from p1 leaked into p2: ' + JSON.stringify(p2 && p2.graphs));
+    assert(told, 'no "Undo unavailable" message after the profile switch');
   });
 
   await check('D1 reload without a hash lands on the last shown note', async () => {

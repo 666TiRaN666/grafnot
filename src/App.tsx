@@ -223,22 +223,43 @@ export default function App() {
     setToasts((p) => dismissToast(p, id));
   };
 
+  // D2 (W3): a store session ends whenever the whole store is swapped
+  // (profile switch or creation, back to the picker, cross-tab reload,
+  // conflict resolution — all via resetSession). Deferred actions carry the
+  // session they were armed in and never run in another one.
+  const sessionEpochRef = useRef(0);
+  const sessionProfileRef = useRef(profileId);
+  sessionProfileRef.current = profileId;
+
   // Action toasts (S3: Undo for delete/unlink, Open for note tasks). The
   // callback map lives in a ref so firing never re-renders; action toasts
   // stay the full N4 window (8s), plain toasts keep their short TTL.
-  const toastActionsRef = useRef(new Map<number, () => void>());
+  const toastActionsRef = useRef(new Map<number, { fn: () => void; epoch: number; profileId: string | null }>());
   const TOAST_UNDO_MS = 8000;
   const notifyAction = (text: string, actionLabel: string, fn: () => void) => {
     const id = idRef.current++;
-    toastActionsRef.current.set(id, fn);
+    toastActionsRef.current.set(id, { fn, epoch: sessionEpochRef.current, profileId: sessionProfileRef.current });
     setToasts((p) => [...p, { id, text, actionLabel }].slice(-TOAST_QUEUED));
     armToast(id, TOAST_UNDO_MS);
   };
   const fireToastAction = (id: number) => {
-    const fn = toastActionsRef.current.get(id);
+    const entry = toastActionsRef.current.get(id);
     toastActionsRef.current.delete(id);
     closeToast(id);
-    fn?.();
+    if (!entry) return;
+    if (entry.epoch !== sessionEpochRef.current || entry.profileId !== sessionProfileRef.current) {
+      notify(tr('toastUndoGone', lang));
+      return;
+    }
+    entry.fn();
+  };
+  /** End the store session: pending toast actions are dropped, visibly. */
+  const dropSessionActions = () => {
+    sessionEpochRef.current += 1;
+    const ids = [...toastActionsRef.current.keys()];
+    toastActionsRef.current.clear();
+    for (const id of ids) closeToast(id);
+    if (ids.length > 0) notify(tr('toastUndoGone', lang));
   };
 
   /** Titles identify notes for links, so they must stay unique. */
@@ -614,6 +635,7 @@ export default function App() {
 
   const resetSession = () => {
     setPaletteOpen(false);
+    dropSessionActions();
   };
 
   /** Enter a profile: isolated store + prefs, clean session state.
@@ -1756,6 +1778,7 @@ export default function App() {
                   switchConfirm.reset();
                 }
                 setProfileConfirmOpen(false);
+                resetSession();
                 setProfileId(null);
               }}
             >
