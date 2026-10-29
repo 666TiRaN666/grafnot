@@ -106,7 +106,8 @@ module.exports = async function (t) {
       await m.getByTestId('tab-notes').click();
       assert((await m.evaluate(() => window.location.hash)).includes('#/notes'), 'tab notes broken');
       await m.getByTestId('tab-add').click();
-      await m.getByTestId('palette').waitFor();
+      await m.getByTestId('editor').getByRole('textbox').waitFor();
+      assert(await m.getByTestId('editor').getByRole('textbox').evaluate(el => document.activeElement === el), 'mobile creation focus missing');
     } finally {
       await m.close();
       await mctx.close();

@@ -1,5 +1,6 @@
 // E2E group G19-notes (run order: e2e/check6.cjs).
 module.exports = async function (t) {
+  const { openContext } = t;
   const { seedProfiles, v5store, seedNote, beginGroup, check, assert, page } = t;
 
   // ---------- GROUP G19-notes: S3 master-detail, [[ links, selection/slash menus, undo delete ----------
@@ -105,11 +106,11 @@ module.exports = async function (t) {
     await page.locator('.g-title-in').waitFor();
     // P4: ctx panel mounts with the editor chunk; clicking tabs before that
     // settles loses the switch under suite load.
-    await page.getByTestId('ctx-tabs').waitFor();
-    for (const t of ['ctx-tab-links', 'ctx-tab-similar', 'ctx-tab-tasks', 'ctx-tab-prompts', 'ctx-tab-snip']) {
+    await openContext(page);
+    for (const t of ['ctx-tab-links', 'ctx-tab-tasks', 'ctx-tab-prompts']) {
       assert((await page.getByTestId(t).count()) === 1, 'no ' + t);
     }
     await page.getByTestId('ctx-tab-tasks').click();
-    await page.locator('.g-note-tasks', { hasText: '(1)' }).waitFor();
+    await page.getByTestId('ctx-panel').getByRole('tabpanel').filter({ hasText: '(1)' }).waitFor();
   });
 };

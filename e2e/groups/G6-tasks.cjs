@@ -1,5 +1,6 @@
 // E2E group G6-tasks (run order: e2e/check6.cjs).
 module.exports = async function (t) {
+  const { openContext } = t;
   const { seedProfiles, seedLegacy, v5store, seedNote, reseed, beginGroup, check, assert, page } = t;
 
   // ---------- GROUP G6-tasks: settings, snippets, trash, adopted tasks (one Probe note) ----------
@@ -29,11 +30,11 @@ module.exports = async function (t) {
     await check('P16 note snippets termed заготовки', async () => {
     await page.getByTestId('nav-notes').click();
     await page.locator('.g-noterow').first().locator('.g-noteopen').click();
-    await page.getByTestId('ctx-tab-snip').click();
-    const panel = await page.locator('.g-right').innerText();
+    await page.getByTestId('insert-open').click();
+    const panel = await page.getByTestId('insert-menu').innerText();
     assert(panel.includes('Заготовки'), `no snippets title: ${panel}`);
     assert(!panel.includes('Шаблоны'), 'old term present');
-    await page.locator('.g-right').getByRole('button', { name: 'Лекция', exact: true }).click();
+    await page.getByTestId('insert-menu').getByRole('menuitem', { name: 'Лекция', exact: true }).click();
     await page.locator('.g-toasts', { hasText: 'Заготовка вставлена' }).waitFor();
     await page.locator('.tiptap', { hasText: 'Лекция' }).waitFor();
   });
@@ -144,8 +145,8 @@ module.exports = async function (t) {
     assert((await page.getByTestId('prompt-result').innerText()).includes('(blue hair)'), 'legacy image syntax lost');
     await page.getByTestId('nav-notes').click();
     await page.locator('.g-noterow', { hasText: 'Legacy note' }).first().locator('.g-noteopen').click();
-    await page.getByTestId('ctx-tab-prompts').click();
-    const prompts = page.locator('.g-card', { hasText: 'Промпты' });
+    await openContext(page, 'prompts');
+    const prompts = page.getByTestId('ctx-panel').getByRole('tabpanel');
     await prompts.waitFor();
     assert((await prompts.innerText()).includes('Legacy blue art'), 'legacy note link lost');
   });

@@ -5,6 +5,7 @@ import { tr } from './i18n';
 import { unlinkedNotes } from './store';
 import type { Graph, Note } from './store';
 import { Hi } from './widgets';
+import { noteAccessibleName, noteDisplayName } from "./noteName";
 import { useListState } from "./useListState";
 import { TPL_LIMITS } from "./listPrefs";
 import { PREVIEW_LEN } from "./promptUtils";
@@ -217,7 +218,6 @@ function GraphCanvas({
     linkedSet.add(a);
     linkedSet.add(b);
   }
-  const byId = new Map(nodes.map((n) => [n.id, n]));
   const short = (s: string) => (s.length > 14 ? s.slice(0, 13) + '…' : s || '—');
 
   return (
@@ -257,7 +257,7 @@ function GraphCanvas({
                 data-node={n.id}
                 tabIndex={0}
                 role="button"
-                aria-label={byId.get(n.id)?.title || ''}
+                aria-label={noteAccessibleName(n, lang)}
                 onKeyDown={(ke) => {
                   if (ke.key === 'Enter' || ke.key === ' ') {
                     ke.preventDefault();
@@ -273,8 +273,8 @@ function GraphCanvas({
                   r={r}
                   data-id={n.id}
                 />
-                <text className="g-vlabel" x={p.x} y={p.y + r + 14}>
-                  {short(byId.get(n.id)?.title ?? '')}
+                <text className={"g-vlabel" + (!n.title.trim() ? " g-note-derived" : "")} x={p.x} y={p.y + r + 14}>
+                  {short(noteDisplayName(n, lang))}
                 </text>
               </g>
             );
@@ -299,7 +299,7 @@ export function MapView({
   onDeleteGraph,
   onToggleMember,
   onLinkNotes,
-  profileId,
+  profileId, routeParam, onRoute,
 }: {
   lang: Lang;
   notes: Note[];
@@ -312,7 +312,7 @@ export function MapView({
   onDeleteGraph: (id: string) => void;
   onToggleMember: (noteId: string, graphId: string) => void;
   onLinkNotes: (fromId: string, toId: string) => void;
-  profileId: string;
+  profileId: string; routeParam?: string; onRoute: (param?: string) => void;
 }) {
   const [scope, setScope] = useState<string>("all");
   const [peekId, setPeekId] = useState<string | null>(null);
@@ -331,6 +331,15 @@ export function MapView({
   const [hlOrphans, setHlOrphans] = useState(false);
   const apiRef = useRef<CanvasApi | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const routeNote = routeParam?.startsWith('note/') ? routeParam.slice(5) : null;
+  useEffect(() => {
+    setScope(routeNote ? 'all' : routeParam && (routeParam === 'ungrouped' || graphs.some(g => g.id === routeParam)) ? routeParam : 'all');
+    setPeekId(routeNote && notes.some(n => n.id === routeNote) ? routeNote : null);
+    const frame = requestAnimationFrame(() => { if (routeNote) apiRef.current?.centerOn(routeNote); });
+    return () => cancelAnimationFrame(frame);
+    // Routing changes selection; graph edits never reset a user's camera.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeParam]);
 
   const graph = graphs.find((g) => g.id === scope) ?? null;
   const scopeNotes = graph ? notes.filter((n) => graph.noteIds.includes(n.id)) : scope === "ungrouped" ? notes.filter((n) => !graphs.some((g) => g.noteIds.includes(n.id))) : notes;
@@ -450,6 +459,7 @@ export function MapView({
     if (!graph) return;
     onDeleteGraph(graph.id);
     setScope("all");
+    onRoute();
     setMenuOpen(false);
   };
 
@@ -457,6 +467,7 @@ export function MapView({
 
   return (
     <div className="m-map" data-testid="map-view">
+      {routeNote && <button type="button" className="g-btn sm" data-testid="map-return-note" onClick={() => onOpen(routeNote)}>← {tr("goBack", lang)}</button>}
       <div className="m-searchrow">
         <input
           ref={searchRef}
@@ -494,7 +505,7 @@ export function MapView({
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => pickSearch(n.id)}
               >
-                <Hi text={n.title || tr("newNoteTitle", lang)} q={searchQ} />
+                <span className={!n.title.trim() ? "g-note-derived" : undefined} title={noteAccessibleName(n, lang)}><Hi text={noteDisplayName(n, lang)} q={searchQ} /></span>
               </button>
             ))}
           </div>
@@ -594,6 +605,7 @@ export function MapView({
                 className="m-popitem"
                 onClick={() => {
                   setScope("all");
+                  onRoute();
                   setSwitcherOpen(false);
                 }}
               >
@@ -607,6 +619,7 @@ export function MapView({
                   className="m-popitem"
                   onClick={() => {
                     setScope(g.id);
+                    onRoute(g.id);
                     setSwitcherOpen(false);
                   }}
                 >
@@ -619,6 +632,7 @@ export function MapView({
                 className="m-popitem"
                 onClick={() => {
                   setScope("ungrouped");
+                  onRoute("ungrouped");
                   setSwitcherOpen(false);
                 }}
               >
@@ -631,6 +645,7 @@ export function MapView({
                 onClick={() => {
                   const id = onCreateGraph("");
                   setScope(id);
+                  onRoute(id);
                   setSwitcherOpen(false);
                 }}
               >
@@ -754,11 +769,11 @@ export function MapView({
       )}
 
       {peek && (
-        <aside className="m-peek" data-testid="map-peek" role="dialog" aria-label={peek.title}>
+        <aside className="m-peek" data-testid="map-peek" role="dialog" aria-label={noteAccessibleName(peek, lang)}>
           <button type="button" className="t-panel-x" aria-label={tr("closeBtn", lang)} onClick={() => setPeekId(null)}>
             ×
           </button>
-          <div className="m-peek-t">{peek.title || tr("newNoteTitle", lang)}</div>
+          <div className={"m-peek-t" + (!peek.title.trim() ? " g-note-derived" : "")}>{noteDisplayName(peek, lang)}</div>
           <div className="muted small">{(peek.text || "").slice(0, PREVIEW_LEN) || "—"}</div>
           <div className="m-peek-actions">
             <button type="button" className="g-btn sm primary" onClick={() => onOpen(peek.id)}>
@@ -804,7 +819,7 @@ export function MapView({
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => makeLink(peek.id, n.id)}
                   >
-                    <Hi text={n.title || tr("newNoteTitle", lang)} q={linkQuery} />
+                    <span className={!n.title.trim() ? "g-note-derived" : undefined} title={noteAccessibleName(n, lang)}><Hi text={noteDisplayName(n, lang)} q={linkQuery} /></span>
                   </button>
                 ))}
             </div>
@@ -891,7 +906,7 @@ export function MapView({
                   checked={graph.noteIds.includes(n.id)}
                   onChange={() => onToggleMember(n.id, graph.id)}
                 />
-                <span>{<Hi text={n.title || tr("newNoteTitle", lang)} q={members.query} />}</span>
+                <span className={!n.title.trim() ? "g-note-derived" : undefined} title={noteAccessibleName(n, lang)}>{<Hi text={noteDisplayName(n, lang)} q={members.query} />}</span>
               </label>
             ))}
             {members.shown < members.filtered.length && (

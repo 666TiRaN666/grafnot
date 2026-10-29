@@ -6,6 +6,7 @@
 // D2 (W3): deferred toast actions (Undo) act on the entity and profile they
 // were armed for; a profile switch drops them visibly.
 module.exports = async function (t) {
+  const { openContext, closeContext, insertCalculation } = t;
   const { seedProfiles, v5store, seedNote, beginGroup, groupActive, reseed, check, assert, page } = t;
 
   const seed = () => seedProfiles({
@@ -112,7 +113,7 @@ module.exports = async function (t) {
 
   await check('D1 calc after Back lands in the shown note', async () => {
     await backToAlpha();
-    await page.getByRole('button', { name: '+ Добавить вычисление' }).click();
+    await insertCalculation(page);
     await waitStore(() => (JSON.parse(window.localStorage.getItem('grafnot-store-p1')).notes.find((n) => n.id === 'a') || {}).calcs.length === 1, 'calc not in Alpha');
     const s = await storeOf();
     assert(noteOf(s, 'c').calcs.length === 0, 'calc added to Gamma');
@@ -144,7 +145,9 @@ module.exports = async function (t) {
     });
     await reseed(page, linked);
     await hashIs('#/notes/a');
-    await page.locator('.g-card', { hasText: 'Связанное' }).locator('li', { hasText: 'Beta' }).locator('.g-unlink').click();
+    await openContext(page);
+    await page.getByTestId('ctx-panel').getByRole('tabpanel').locator('li', { hasText: 'Beta' }).getByRole('button', { name: 'Убрать связь', exact: true }).click();
+    await closeContext(page);
     await page.locator('.g-toast-undo').waitFor();
     await page.getByTestId('note-item').filter({ hasText: 'Gamma' }).first().click();
     await titleIs('Gamma');
@@ -200,5 +203,232 @@ module.exports = async function (t) {
     await page.evaluate(() => { window.location.hash = ''; });
     await page.reload({ waitUntil: 'networkidle' });
     await titleIs('Alpha');
+  });
+
+  // W6: creation and input are pinned to the new note, presentation is derived.
+  const body = (pg = page) => pg.getByTestId('editor').getByRole('textbox');
+  async function createBlank(pg = page) {
+    const before = new URL(pg.url()).hash;
+    await pg.keyboard.press('Control+k');
+    await pg.getByTestId('palette-item-0').click();
+    await pg.waitForFunction(prev => location.hash !== prev && location.hash.startsWith('#/notes/'), before);
+    await pg.getByTestId('title-in').waitFor();
+    return new URL(pg.url()).hash.slice('#/notes/'.length);
+  }
+  async function focusedBody(pg = page) {
+    assert(await pg.evaluate(() => !!document.activeElement?.closest('[data-testid="editor"]')), 'new note body did not receive focus');
+    assert((await pg.getByTestId('title-in').inputValue()) === '', 'new note has a stored automatic title');
+  }
+
+  await check('W6 first RU KZ input, paste and reload stay in the unnamed note', async () => {
+    for (const [lang, text] of [['RU', 'Первая мысль'], ['KZ', 'Ә Ғ Қ Ң Ө Ұ Ү Һ І']]) {
+      await reseed(page, { ...seed(), ['grafnot-lang:p1']: lang });
+      await page.getByTestId('title-in').waitFor();
+      await page.evaluate(() => {
+        window.__w6Frame = null;
+        window.addEventListener('hashchange', () => requestAnimationFrame(() => {
+          window.__w6Frame = !!document.activeElement?.closest('[data-testid="editor"]');
+        }), { once: true });
+      });
+      const id = await createBlank(page);
+      await focusedBody();
+      await page.waitForFunction(() => window.__w6Frame !== null);
+      assert(await page.evaluate(() => window.__w6Frame), 'new body was not focused in the first route frame');
+      await page.keyboard.insertText(text);
+      await body().evaluate(el => {
+        const data = new DataTransfer();
+        data.setData('text/plain', ' paste');
+        el.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data }));
+      });
+      await page.waitForFunction(x => JSON.parse(localStorage.getItem('grafnot-store-p1')).notes.some(n => n.id === x && n.title === '' && n.text.includes(' paste')), id);
+      await page.reload({ waitUntil: 'networkidle' });
+      assert((await page.getByTestId('title-in').inputValue()) === '', 'reload materialized a display name');
+      assert((await body().innerText()).includes(text), 'first input lost on reload');
+      await body().focus();
+      await page.keyboard.press('Control+Home');
+      await page.keyboard.press('Shift+Tab');
+      assert(await page.getByTestId('title-in').evaluate(el => document.activeElement === el), 'Shift+Tab from start did not reach title');
+      assert((await page.title()).includes(text), 'browser title does not use computed name');
+      assert((await storeOf()).notes.find(n => n.id === 'a').title === 'Alpha', 'legacy title changed');
+    }
+  });
+
+  await check('W6 first-key IME, composing Enter Escape and dead key preserve text', async () => {
+    await reseed(page, seed());
+    const id = await createBlank();
+    await focusedBody();
+    const cdp = await page.context().newCDPSession(page);
+    try {
+      await cdp.send('Input.imeSetComposition', { text: 'қазақ', selectionStart: 5, selectionEnd: 5 });
+      await cdp.send('Input.insertText', { text: 'қазақ' });
+      await page.waitForFunction(() => document.querySelector('[data-testid="editor"]')?.textContent.includes('қазақ'));
+      await page.keyboard.press('Enter');
+      await page.keyboard.insertText('/');
+      await page.getByTestId('slash-menu').waitFor();
+      const stableHash = new URL(page.url()).hash;
+      await body().evaluate(el => {
+        for (const key of ['Enter', 'Escape']) el.dispatchEvent(new KeyboardEvent('keydown', { key, code: key, isComposing: true, keyCode: 229, bubbles: true, cancelable: true }));
+      });
+      assert((await page.getByTestId('slash-menu').count()) === 1, 'composing keys ran a menu command or closed the menu');
+      assert(new URL(page.url()).hash === stableHash, 'composition changed route');
+      await page.keyboard.press('Escape');
+      await page.keyboard.press('Backspace');
+      await cdp.send('Input.imeSetComposition', { text: 'cancel', selectionStart: 6, selectionEnd: 6 });
+      await cdp.send('Input.imeSetComposition', { text: '', selectionStart: 0, selectionEnd: 0 });
+      await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Dead', code: 'Quote' });
+      await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Dead', code: 'Quote' });
+      await cdp.send('Input.insertText', { text: 'é' });
+      await page.waitForFunction(x => {
+        const n = JSON.parse(localStorage.getItem('grafnot-store-p1')).notes.find(n => n.id === x);
+        return n?.text.includes('қазақ') && n.text.includes('é') && !n.text.includes('cancel');
+      }, id);
+      assert((await storeOf()).notes.length === 4, 'IME created another note');
+    } finally {
+      await cdp.send('Input.imeSetComposition', { text: '', selectionStart: 0, selectionEnd: 0 }).catch(() => {});
+      await cdp.detach();
+    }
+  });
+
+  await check('W6 two rapid creations keep each first input by id', async () => {
+    await reseed(page, seed());
+    const first = await createBlank();
+    await focusedBody();
+    await page.keyboard.insertText('FIRST');
+    const second = await createBlank();
+    await focusedBody();
+    await page.keyboard.insertText('SECOND');
+    assert(first !== second, 'creation reused an id');
+    await page.waitForFunction(([a, b]) => {
+      const ns = JSON.parse(localStorage.getItem('grafnot-store-p1')).notes;
+      return ns.find(n => n.id === a)?.text === 'FIRST' && ns.find(n => n.id === b)?.text === 'SECOND';
+    }, [first, second]);
+    const ns = (await storeOf()).notes.filter(n => [first, second].includes(n.id));
+    assert(ns.every(n => n.title === ''), 'computed names written into titles');
+    await page.getByTestId('title-in').fill('Named');
+    await page.getByTestId('title-in').press('Enter');
+    await page.getByTestId('title-in').fill('');
+    await page.getByTestId('title-in').press('Enter');
+    await page.waitForFunction(x => JSON.parse(localStorage.getItem('grafnot-store-p1')).notes.find(n => n.id === x)?.title === '', second);
+    await page.goBack();
+    await page.getByTestId('title-in').waitFor();
+    assert((await body().innerText()).includes('FIRST'), 'Back loaded a different document');
+  });
+
+  await check('W6 leaving before a lazy editor mounts cancels its focus request', async () => {
+    const ctx = await t.browser.newContext({ storageState: t.storageStateFor(seed()) });
+    let release;
+    const ready = new Promise(resolve => { release = resolve; });
+    const pg = await ctx.newPage();
+    await pg.route('**/NotesView-*.js', async route => { await ready; await route.continue(); });
+    try {
+      await pg.goto(t.URL + '#/plan/list', { waitUntil: 'domcontentloaded' });
+      await pg.getByTestId('task-search').waitFor();
+      await pg.keyboard.press('Control+k');
+      await pg.getByTestId('palette-item-0').click();
+      await pg.waitForFunction(() => location.hash.startsWith('#/notes/'));
+      await pg.goBack();
+      await pg.getByTestId('task-search').focus();
+      release();
+      await pg.waitForLoadState('networkidle');
+      assert(await pg.getByTestId('task-search').evaluate(el => document.activeElement === el), 'late editor stole focus after Back');
+      await pg.keyboard.insertText('PLAN ONLY');
+      assert((await pg.getByTestId('task-search').inputValue()) === 'PLAN ONLY', 'input escaped the task field');
+      const s = await pg.evaluate(() => JSON.parse(localStorage.getItem('grafnot-store-p1')));
+      assert(s.notes.filter(n => !['a', 'b', 'c'].includes(n.id)).every(n => n.text === ''), 'late editor received task text');
+    } finally { release(); await ctx.close(); }
+  });
+
+  await check('W6 immediate profile switch never reuses the old creation focus', async () => {
+    const s = seedProfiles({
+      profiles: [{ id: 'p1', name: 'One', created: 1 }, { id: 'p2', name: 'Two', created: 2 }],
+      activeId: 'p1', stores: { p1: v5store([seedNote('a', 'Alpha')], 'a'), p2: v5store([seedNote('p2n', 'Other')], 'p2n') },
+    });
+    await reseed(page, s);
+    await page.getByTestId('profile-row-p1').getByRole('button').first().click();
+    // Navigation exists on the picker too; wait for the async registry entry.
+    await page.getByTestId('profile-picker').waitFor({ state: 'detached' });
+    await page.getByTestId('note-list').waitFor();
+    const id = await createBlank();
+    await focusedBody();
+    await page.getByTestId('nav-settings').click();
+    await page.getByRole('button', { name: 'Сменить профиль', exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Сменить профиль', exact: true }).click();
+    await page.getByTestId('profile-row-p2').getByRole('button').first().click();
+    await page.getByTestId('profile-picker').waitFor({ state: 'detached' });
+    await page.getByTestId('nav-notes').click();
+    await page.getByTestId('note-item').first().click();
+    await body().click();
+    await page.keyboard.insertText('PROFILE TWO');
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('grafnot-store-p2')).notes[0].text.includes('PROFILE TWO'));
+    const p1 = await storeOf();
+    assert(p1.notes.find(n => n.id === id)?.text === '', 'input leaked into the previous profile');
+  });
+
+  await check('W6 computed names cover search links map tasks trash and export', async () => {
+    const title = 'Строка для имени';
+    await reseed(page, seedProfiles({
+      profiles: [{ id: 'p1', name: 'Основной', created: 1 }], activeId: 'p1',
+      stores: { p1: v5store([
+        seedNote('u', '', { content: '<p>Строка для имени</p><p>Second line</p>', text: title + '\n\nSecond line', updated: Date.UTC(2026, 9, 29) }),
+        seedNote('a', 'Новая заметка 2', { linkedIds: ['u'], updated: 1 }),
+      ], 'u', { graphs: [{ id: 'g1', title: 'Names', noteIds: ['u', 'a'] }], tasks: [{ id: 'task-u', text: 'Linked task', done: false, noteId: 'u' }] }) },
+    }));
+    await page.getByTestId('title-in').waitFor();
+    assert((await page.getByTestId('title-in').inputValue()) === '', 'display name stored as title');
+    const unnamed = page.getByTestId('note-item').filter({ hasText: title });
+    assert((await unnamed.count()) === 1, 'derived name missing in notes list');
+    assert((await unnamed.getAttribute('aria-label')).startsWith('Без названия: ' + title), 'derived accessible name missing');
+    await page.keyboard.press('Control+k');
+    await page.getByTestId('palette-input').fill('Second line');
+    assert((await page.getByTestId('palette-item-0').innerText()).includes(title), 'derived palette name missing');
+    await page.keyboard.press('Escape');
+    const [download] = await Promise.all([page.waitForEvent('download'), (async () => {
+      await page.getByTestId('notes-more').click();
+      await page.getByTestId('notes-menu-export').click();
+    })()]);
+    assert(download.suggestedFilename() === title + '.md', 'derived export filename missing');
+    await page.getByTestId('note-item').filter({ hasText: 'Новая заметка 2' }).click();
+    await openContext(page);
+    assert((await page.getByRole('button', { name: 'Без названия: ' + title, exact: true }).count()) >= 1, 'derived link label missing');
+    await closeContext(page);
+    await body().click();
+    await page.keyboard.insertText('[[' + title);
+    await page.getByTestId('link-suggest-item-0').waitFor();
+    assert((await page.getByTestId('link-suggest-item-0').innerText()).includes(title), 'derived [[ suggestion missing');
+    await page.keyboard.press('Escape');
+    await page.getByTestId('nav-plan').click();
+    assert((await page.getByTestId('task-row').first().innerText()).includes(title), 'task source looks deleted');
+    await page.getByTestId('nav-map').click();
+    await page.getByRole('button', { name: 'Без названия: ' + title, exact: true }).click();
+    assert((await page.getByTestId('map-peek').innerText()).includes(title), 'derived map name missing');
+    await page.getByTestId('nav-notes').click();
+    await page.getByTestId('note-item').filter({ hasText: title }).click();
+    await page.getByTestId('notes-more').click();
+    await page.getByTestId('notes-menu-trash').click();
+    assert((await page.getByRole('status').allTextContents()).join(' ').includes(title), 'derived delete toast name missing');
+    await page.getByTestId('nav-settings').click();
+    await page.getByTestId('settings-nav-trash').click();
+    // The settings container survives hash navigation; wait for the trash content.
+    await page.getByTestId('settings-page').getByText(title, { exact: true }).waitFor();
+    assert((await page.getByTestId('settings-page').innerText()).includes(title), 'derived trash name missing');
+    assert((await storeOf()).trash.find(n => n.id === 'u').title === '', 'trash materialized a display name');
+  });
+
+  await check('W6 cold creation from Plan focuses text in the first route frame', async () => {
+    const ctx = await t.browser.newContext({ storageState: t.storageStateFor(seed()) });
+    const pg = await ctx.newPage();
+    try {
+      await pg.goto(t.URL + '#/plan/list', { waitUntil: 'networkidle' });
+      await pg.evaluate(() => {
+        window.firstCreationFrame = null;
+        window.addEventListener('hashchange', () => requestAnimationFrame(() => {
+          window.firstCreationFrame = !!document.activeElement?.closest('[data-testid="editor"]');
+        }), { once: true });
+      });
+      await createBlank(pg);
+      await focusedBody(pg);
+      await pg.waitForFunction(() => window.firstCreationFrame !== null);
+      assert(await pg.evaluate(() => window.firstCreationFrame), 'cold creation missed the first route frame');
+    } finally { await ctx.close(); }
   });
 };

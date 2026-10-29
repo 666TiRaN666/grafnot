@@ -10,6 +10,8 @@ export const PREF_KEYS = {
   /** W5: explicit rail choice ('open'/'closed'); absent = auto (see ui/navMode). */
   sideMode: "grafnot-side-mode",
   right: "grafnot-right",
+  ctx: "grafnot-ctx",
+  addMode: "grafnot-add-mode",
   hint: "grafnot-hint-first",
   section: "grafnot-section",
   density: "grafnot-prompt-density",

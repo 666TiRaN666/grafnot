@@ -41,12 +41,11 @@ module.exports = async function (t) {
 
   await check('S12 Alt+0 resets panels', async () => {
     await page.getByTestId('nav-notes').click();
-    await page.getByLabel('Правая панель').click();
-    await page.locator('.g-rail-r').waitFor();
+    assert((await page.getByTestId('ctx-panel').count()) === 0, 'context is not closed by default');
     await page.locator('.s-rail').getByLabel('Меню').click();
     await page.keyboard.press('Alt+0');
     assert((await page.locator('.s-rail.collapsed').count()) === 0, 'sidebar not reset');
-    assert((await page.locator('.g-right').count()) === 1, 'right not open');
+    assert((await page.getByTestId('ctx-panel').count()) === 0, 'context reset must be closed');
   });
 
   await check('S12 Ctrl+Alt+N creates a note', async () => {
@@ -54,6 +53,8 @@ module.exports = async function (t) {
     const before = await page.getByTestId('note-item').count();
     await page.keyboard.press('Control+Alt+n');
     await page.waitForFunction((n) => document.querySelectorAll('[data-testid="note-item"]').length === n + 1, before, { timeout: 8000 });
+    assert((await page.getByTestId('title-in').inputValue()) === '', 'shortcut created an automatic title');
+    assert(await page.getByTestId('editor').getByRole('textbox').evaluate(el => document.activeElement === el), 'shortcut did not focus note body');
   });
 
   await check('S12 slash focuses notes search', async () => {
@@ -68,6 +69,8 @@ module.exports = async function (t) {
     const before = await page.getByTestId('note-item').count();
     await page.keyboard.press('n');
     await page.waitForFunction((n) => document.querySelectorAll('[data-testid="note-item"]').length === n + 1, before, { timeout: 8000 });
+    assert((await page.getByTestId('title-in').inputValue()) === '', 'shortcut created an automatic title');
+    assert(await page.getByTestId('editor').getByRole('textbox').evaluate(el => document.activeElement === el), 'shortcut did not focus note body');
   });
 
   await check('S12 plan slash and N', async () => {

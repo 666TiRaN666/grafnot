@@ -20,7 +20,9 @@ module.exports = async function (t) {
   });
   await check('P5 first note + hint once', async () => {
     await page.locator('.g-empty button').click();
-    await page.locator('.g-title-in').waitFor();
+    await page.getByTestId('title-in').waitFor();
+    assert((await page.getByTestId('title-in').inputValue()) === '', 'first note has an automatic title');
+    assert(await page.getByTestId('editor').getByRole('textbox').evaluate(el => document.activeElement === el), 'first note body not focused');
     await page.locator('.g-hint').waitFor();
     await page.locator('.g-hint button').click();
     await page.reload({ waitUntil: 'networkidle' });

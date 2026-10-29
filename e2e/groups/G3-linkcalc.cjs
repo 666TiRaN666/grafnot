@@ -1,5 +1,6 @@
 // E2E group G3-linkcalc (run order: e2e/check6.cjs).
 module.exports = async function (t) {
+  const { openContext, insertCalculation } = t;
   const { seedProfiles, v5store, seedNote, beginGroup, check, assert, newViaPalette, page } = t;
 
   // ---------- GROUP G3-linkcalc: links + calculations (Alpha note) ----------
@@ -17,20 +18,21 @@ module.exports = async function (t) {
     await page.keyboard.type('[[Alpha');
     await page.getByTestId('link-suggest').waitFor();
     await page.keyboard.press('Enter');
+    await openContext(page);
     assert((await page.locator('.g-modal').count()) === 0, 'dialog opened');
-    await page.locator('.g-card', { hasText: 'Связанное' }).locator('li', { hasText: 'Alpha' }).waitFor();
+    await page.getByTestId('ctx-panel').getByRole('tabpanel').locator('li', { hasText: 'Alpha' }).waitFor();
   });
   await check('P3 unlink offers undo', async () => {
-    await page.locator('.g-card', { hasText: 'Связанное' }).locator('li', { hasText: 'Alpha' }).locator('.g-unlink').click();
+    await page.getByTestId('ctx-panel').getByRole('tabpanel').locator('li', { hasText: 'Alpha' }).locator('.g-unlink').click();
     assert((await page.locator('.g-unlink').count()) === 0, 'link not removed');
     await page.locator('.g-toast-undo').waitFor();
     await page.locator('.g-toast-undo').click();
-    await page.locator('.g-card', { hasText: 'Связанное' }).locator('li', { hasText: 'Alpha' }).waitFor();
+    await page.getByTestId('ctx-panel').getByRole('tabpanel').locator('li', { hasText: 'Alpha' }).waitFor();
   });
 
   // ---------- P4: calculations list ----------
   await check('P4 add calc 2+3*4=14', async () => {
-    await page.getByRole('button', { name: '+ Добавить вычисление' }).click();
+    await insertCalculation(page);
     await page.locator('.g-calc-name').fill('test');
     await page.locator('.g-calc-expr').fill('2+3*4');
     const res = await page.locator('.g-calc-res').innerText();
@@ -44,11 +46,11 @@ module.exports = async function (t) {
 
 
   await check('P4b variables', async () => {
-    await page.getByRole('button', { name: '+ Добавить вычисление' }).click();
+    await insertCalculation(page);
     await page.locator('.g-calc-name').last().fill('a');
     await page.locator('.g-calc-expr').last().fill('2+3');
     assert((await page.locator('.g-calc-res').last().innerText()).includes('5'), 'a!=5');
-    await page.getByRole('button', { name: '+ Добавить вычисление' }).click();
+    await insertCalculation(page);
     await page.locator('.g-calc-name').last().fill('b');
     await page.locator('.g-calc-expr').last().click();
     await page.locator('.g-varchip', { hasText: 'a' }).first().click();

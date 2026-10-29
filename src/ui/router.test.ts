@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { buildRoute, parseRoute } from './router';
 
 describe('hash router', () => {
+  it('keeps the selected note in a map deep link', () => {
+    expect(parseRoute('#/map/note/n1')).toEqual({ section: 'map', param: 'note/n1' });
+    expect(buildRoute({ section: 'map', param: 'note/n1' })).toBe('#/map/note/n1');
+  });
   it('parses a note deep link', () => {
     expect(parseRoute('#/notes/abc')).toEqual({ section: 'notes', param: 'abc' });
   });

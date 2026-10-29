@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { tr } from './i18n';
+import { noteAccessibleName, noteDisplayName } from './noteName';
 import type { Lang, Theme } from './i18n';
 import type { Note, TaskItem } from './store';
 import type { ProfileRegistry } from './profiles';
 import { ConfirmDialog } from './ui/primitives';
 import { SETTINGS_SECTIONS, settingsSectionTitle } from './settingsNav';
 import type { SettingsSection } from './settingsNav';
+import type { AddMode } from './rolloutModel';
 import { SHORTCUTS } from './shortcuts';
 
 /** S2 settings as a page (#/settings/<section>), not a modal. Destructive
@@ -29,7 +31,7 @@ export function SettingsPage({
   onRestoreTask,
   onPurgeNote,
   onPurgeTask,
-  onExportData,
+  onExportData, addMode, onAddMode, saveState,
 }: {
   lang: Lang;
   section: SettingsSection;
@@ -50,6 +52,7 @@ export function SettingsPage({
   onPurgeNote: (id: string) => void;
   onPurgeTask: (id: string) => void;
   onExportData: () => void;
+  addMode: AddMode; onAddMode: (mode: AddMode) => void; saveState: string;
 }) {
   const [trashQ, setTrashQ] = useState('');
   const [newName, setNewName] = useState('');
@@ -176,6 +179,7 @@ export function SettingsPage({
 
       {section === 'appearance' && (
         <div>
+          <label className="add-mode-field">{tr('addModeTitle', lang)}<select data-testid="add-mode" value={addMode} onChange={e => onAddMode(e.target.value as AddMode)}><option value="section">{tr('addModeSection', lang)}</option><option value="note">{tr('addModeNote', lang)}</option><option value="choose">{tr('addModeChoose', lang)}</option></select></label>
           <div className="g-field">
             <span>{tr('themeL', lang)}</span>
             <div className="g-seg" role="group" aria-label="theme">
@@ -229,7 +233,7 @@ export function SettingsPage({
           )}
           {shownTrash.map((n) => (
             <div className="g-sugg" key={n.id}>
-              <span>{n.title}</span>
+              <span className={!n.title.trim() ? "g-note-derived" : undefined} title={noteAccessibleName(n, lang)}>{noteDisplayName(n, lang)}</span>
               <span>
                 <button type="button" className="g-linkbtn" onClick={() => onRestoreNote(n.id)}>
                   [{tr('restoreBtn', lang)}]
@@ -237,7 +241,7 @@ export function SettingsPage({
                 <button
                   type="button"
                   className="g-linkbtn"
-                  onClick={() => setPendingPurge({ kind: 'note', id: n.id, title: n.title })}
+                  onClick={() => setPendingPurge({ kind: 'note', id: n.id, title: noteDisplayName(n, lang) })}
                 >
                   [{tr('delForever', lang)}]
                 </button>
@@ -278,9 +282,9 @@ export function SettingsPage({
 
       {section === 'data' && (
         <div className="g-field">
-          <button type="button" className="g-btn" onClick={onExportData}>
-            {tr('exportData', lang)}
-          </button>
+          <p data-testid="data-export-hint" className="muted">{tr('exportStoredHint', lang)}</p>
+          {saveState !== 'saved' && <p role="status" className="g-status-bad">{tr('exportPendingHint', lang)}</p>}
+          <button type="button" className="g-btn" onClick={onExportData}>{tr('exportStoredData', lang)}</button>
         </div>
       )}
 

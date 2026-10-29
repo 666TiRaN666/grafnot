@@ -285,7 +285,7 @@ export function PromptImageWb({
                   >
                     <Hi text={t.tag} q={input} />
                     <span className="t-risk" title={`${st.samples}`}>
-                      {st.rate < 50 ? "⚠" : "●"} {st.rate}%
+                      {st.rate < 50 ? "⚠" : "●"} {st.rate}% · {tr("tagSampleRate", lang)}
                     </span>
                   </button>
                 );

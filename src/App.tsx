@@ -23,7 +23,16 @@ import type { ToastMsg } from './widgets';
 import type { NotesActions } from './NotesView';
 // The editors load on demand: Tiptap travels with NotesView, d3-force with
 // MapView. Named re-exports keep one network chunk per page module.
-const NotesView = lazy(() => import('./NotesView').then((m) => ({ default: m.NotesView })));
+type NotesProps = Parameters<typeof import('./NotesView').NotesView>[0];
+let readyNotesView: typeof import('./NotesView').NotesView | undefined;
+const loadNotesView = () => import('./NotesView').then(m => { readyNotesView = m.NotesView; return m; });
+const LazyNotesView = lazy(() => loadNotesView().then(m => ({ default: m.NotesView })));
+function NotesView(props: NotesProps) {
+  // Pick once per mount: a warm chunk renders without a Suspense frame, and
+  // resolving a cold chunk never replaces an editor while the user types.
+  const [Component] = useState(() => readyNotesView ?? LazyNotesView);
+  return <Component {...props} />;
+}
 const MapView = lazy(() => import('./MapView').then((m) => ({ default: m.MapView })));
 const lazyFallback = (
   <div className="g-page" role="status" aria-busy="true">
@@ -45,9 +54,14 @@ const Palette = lazy(() => import('./Palette').then((m) => ({ default: m.Palette
 import type { PaletteEntry } from './paletteModel';
 import { navigate, parseRoute, useRoute } from './ui/router';
 import type { RouteSection } from './ui/router';
+import { noteAccessibleName, noteDisplayName, noteFileName, noteUpdatedLabel } from './noteName';
 import { NAV_AUTO_MIN, navOpen, parseNavMode } from './ui/navMode';
 import type { NavMode } from './ui/navMode';
+import { mobileAddAction } from './rolloutModel';
+import type { AddMode, NoteSession } from './rolloutModel';
+import { ProfileMenu } from './ProfileMenu';
 import { useMedia } from './ui/useMedia';
+import { useKeyboardOpen } from './ui/useKeyboard';
 import { exportRaw, exportMemory } from "./exportRaw";
 import { SNIPPET_LEN, buildTplEntries, imageInit, makeSnippet, promptPreview } from "./promptUtils";
 import { LLM_TEMPLATES } from "./data";
@@ -76,6 +90,8 @@ function save(key: string, value: string): void {
   const MAP_UNLOCK = 0;
 
 export default function App() {
+  // Creating a note is global: warm its separate chunk before the first input.
+  useEffect(() => { void loadNotesView().catch(() => { /* Opening still reaches ErrorBoundary. */ }); }, []);
   const readStoredRaw = (pid: string): string | null => {
     try {
       return window.localStorage.getItem(storeKeyFor(pid));
@@ -114,7 +130,8 @@ export default function App() {
   // Search and save status live in the rail on desktop, in the header on
   // phones (the rail is hidden there): one element each, testids stay unique.
   const isPhone = useMedia('(max-width: 760px)');
-  const [rightOpen, setRightOpen] = useState(() => load(prefKeyFor('right', profileId ?? undefined), '1') === '1');
+  const keyboardOpen = useKeyboardOpen(isPhone);
+  const [rightOpen, setRightOpen] = useState(() => load(prefKeyFor('ctx', profileId ?? undefined), 'closed') === 'pinned');
   const [bootStore] = useState(() => {
     if (!profileId)
       return { store: freshStore(), rest: {} as Record<string, unknown>, blocked: null as StoreBlocked | null, dropped: boot.dropped, lastSeen: null as string | null };
@@ -240,6 +257,7 @@ export default function App() {
   // conflict resolution — all via resetSession). Deferred actions carry the
   // session they were armed in and never run in another one.
   const sessionEpochRef = useRef(0);
+  const noteSessionsRef = useRef(new Map<string, NoteSession>());
   const sessionProfileRef = useRef(profileId);
   sessionProfileRef.current = profileId;
 
@@ -274,10 +292,24 @@ export default function App() {
     if (ids.length > 0) notify(tr('toastUndoGone', lang));
   };
 
-  /** Titles identify notes for links, so they must stay unique. */
+  // One-shot focus request, cancelled on departure even while the editor loads.
+  const newNoteFocusRef = useRef<string | null>(null);
+  // Palette pick: open the note at the query's first match (same lifetime).
+  const findRef = useRef<{ noteId: string; query: string } | null>(null);
+  useEffect(() => {
+    const cancel = () => {
+      if (newNoteFocusRef.current && window.location.hash !== '#/notes/' + newNoteFocusRef.current) newNoteFocusRef.current = null;
+      if (findRef.current && window.location.hash !== '#/notes/' + findRef.current.noteId) findRef.current = null;
+    };
+    window.addEventListener('hashchange', cancel);
+    return () => window.removeEventListener('hashchange', cancel);
+  }, []);
+
+  /** Explicit nonempty titles remain unique; empty titles need no suffix. */
   const uniqueTitle = (base: string, ignoreId?: string) => {
     const taken = new Set(notes.filter((n) => n.id !== ignoreId).map((n) => n.title));
-    const clean = base.trim() || tr('newNoteTitle', lang);
+    const clean = base.trim();
+    if (!clean) return '';
     if (!taken.has(clean)) return clean;
     let i = 2;
     while (taken.has(`${clean} ${i}`)) i++;
@@ -293,13 +325,16 @@ export default function App() {
   };
 
   const go = (section: RouteSection, param?: string) => {
+    newNoteFocusRef.current = null;
+    findRef.current = null;
     setPaletteOpen(false);
     navigate(param !== undefined ? { section, param } : { section });
   };
 
   const newBlank = () => {
-    const id = createNote(tr('newNoteTitle', lang));
+    const id = createNote('');
     go('notes', id);
+    newNoteFocusRef.current = id;
     notify(tr('toastNewNote', lang));
   };
 
@@ -312,7 +347,7 @@ export default function App() {
   // Alt+0: panels back to their defaults (rail: auto by window width).
   const resetPanels = () => {
     setSideMode('auto');
-    setRightOpen(true);
+    setRightOpen(false);
   };
 
   useEffect(() => {
@@ -330,7 +365,7 @@ export default function App() {
   }, [sideMode, profileId]);
 
   useEffect(() => {
-    if (profileId) save(prefKeyFor('right', profileId), rightOpen ? '1' : '0');
+    if (profileId) save(prefKeyFor('ctx', profileId), rightOpen ? 'pinned' : 'closed');
   }, [rightOpen, profileId]);
 
   // Synchronous write of the latest debounced snapshot. True when written or
@@ -496,7 +531,7 @@ export default function App() {
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      if (storeBlockedRef.current) return;
+      if (storeBlockedRef.current || e.isComposing || e.keyCode === 229) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setPaletteOpen(true);
@@ -647,6 +682,10 @@ export default function App() {
   };
 
   const resetSession = () => {
+    noteSessionsRef.current.clear();
+    setChooseCreateOpen(false);
+    newNoteFocusRef.current = null;
+    findRef.current = null;
     setPaletteOpen(false);
     dropSessionActions();
   };
@@ -692,7 +731,9 @@ export default function App() {
     const v = load(prefKeyFor('lang', id), 'RU');
     setLang(v === 'EN' || v === 'KZ' || v === 'RU' ? v : 'RU');
     setSideMode(parseNavMode(load(prefKeyFor('sideMode', id), 'auto')));
-    setRightOpen(load(prefKeyFor('right', id), '1') === '1');
+    setRightOpen(load(prefKeyFor('ctx', id), 'closed') === 'pinned');
+    const add = load(prefKeyFor('addMode', id), 'section');
+    setAddMode(add === 'note' || add === 'choose' ? add : 'section');
     resetSession();
     setProfileId(id);
     navigate(parseRoute(`#/${load(prefKeyFor('section', id), 'notes')}`));
@@ -719,7 +760,8 @@ export default function App() {
     setStore(fresh);
     setTheme('light');
     setSideMode('auto');
-    setRightOpen(true);
+    setRightOpen(false);
+    setAddMode('section');
     resetSession();
     setProfileId(profile.id);
     navigate({ section: 'notes' });
@@ -902,7 +944,7 @@ export default function App() {
     // the editor does not linger on the deleted id (old 'home' behavior).
     if (next.length > 0 && next[0]) go('notes', next[0].id);
     else go('notes');
-    notifyAction(tr('toastNoteDeleted', lang), tr('undoToast', lang), () => restoreTrash(victim.id));
+    notifyAction(`${tr('toastNoteDeleted', lang)}: ${noteDisplayName(victim, lang)}`, tr('undoToast', lang), () => restoreTrash(victim.id));
   };
 
   /** Sister of createNote that leaves activeId alone (for `[[` create-row). */
@@ -918,7 +960,7 @@ export default function App() {
     if (!n) return;
     setStore((s) => ({ ...restoreNote(s, id), activeId: n.id }));
     go('notes', n.id);
-    notify(tr('toastTrashRestored', lang));
+    notify(`${tr('toastTrashRestored', lang)}: ${noteDisplayName(n, lang)}`);
   };
 
   const purgeTrash = (id: string) => {
@@ -942,7 +984,7 @@ export default function App() {
     const copy: Note = {
       ...src,
       id: newId("n"),
-      title: uniqueTitle(`${src.title} (${tr('duplicate', lang)})`),
+      title: src.title.trim() ? uniqueTitle(`${src.title} (${tr('duplicate', lang)})`) : '',
       linkedIds: [...src.linkedIds],
       calcs: src.calcs.map((c) => ({ ...c })),
       updated: Date.now(),
@@ -955,11 +997,11 @@ export default function App() {
   const exportNote = (id: string) => {
     const note = notes.find((n) => n.id === id);
     if (!note) return;
-    const md = `# ${note.title}\n\n${note.text}`;
+    const md = `# ${noteDisplayName(note, lang)}\n\n${note.text}`;
     const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `${note.title || 'note'}.md`;
+    a.download = noteFileName(note, lang);
     a.click();
     window.setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     notify(tr('toastExported', lang));
@@ -1059,7 +1101,16 @@ export default function App() {
   };
 
   const deleteCalc = (noteId: string, id: string) => {
-    updateNote(noteId, (n) => ({ ...n, calcs: n.calcs.filter((c) => c.id !== id) }));
+    const blocks = storeRef.current.notes.find(n => n.id === noteId)?.calcs ?? [];
+    const index = blocks.findIndex(c => c.id === id), old = blocks[index];
+    if (!old) return;
+    updateNote(noteId, n => ({ ...n, calcs: n.calcs.filter(c => c.id !== id) }));
+    notifyAction(tr('calcDeleted', lang), tr('undoToast', lang), () => updateNote(noteId, n => {
+      if (n.calcs.some(c => c.id === id)) return n;
+      const calcs = [...n.calcs];
+      calcs.splice(Math.min(index, calcs.length), 0, old);
+      return { ...n, calcs };
+    }));
   };
 
 
@@ -1081,6 +1132,8 @@ export default function App() {
     deleteCalc,
     createLinkedNote,
     notifyAction,
+    toggleMember,
+    savePrompt,
 
   };
 
@@ -1092,8 +1145,11 @@ export default function App() {
       notes.map((n): PaletteEntry => ({
         id: `s-${n.id}`,
         group: 'notes',
-        title: n.title || tr('newNoteTitle', lang),
-        sub: n.text.slice(0, SNIPPET_LEN),
+        title: noteDisplayName(n, lang),
+        accessibleName: noteAccessibleName(n, lang),
+        derived: !n.title.trim(),
+        sub: `${noteUpdatedLabel(n, lang)} · ${n.text.slice(0, SNIPPET_LEN)}`,
+        searchText: n.text,
         refId: n.id,
       })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1106,6 +1162,7 @@ export default function App() {
         group: 'tasks',
         title: t.text,
         sub: `${tr('nav_tasks', lang)}${t.due ? ` · ${fmtDue(t.due)}` : ''}`,
+        searchText: t.desc ?? '',
         refId: t.id,
       })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1119,6 +1176,7 @@ export default function App() {
         group: 'prompts',
         title: e.tpl.name,
         sub: makeSnippet(e.tpl.body).slice(0, SNIPPET_LEN),
+        searchText: e.tpl.body,
         refId: e.tpl.id,
       })),
       ...store.prompts.map((p): PaletteEntry => ({
@@ -1126,6 +1184,7 @@ export default function App() {
         group: 'prompts',
         title: p.title,
         sub: promptPreview(p, store.customTpls).slice(0, SNIPPET_LEN),
+        searchText: promptPreview(p, store.customTpls),
         refId: p.id,
       })),
     ],
@@ -1146,7 +1205,7 @@ export default function App() {
     [lang],
   );
 
-  const pickPalette = (e: PaletteEntry) => {
+  const pickPalette = (e: PaletteEntry, query: string) => {
     setPaletteOpen(false);
     if (e.cmd === 'new-note') {
       newBlank();
@@ -1160,6 +1219,7 @@ export default function App() {
     if (e.cmd === 'open-trash') return go('settings', 'trash');
     if (e.group === 'notes' && e.refId) {
       openNoteById(e.refId);
+      findRef.current = { noteId: e.refId, query };
       return;
     }
     if (e.group === 'tasks' && e.refId) {
@@ -1252,6 +1312,9 @@ export default function App() {
   // D1: Back/Forward, deep links and manual hash changes all move the shown
   // note; activeId follows so the next start lands on it. Commands never read
   // activeId — they take the shown note's id explicitly.
+  useEffect(() => {
+    document.title = openNote ? `${noteDisplayName(openNote, lang)} · Grafnot` : 'Grafnot';
+  }, [openNote, lang]);
   const openNoteId = openNote?.id;
   useEffect(() => {
     if (openNoteId && activeId !== openNoteId) {
@@ -1282,9 +1345,30 @@ export default function App() {
           })()
         : null;
 
+  const [addMode, setAddMode] = useState<AddMode>(() => {
+    const v = load(prefKeyFor('addMode', profileId ?? undefined), 'section');
+    return v === 'note' || v === 'choose' ? v : 'section';
+  });
+  const [createRequest, setCreateRequest] = useState(0);
+  const [chooseCreateOpen, setChooseCreateOpen] = useState(false);
+  useEffect(() => {
+    if (profileId) save(prefKeyFor('addMode', profileId), addMode);
+  }, [addMode, profileId]);
+  const addAction = mobileAddAction(section, addMode);
+  const addLabel = addAction === 'task' ? tr('addTaskLabel', lang) : addAction === 'prompt' ? tr('addPromptLabel', lang) : addAction === 'choose' ? tr('addChooseLabel', lang) : tr('addNoteLabel', lang);
+  const runMobileAdd = (choice = addAction) => {
+    if (storeBlockedRef.current || boot.registryFailed) return;
+    setChooseCreateOpen(false);
+    if (choice === 'choose') { setChooseCreateOpen(true); return; }
+    if (choice === 'note') { newBlank(); return; }
+    if (choice === 'prompt') { go('prompts', 'new'); return; }
+    go('plan', section === 'plan' && route.param === 'week' ? 'week' : 'list');
+    setCreateRequest(n => n + 1);
+  };
+
   const shellBlocked = storeBlocked !== null || boot.registryFailed;
   const saveText =
-    saveState === 'saved'
+    shellBlocked ? tr('storageBlockedShort', lang) : saveState === 'saved'
       ? lastSavedAt
         ? `${tr("savedLocal", lang)} · ${lastSavedAt}`
         : tr("savedLocal", lang)
@@ -1308,15 +1392,23 @@ export default function App() {
     </button>
   );
   const saveStatus = (
-    <div data-testid="save-state" role="status" aria-live="polite" title={saveText} className={`g-status${saveState === 'saved' ? '' : ' g-status-bad'}`}>
+    <div data-testid="save-state" role="status" aria-live="polite" title={saveText} className={`g-status${saveState === 'saved' && !shellBlocked ? '' : ' g-status-bad'}`}>
       <span className="g-pulse" />
       <span className="s-statustext">{saveText}</span>
     </div>
   );
 
+  const profileMenu = <ProfileMenu key={profileId} lang={lang} registry={registry} activeId={profileId ?? ''} collapsed={isPhone || !sideOpen} onSelect={(id) => { void enterProfile(id); }} onManage={() => go('settings', 'profiles')} onSettings={() => go('settings', 'appearance')} />;
+  const showSaveDetails = () => {
+    if (shellBlocked || saveState === 'failed' || saveState === 'conflict') {
+      const host = document.querySelector<HTMLElement>('.s-strip:not(:empty)') ?? document.querySelector<HTMLElement>('.g-main');
+      host?.scrollIntoView({ block: 'start' });
+      host?.querySelector<HTMLButtonElement>('button')?.focus();
+    } else go('settings', 'data');
+  };
   return (
     <ErrorBoundary key="root" lang={lang} profileId={profileId} onHome={() => go('notes')}>
-    <div className="g-app" data-theme={theme}>
+    <div className="g-app" data-theme={theme} data-keyboard={keyboardOpen}>
       <div className="s-shell">
         <aside className={`s-rail${sideOpen ? '' : ' collapsed'}`}>
           <button
@@ -1336,7 +1428,7 @@ export default function App() {
             data-testid="quickadd"
             disabled={shellBlocked}
             className="s-railbtn s-create"
-            onClick={() => setPaletteOpen(true)}
+            onClick={newBlank}
           >
             <Icon n="plus" />
             {sideOpen && <span className="s-navlbl">{tr('navNewNote', lang)}</span>}
@@ -1350,6 +1442,7 @@ export default function App() {
           </div>
           <div className="s-railfoot">
             {!isPhone && saveStatus}
+            {!isPhone && profileMenu}
             {shellBtn('sliders', 'nav-settings', tr('settings', lang), section === 'settings', () => go('settings', 'profiles'), trash.length + trashTasks.length)}
           </div>
         </aside>
@@ -1358,7 +1451,8 @@ export default function App() {
           <header data-testid="page-header" className="s-header">
             <h1 className="s-title">{sectionTitle}</h1>
             {isPhone && searchBtn}
-            {isPhone && saveStatus}
+            {isPhone && <button type="button" className="s-save-details" data-testid="save-details" aria-label={saveText} onClick={showSaveDetails}>{saveStatus}</button>}
+            {isPhone && profileMenu}
           </header>
           <div className="s-strip">
             {saveState === 'failed' && (
@@ -1539,7 +1633,7 @@ export default function App() {
                 </button>
               )}
               <Suspense fallback={lazyFallback}>
-              <NotesView lang={lang} hintKey={prefKeyFor("hint", profileId)} notes={notes} openNote={openNote ?? null} tasks={tasks} graphs={graphs} onOpenNote={openNoteById} onNew={newBlank} onOpenPlan={() => go('plan', 'list')} prompts={store.prompts} onOpenPrompt={(id) => go('prompts', id)} onUnbind={unbindPrompt} rightOpen={rightOpen} onToggleRight={() => setRightOpen((v) => !v)} actions={actions} notify={notify} profileId={profileId} />
+              <NotesView templates={store.customTpls} sessionEpoch={sessionEpochRef.current} sessions={noteSessionsRef.current} onShowMap={(id) => go("map", "note/" + id)} focusNoteId={newNoteFocusRef.current} onBodyFocused={() => { newNoteFocusRef.current = null; }} findRequest={findRef.current} onFindDone={() => { findRef.current = null; }} lang={lang} hintKey={prefKeyFor("hint", profileId)} notes={notes} openNote={openNote ?? null} tasks={tasks} graphs={graphs} onOpenNote={openNoteById} onNew={newBlank} onOpenPlan={(id) => go('plan', id ? 'list/' + id : 'list')} prompts={store.prompts} onOpenPrompt={(id) => go('prompts', id)} onUnbind={unbindPrompt} rightOpen={rightOpen} onToggleRight={() => setRightOpen((v) => !v)} actions={actions} notify={notify} profileId={profileId} />
               </Suspense>
             </>
           )}
@@ -1564,7 +1658,7 @@ export default function App() {
                 </button>
               </div>
               {planView === 'week' ? (
-                <PlanWeek
+                <PlanWeek createRequest={createRequest}
                   lang={lang}
                   tasks={tasks}
                   notes={notes}
@@ -1576,7 +1670,7 @@ export default function App() {
                   onOpenNote={openNoteById}
                 />
               ) : (
-                <PlanList
+                <PlanList createRequest={createRequest}
                   lang={lang}
                   tasks={tasks}
                   notes={notes}
@@ -1593,7 +1687,7 @@ export default function App() {
           )}
           {section === 'map' && (
               <Suspense fallback={lazyFallback}>
-              <MapView
+              <MapView routeParam={route.param} onRoute={(param) => go("map", param)}
                 lang={lang}
                 notes={notes}
                 graphs={graphs}
@@ -1722,7 +1816,7 @@ export default function App() {
           )}
           {section === 'settings' && (
             <Suspense fallback={lazyFallback}>
-            <SettingsPage
+            <SettingsPage addMode={addMode} onAddMode={setAddMode} saveState={saveState}
               lang={lang}
               section={settingsSection}
               onSection={(s) => go('settings', s)}
@@ -1761,8 +1855,8 @@ export default function App() {
           <Icon n="tasks" />
           <span>{tr('planT', lang)}</span>
         </button>
-        <button type="button" data-testid="tab-add" disabled={storeBlocked !== null || boot.registryFailed} className="s-tabbtn s-tabadd" aria-label={tr('newNote', lang)} onClick={() => setPaletteOpen(true)}>
-          +
+        <button type="button" data-testid="tab-add" disabled={shellBlocked} className="s-tabbtn s-tabadd" aria-label={addLabel} onClick={() => runMobileAdd()}>
+          <span className="add-symbol" aria-hidden="true">+</span><span>{addLabel}</span>
         </button>
         <button type="button" data-testid="tab-map" className={`s-tabbtn${section === 'map' ? ' active' : ''}`} onClick={openMap}>
           <Icon n="map" />
@@ -1775,6 +1869,9 @@ export default function App() {
       </nav>
       </div>
 
+      {chooseCreateOpen && <div className="create-sheet"><Modal title={tr('addChooseLabel', lang)} lang={lang} onClose={() => setChooseCreateOpen(false)}>
+        <div className="create-choices"><button type="button" className="g-btn" data-testid="create-note" onClick={() => runMobileAdd('note')}>{tr('addNoteLabel', lang)}</button><button type="button" className="g-btn" data-testid="create-task" onClick={() => runMobileAdd('task')}>{tr('addTaskLabel', lang)}</button></div>
+      </Modal></div>}
       {profileConfirmOpen && (
         <Modal
           title={tr("switchProfile", lang)}

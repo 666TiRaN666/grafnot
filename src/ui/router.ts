@@ -22,7 +22,7 @@ export function parseRoute(hash: string): Route {
     // UX-01: the list nests an open task (list/<taskId>); task ids never contain '/'.
     return view === 'list' && segs[2] ? { section: 'plan', param: `list/${segs[2]}` } : { section: 'plan', param: view };
   }
-  if (head === 'map') return segs[1] ? { section: 'map', param: segs[1] } : { section: 'map' };
+  if (head === 'map') return segs[1] ? { section: 'map', param: segs[1] === 'note' && segs[2] ? 'note/' + segs[2] : segs[1] } : { section: 'map' };
   // S9: prompts nests one level (edit/<id>); item ids never contain '/'.
   if (head === 'prompts') return segs[1] ? { section: 'prompts', param: segs.slice(1).join('/') } : { section: 'prompts' };
   if (head === 'settings') {

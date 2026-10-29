@@ -1,12 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import type { Lang } from "./i18n";
+import type { LlmTpl } from "./data";
 import { tr } from "./i18n";
-import { unlinkedNotes } from "./store";
+import type { SelectionBookmark, Transaction } from "@tiptap/pm/state";
+import { canPinContext, promptTargetMatches } from "./rolloutModel";
+import type { ContextTab, NoteSession, PromptTarget } from "./rolloutModel";
+import type { PromptChoice } from "./PromptInsert";
+const NoteContext = lazy(() => import("./NoteContext").then(m => ({ default: m.NoteContext })));
+const PromptInsert = lazy(() => import("./PromptInsert").then(m => ({ default: m.PromptInsert })));
 import type { Graph, Note, PromptSave, TaskItem } from "./store";
-import { Hi } from "./widgets";
+import { copyText, Hi } from "./widgets";
+import { firstMatchPos } from "./paletteModel";
+import { noteAccessibleName, noteDisplayName, noteUpdatedLabel } from "./noteName";
 import { PREVIEW_LEN } from "./promptUtils";
 import { useListState } from "./useListState";
 import { parseBracketQuery, rankLinkSuggest } from "./linkSuggest";
@@ -32,6 +40,8 @@ export interface NotesActions {
   createLinkedNote: (title: string) => string;
   /** Toast with an action button (Undo / Open). Lives 8s per N4. */
   notifyAction: (text: string, actionLabel: string, fn: () => void) => void;
+  toggleMember: (noteId: string, graphId: string) => void;
+  savePrompt: (data: Omit<PromptSave, "id" | "created">) => void;
 }
 
 const TPL_HTML: Record<string, string> = {
@@ -39,24 +49,6 @@ const TPL_HTML: Record<string, string> = {
   ent: "<h3>ЕНТ — план дня</h3><ul><li>Разобрать 10 заданий</li><li>Повторить формулы</li><li>Пробник на время</li></ul>",
   proj: "<h3>Проект</h3><ul><li>Задача</li><li>Шаги</li><li>Дедлайн</li></ul>",
 };
-
-const STOP = new Set(["лекция", "план", "как", "для", "что", "это", "или", "the", "and", "және"]);
-
-function wordsOf(s: string): string[] {
-  return s
-    .toLowerCase()
-    .split(/[^a-zа-яёәіңғүұқөһ0-9]+/i)
-    .filter((w) => w.length > 3 && !STOP.has(w));
-}
-
-/** Notes related to the current one: same graph or a shared significant word. */
-function similarNotes(note: Note, notes: Note[], graphs: Graph[]): Note[] {
-  const mine = new Set(wordsOf(note.title));
-  const shared = (a: string, b: string) => graphs.some((g) => g.noteIds.includes(a) && g.noteIds.includes(b));
-  return notes
-    .filter((n) => n.id !== note.id && !note.linkedIds.includes(n.id))
-    .filter((n) => shared(note.id, n.id) || wordsOf(n.title).some((w) => mine.has(w)));
-}
 
 const normName = (n: string) => n.trim().replace(/\s+/g, "");
 
@@ -167,20 +159,6 @@ function calcDisplay(c: CalcLike, blocks: CalcLike[], lang: Lang): { text: strin
   }
 }
 
-function fmtDate(u: number, lang: Lang): string {
-  if (!u) return "";
-  try {
-    return new Date(u).toLocaleDateString(lang === "KZ" ? "kk-KZ" : lang === "EN" ? "en-US" : "ru-RU", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    });
-  } catch {
-    return "";
-  }
-}
-
-type CtxTab = "links" | "similar" | "tasks" | "prompts" | "snip";
 
 interface SuggestState {
   query: string;
@@ -206,7 +184,7 @@ const NOTES_PAGE = 50;
 
 function clampXY(x: number, y: number): { x: number; y: number } {
   const w = window.innerWidth || 1024;
-  return { x: Math.max(8, Math.min(x, w - 280)), y: Math.max(8, y) };
+  return { x: Math.max(8, Math.min(x, w - Math.min(330, w - 16) - 8)), y: Math.max(8, y) };
 }
 
 export function NotesView({
@@ -218,6 +196,11 @@ export function NotesView({
   graphs,
   onOpenNote,
   onNew,
+  templates, sessionEpoch, sessions, onShowMap,
+  focusNoteId,
+  onBodyFocused,
+  findRequest,
+  onFindDone,
   onOpenPlan,
   prompts,
   onOpenPrompt,
@@ -236,7 +219,13 @@ export function NotesView({
   graphs: Graph[];
   onOpenNote: (id: string) => void;
   onNew: () => void;
-  onOpenPlan: () => void;
+  templates: LlmTpl[]; sessionEpoch: number; sessions: Map<string, NoteSession>; onShowMap: (id: string) => void;
+  focusNoteId: string | null;
+  onBodyFocused: () => void;
+  /** Palette pick: caret at the query's first match, consumed once. */
+  findRequest: { noteId: string; query: string } | null;
+  onFindDone: () => void;
+  onOpenPlan: (id?: string) => void;
   prompts: PromptSave[];
   onOpenPrompt: (id: string) => void;
   onUnbind: (id: string) => void;
@@ -278,9 +267,43 @@ export function NotesView({
     }
   });
   const [draft, setDraft] = useState(note?.title ?? "");
-  const [simShown, setSimShown] = useState(3);
-  const [orphShown, setOrphShown] = useState(4);
-  const [tab, setTab] = useState<CtxTab>("links");
+  const titleRef = useRef<HTMLInputElement | null>(null);
+  const [tab, setTab] = useState<ContextTab>(() => sessions.get(noteId ?? '')?.tab ?? 'links');
+  const [ctxOpen, setCtxOpen] = useState(() => rightOpen || (sessions.get(noteId ?? '')?.open ?? false));
+  const [insertOpen, setInsertOpen] = useState(false);
+  const insertRoot = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!insertOpen) return;
+    insertRoot.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+    const outside = (e: PointerEvent) => { if (e.target instanceof Node && !insertRoot.current?.contains(e.target)) setInsertOpen(false); };
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape" && !e.isComposing) { e.preventDefault(); setInsertOpen(false); insertRoot.current?.querySelector<HTMLButtonElement>("button")?.focus(); } };
+    document.addEventListener("pointerdown", outside); document.addEventListener("keydown", key);
+    return () => { document.removeEventListener("pointerdown", outside); document.removeEventListener("keydown", key); };
+  }, [insertOpen]);
+  const [promptOpen, setPromptOpen] = useState(false);
+  const ctxRoot = useRef<HTMLDivElement>(null);
+  const ctxOpener = useRef<HTMLElement | null>(null);
+  const mapOpener = useRef<HTMLButtonElement>(null);
+  const returnMapFocus = useRef(sessions.get(noteId ?? '')?.returnFocus ?? false);
+  const [pinAllowed, setPinAllowed] = useState(false);
+  const calcNameRef = useRef<HTMLInputElement>(null);
+  const calcFocusNote = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (!calcFocusNote.current) return;
+    if (calcFocusNote.current === noteId && note?.calcs.length) { calcNameRef.current?.focus(); calcFocusNote.current = null; }
+    else if (calcFocusNote.current !== noteId) calcFocusNote.current = null;
+  }, [noteId, note?.calcs.length]);
+  const promptTarget = useRef<(PromptTarget & { bookmark: SelectionBookmark }) | null>(null);
+  useLayoutEffect(() => {
+    const root = ctxRoot.current;
+    if (!root) return;
+    const update = () => setPinAllowed(canPinContext(root.clientWidth));
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, []);
+
   const [moreOpen, setMoreOpen] = useState(false);
   const [suggest, setSuggest] = useState<SuggestState | null>(null);
   const [slash, setSlash] = useState<SlashState | null>(null);
@@ -303,6 +326,10 @@ export function NotesView({
   const editor = useEditor({
     extensions: [StarterKit, Placeholder.configure({ placeholder: () => tr("editorPh", langRef.current) })],
     content: note?.content,
+    editorProps: {
+      attributes: { role: "textbox", "aria-multiline": "true", "aria-label": tr("a11yNoteBody", lang) },
+      handleKeyDown: (_view, event) => event.isComposing || event.keyCode === 229,
+    },
     onUpdate: ({ editor: e }) => {
       const cur = noteRef.current;
       if (!cur) return;
@@ -313,13 +340,34 @@ export function NotesView({
   });
   const editorRef = useRef(editor);
   editorRef.current = editor;
+  const revealCaret = () => {
+    const ed = editorRef.current;
+    if (!ed || ed.isDestroyed || !ed.isFocused || !window.matchMedia('(max-width: 760px)').matches) return;
+    const viewport = window.visualViewport;
+    const coords = ed.view.coordsAtPos(ed.state.selection.from);
+    const headerBottom = document.querySelector('.s-header')?.getBoundingClientRect().bottom ?? 0;
+    const footer = document.querySelector('.s-tabbar');
+    const footerTop = footer && getComputedStyle(footer).display !== 'none' ? footer.getBoundingClientRect().top : Infinity;
+    const top = Math.max((viewport?.offsetTop ?? 0) + 12, headerBottom + 12);
+    const bottom = Math.min((viewport?.offsetTop ?? 0) + (viewport?.height ?? window.innerHeight), footerTop) - 12;
+    if (coords.bottom > bottom) window.scrollBy(0, coords.bottom - bottom);
+    else if (coords.top < top) window.scrollBy(0, coords.top - top);
+  };
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    viewport?.addEventListener('resize', revealCaret);
+    return () => viewport?.removeEventListener('resize', revealCaret);
+    // The handler reads the current editor through its ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor]);
+
 
   // Self-heal (P4): the mounted doc must converge to the store doc. A
   // delete→undo cycle (or chunk/remount timing) can leave a stale or empty
   // doc mounted while the store holds content; without this guard the stale
   // doc then overwrites the store via onUpdate (data loss). The text-equality
   // guard keeps typing intact: while the user types, editor and store agree.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const ed = editorRef.current;
     if (note && ed && !ed.isDestroyed && ed.getText() !== (note.text ?? "")) {
       ed.commands.setContent(note.content, { emitUpdate: false });
@@ -327,23 +375,36 @@ export function NotesView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, noteId, notes]);
 
-  // Switch document when the active note changes (not on every keystroke).
-  useEffect(() => {
+  // Switch document before paint and before any first input can arrive.
+  useLayoutEffect(() => {
     const ed = editorRef.current;
     if (note && ed && !ed.isDestroyed) ed.commands.setContent(note.content, { emitUpdate: false });
     setWords(note?.text ?? "");
-    setSimShown(3);
-    setOrphShown(4);
     setSuggest(null);
     setSlash(null);
     setMoreOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, noteId]);
 
+  useLayoutEffect(() => {
+    if (focusNoteId !== noteId || !note || !editor || editor.isDestroyed) return;
+    if (window.location.hash !== '#/notes/' + note.id) return;
+    editor.commands.setTextSelection(0);
+    editor.view.focus();
+    revealCaret();
+    onBodyFocused();
+    // The request is consumed once, never when revisiting an existing note.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, noteId, focusNoteId]);
+
   // Keep selection-menu anchor in sync.
   useEffect(() => {
     if (!editor) return;
-    const bump = () => setTick((t) => t + 1);
+    const bump = ({ transaction }: { transaction: Transaction }) => {
+      setTick(t => t + 1);
+      const target = promptTarget.current;
+      if (target && target.noteId === noteRef.current?.id) target.bookmark = target.bookmark.map(transaction.mapping);
+    };
     editor.on("transaction", bump);
     editor.on("selectionUpdate", () => {
       const ed = editorRef.current;
@@ -440,8 +501,164 @@ export function NotesView({
 
   const focusEditorEnd = () => {
     const ed = editorRef.current;
-    if (ed && !ed.isDestroyed) ed.chain().focus("end").insertContent("[[").run();
+    if (ed && !ed.isDestroyed) ed.chain().focus().insertContent("[[").run();
   };
+
+  const closeContext = () => {
+    setCtxOpen(false);
+    if (rightOpen) onToggleRight();
+    // A panel restored on return has no opener: focus goes back to the text.
+    const opener = ctxOpener.current;
+    if (opener?.isConnected) opener.focus({ preventScroll: true });
+    else if (editorRef.current && !editorRef.current.isDestroyed) editorRef.current.view.focus();
+  };
+  const openContext = (next: ContextTab, opener: HTMLElement) => {
+    ctxOpener.current = opener;
+    returnMapFocus.current = false;
+    setTab(next);
+    setCtxOpen(true);
+  };
+  const requestCalculation = () => { const n = noteRef.current; if (n) { calcFocusNote.current = n.id; actions.addCalc(n.id); } };
+  const openPrompt = () => {
+    const ed = editorRef.current, n = noteRef.current;
+    if (!ed || ed.isDestroyed || !n) return;
+    promptTarget.current = { profileId, epoch: sessionEpoch, noteId: n.id, bookmark: ed.state.selection.getBookmark() };
+    setInsertOpen(false);
+    setCtxOpen(false);
+    setPromptOpen(true);
+  };
+  // An implicit close (another note, section or session) never writes; the
+  // filled result stays reachable through a copy action (Stage2 §7.8).
+  const promptDraft = useRef('');
+  const keepPromptDraft = useCallback((text: string) => { promptDraft.current = text; }, []);
+  const actionsRef = useRef(actions);
+  actionsRef.current = actions;
+  const notifyRef = useRef(notify);
+  notifyRef.current = notify;
+  const offerPromptCopy = () => {
+    const text = promptDraft.current;
+    promptDraft.current = '';
+    if (!text) return;
+    const l = langRef.current;
+    actionsRef.current.notifyAction(tr('promptNotInserted', l), tr('copyResult', l), () => {
+      void copyText(text).then((ok) => { if (ok) notifyRef.current(tr('toastCopied', langRef.current)); });
+    });
+  };
+  useEffect(() => {
+    offerPromptCopy();
+    setPromptOpen(false);
+    promptTarget.current = null;
+    // offerPromptCopy reads refs only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileId, sessionEpoch, noteId]);
+  // Leaving the section unmounts the window: same offer.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => () => offerPromptCopy(), []);
+  /** Explicit cancel: nothing written, caret back where the window opened. */
+  const closePrompt = () => {
+    const ed = editorRef.current, target = promptTarget.current;
+    setPromptOpen(false);
+    promptTarget.current = null;
+    promptDraft.current = '';
+    if (!ed || ed.isDestroyed) return;
+    if (target && target.noteId === noteRef.current?.id) ed.view.dispatch(ed.state.tr.setSelection(target.bookmark.resolve(ed.state.doc)));
+    ed.view.focus();
+  };
+  const insertPrompt = (choice: PromptChoice, bind: boolean) => {
+    const ed = editorRef.current, n = noteRef.current, target = promptTarget.current;
+    if (!ed || ed.isDestroyed || !n || !target || !choice.text || !promptTargetMatches(target, { profileId, epoch: sessionEpoch, noteId: n.id })) {
+      notify(tr('promptInsertInvalid', lang));
+      return;
+    }
+    const selection = target.bookmark.resolve(ed.state.doc);
+    ed.chain().focus().insertContentAt({ from: selection.from, to: selection.to }, { type: 'codeBlock', content: [{ type: 'text', text: choice.text }] }).run();
+    if (bind) actions.savePrompt(choice.source ? { ...choice.source, noteId: n.id } : { kind: choice.kind ?? 'llm', title: choice.title, templateId: choice.templateId, params: choice.params, model: choice.model, tokens: choice.tokens, noteId: n.id });
+    setPromptOpen(false);
+    promptTarget.current = null;
+    promptDraft.current = '';
+  };
+  // §7.12: caret, scroll and panel of a note live in session memory and come
+  // back on any return (another note, Map, Plan, Prompts, Back/Forward).
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
+  const ctxOpenRef = useRef(ctxOpen);
+  ctxOpenRef.current = ctxOpen;
+  const sessionKey = `${profileId}:${sessionEpoch}`;
+  const sessionKeyRef = useRef(sessionKey);
+  sessionKeyRef.current = sessionKey;
+  // Last scroll seen while this view was shown: by the time a departure is
+  // recorded, removed siblings may already have shifted window.scrollY.
+  const lastScroll = useRef(window.scrollY);
+  useEffect(() => {
+    const onScroll = () => { lastScroll.current = window.scrollY; };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+  const rememberNote = (id: string, returnFocus?: boolean) => {
+    const ed = editorRef.current;
+    if (!ed || ed.isDestroyed) return;
+    const { from, to } = ed.state.selection;
+    sessions.set(id, { from, to, scroll: lastScroll.current, tab: tabRef.current, open: ctxOpenRef.current, returnFocus: returnFocus ?? sessions.get(id)?.returnFocus ?? false });
+  };
+  // Leaving a note (switch or unmount) records it, within the same session.
+  // Keyed on the note only: a recreated editor instance is not a departure.
+  useLayoutEffect(() => {
+    const key = sessionKey;
+    return () => { if (noteId && key === sessionKeyRef.current) rememberNote(noteId); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noteId]);
+  const showOnMap = () => {
+    const n = noteRef.current;
+    if (!n) return;
+    rememberNote(n.id, true);
+    onShowMap(n.id);
+  };
+  const shownNote = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    const ed = editorRef.current, saved = noteId ? sessions.get(noteId) : undefined;
+    // A temporary panel comes back only on a return from another section
+    // (mount, see useState above); switching notes here closes it.
+    if (shownNote.current !== null && shownNote.current !== noteId) {
+      setCtxOpen(rightOpen);
+      setTab(saved?.tab ?? 'links');
+    }
+    shownNote.current = noteId;
+    // New notes and palette picks place their own caret.
+    if (saved && ed && !ed.isDestroyed && focusNoteId !== noteId && findRequest?.noteId !== noteId) {
+      const max = ed.state.doc.content.size;
+      ed.commands.setTextSelection({ from: Math.min(saved.from, max), to: Math.min(saved.to, max) });
+      // The editor DOM may attach after this effect: scroll on the next frame.
+      const y = saved.scroll;
+      lastScroll.current = y;
+      window.scrollTo(0, y);
+      requestAnimationFrame(() => window.scrollTo(0, y));
+      if (saved.returnFocus) {
+        returnMapFocus.current = true;
+        mapOpener.current?.focus({ preventScroll: true });
+        saved.returnFocus = false;
+      }
+    }
+    // A note's transient state is restored only when its document mounts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, noteId]);
+
+  // §7.5: a palette pick opens the note with the caret at the first match.
+  useLayoutEffect(() => {
+    if (!findRequest || findRequest.noteId !== noteId || !editor || editor.isDestroyed) return;
+    if (window.location.hash !== '#/notes/' + findRequest.noteId) return;
+    const blocks: { pos: number; text: string }[] = [];
+    editor.state.doc.descendants((node, pos) => {
+      if (!node.isTextblock) return true;
+      blocks.push({ pos: pos + 1, text: node.textBetween(0, node.content.size, '\n', '￼') });
+      return false;
+    });
+    editor.chain().setTextSelection(firstMatchPos(blocks, findRequest.query) ?? 0).scrollIntoView().run();
+    editor.view.focus();
+    revealCaret();
+    onFindDone();
+    // The request is consumed once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, noteId, findRequest]);
 
   const SLASH_RUNNERS: { testid: string; label: string; run: () => void }[] = useMemo(() => {
     const ed = () => editorRef.current;
@@ -456,8 +673,9 @@ export function NotesView({
       { testid: "slash-item-2", label: tr("snipLecture", lang), run: () => { delSlash(at); insertTpl("lec"); } },
       { testid: "slash-item-3", label: tr("snipEnt", lang), run: () => { delSlash(at); insertTpl("ent"); } },
       { testid: "slash-item-4", label: tr("snipProj", lang), run: () => { delSlash(at); insertTpl("proj"); } },
-      { testid: "slash-item-5", label: tr("addCalc", lang), run: () => { delSlash(at); const cur = noteRef.current; if (cur) actions.addCalc(cur.id); } },
+      { testid: "slash-item-5", label: tr("addCalc", lang), run: () => { delSlash(at); requestCalculation(); } },
       { testid: "slash-item-6", label: tr("addLinkBtn", lang), run: () => { delSlash(at); focusEditorEnd(); } },
+      { testid: "slash-item-7", label: tr("insertPrompt", lang), run: () => { delSlash(at); openPrompt(); } },
     ];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lang, slash?.slashAt]);
@@ -468,6 +686,7 @@ export function NotesView({
   useEffect(() => {
     if (!suggest && !slash) return;
     const h = (e: KeyboardEvent) => {
+      if (e.isComposing || e.keyCode === 229) return;
       const t = e.target as HTMLElement | null;
       if (!t || !t.closest || !t.closest(".tiptap")) return;
       if (suggest) {
@@ -517,6 +736,7 @@ export function NotesView({
   // Chrome reserves the old combination, so the hotkey moved; the ⋯/sel button stays).
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
+      if (e.isComposing || e.keyCode === 229) return;
       const t = e.target as HTMLElement | null;
       const inField = !!t && !!t.closest && !!t.closest("input, textarea, select, [contenteditable]");
       if (e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey && !inField && !(e.target as HTMLElement)?.closest?.(".g-modal")) {
@@ -582,7 +802,7 @@ export function NotesView({
   const openTaskFromSelection = () => {
     const n = noteRef.current;
     if (!n) return;
-    actions.createTask({ text: selectionText() || n.title, desc: "", noteId: n.id });
+    actions.createTask({ text: selectionText() || noteDisplayName(n, lang), desc: "", noteId: n.id });
     actions.notifyAction(tr("toastTaskAdded", lang), tr("openBtn", lang), onOpenPlan);
   };
 
@@ -600,10 +820,6 @@ export function NotesView({
     notify(tr("toastSnipApplied", lang));
   };
 
-  const removeLinkUndo = (id: string) => {
-    if (note) actions.removeLink(note.id, id);
-  };
-
   const insertVar = (display: string) => {
     if (!note) return;
     const v = display.replace(/\s+/g, "");
@@ -617,24 +833,13 @@ export function NotesView({
     ? [...new Map(note.calcs.map((c) => c.name.trim()).filter((n) => n).map((n) => [n.replace(/\s+/g, ""), n])).values()]
     : [];
 
-  const similar = note ? similarNotes(note, notes, graphs) : [];
   const incoming = note ? notes.filter((n) => n.id !== note.id && n.linkedIds.includes(note.id)) : [];
-  const broken = note ? note.linkedIds.filter((id) => !notes.some((n) => n.id === id)) : [];
-  const orphans = unlinkedNotes(notes);
   const noteTasks = note ? tasks.filter((t) => t.noteId === note.id) : [];
   const notePrompts = note ? prompts.filter((p) => p.noteId === note.id) : [];
   const wc = words.trim() ? words.trim().split(/\s+/).length : 0;
 
-  const tabDefs: { id: CtxTab; testid: string; label: string }[] = [
-    { id: "links", testid: "ctx-tab-links", label: tr("linkedT", lang) },
-    { id: "similar", testid: "ctx-tab-similar", label: tr("similarT", lang) },
-    { id: "tasks", testid: "ctx-tab-tasks", label: tr("noteTasksT", lang) },
-    { id: "prompts", testid: "ctx-tab-prompts", label: tr("promptsT", lang) },
-    { id: "snip", testid: "ctx-tab-snip", label: tr("snipT", lang) },
-  ];
-
   return (
-    <div className={"n-notes" + (note ? " has-open" : "")}>
+    <div ref={ctxRoot} className={"n-notes" + (note ? " has-open" : "") + (ctxOpen && rightOpen && pinAllowed ? " has-pinned-context" : "")}>
       <div className="n-listpane">
         {notes.length === 0 ? (
           <div className="g-empty">
@@ -680,13 +885,15 @@ export function NotesView({
                     className="g-noteopen"
                     data-testid="note-item"
                     data-active={n.id === noteId ? "true" : undefined}
+                    data-note-id={n.id}
+                    aria-label={`${noteAccessibleName(n, lang)} · ${noteUpdatedLabel(n, lang)}`}
                     onClick={() => onOpenNote(n.id)}
                   >
-                    {<Hi text={n.title || tr("newNoteTitle", lang)} q={list.query} />}
+                    <span className={!n.title.trim() ? "g-note-derived" : undefined}>{<Hi text={noteDisplayName(n, lang)} q={list.query} />}</span>
                   </button>
                   {n.text.trim() && <div className="g-notesnippet">{<Hi text={n.text} q={list.query} max={PREVIEW_LEN} />}</div>}
                   <div className="g-notemeta">
-                    {fmtDate(n.updated, lang)} · {tr("linkedT", lang)}: {n.linkedIds.length}
+                    {noteUpdatedLabel(n, lang)} · {tr("linkedT", lang)}: {n.linkedIds.length}
                   </div>
                 </div>
               ))}
@@ -715,11 +922,14 @@ export function NotesView({
               <input
                 className="g-title-in"
                 data-testid="title-in"
+                ref={titleRef}
                 autoComplete="off"
                 value={draft}
+                placeholder={tr("untitledNote", lang)}
                 onChange={(e) => setDraft(e.target.value)}
                 onBlur={commitTitle}
                 onKeyDown={(e) => {
+                  if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                   if (e.key === "Enter") {
                     // Blur first: commit is synchronous on blur, focusing the
                     // editor alone would leave the draft uncommitted on a
@@ -735,6 +945,27 @@ export function NotesView({
               <span className="g-wordcount">
                 {wc} {tr("words", lang)}
               </span>
+              <div className="n-morewrap" ref={insertRoot}>
+                <button type="button" className="g-btn sm" data-testid="insert-open" aria-expanded={insertOpen} onClick={() => setInsertOpen(v => !v)}>{tr('insertMenu', lang)} ▾</button>
+                {insertOpen && <div className="n-menu" data-testid="insert-menu" role="menu" onKeyDown={e => {
+                  if (e.key === 'Escape') { setInsertOpen(false); e.currentTarget.parentElement?.querySelector<HTMLButtonElement>('[data-testid="insert-open"]')?.focus(); }
+                  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    const items = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
+                    const at = items.indexOf(document.activeElement as HTMLButtonElement);
+                    items[(at + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus();
+                  }
+                }}>
+                  <button type="button" role="menuitem" className="n-menuitem" data-testid="insert-item-prompt" onClick={openPrompt}>{tr('insertPrompt', lang)}</button>
+                  <button type="button" role="menuitem" className="n-menuitem" data-testid="insert-item-calc" onClick={() => { setInsertOpen(false); requestCalculation(); }}>{tr('addCalc', lang)}</button>
+                  <button type="button" role="menuitem" className="n-menuitem" data-testid="insert-item-link" onClick={() => { setInsertOpen(false); focusEditorEnd(); }}>{tr('addLinkBtn', lang)}</button>
+                  <div className="n-menusep" role="separator" />
+                  <div className="muted small">{tr('snipT', lang)}</div>
+                  <button type="button" role="menuitem" className="n-menuitem" data-testid="insert-item-lec" onClick={() => { setInsertOpen(false); insertTpl('lec'); }}>{tr('snipLecture', lang)}</button>
+                  <button type="button" role="menuitem" className="n-menuitem" data-testid="insert-item-ent" onClick={() => { setInsertOpen(false); insertTpl('ent'); }}>{tr('snipEnt', lang)}</button>
+                  <button type="button" role="menuitem" className="n-menuitem" data-testid="insert-item-proj" onClick={() => { setInsertOpen(false); insertTpl('proj'); }}>{tr('snipProj', lang)}</button>
+                </div>}
+              </div>
               <div className="n-morewrap">
                 <button
                   type="button"
@@ -791,6 +1022,22 @@ export function NotesView({
               </div>
             </div>
 
+            <div data-testid="ctx-block" className="note-context-block">
+              <div className="note-context-links">
+                <span className="muted small">{tr('linkedT', lang)}: </span>
+                {note.linkedIds.length + incoming.length === 0 && <span className="muted small">{tr('ctxNoLinks', lang)}</span>}
+                {[...notes.filter(n => note.linkedIds.includes(n.id)), ...incoming].filter((n, i, all) => all.findIndex(x => x.id === n.id) === i).slice(0, 3).map(n =>
+                  <button type="button" className="g-linkbtn" key={n.id} aria-label={noteAccessibleName(n, lang)} onClick={() => onOpenNote(n.id)}>{incoming.some(x => x.id === n.id) && '← '}{noteDisplayName(n, lang)}</button>)}
+                <button type="button" className="g-btn sm" data-testid="ctx-all-links" onClick={e => openContext('links', e.currentTarget)}>{tr('ctxAllLinks', lang)} ({note.linkedIds.length + incoming.length})</button>
+              </div>
+              <div className="note-context-tools">
+                <button type="button" className="g-btn sm" data-testid="ctx-open-tasks" onClick={e => openContext('tasks', e.currentTarget)}>{tr('noteTasksT', lang)}{noteTasks.length ? ' · ' + noteTasks.length : ''}</button>
+                <button type="button" className="g-btn sm" data-testid="ctx-open-prompts" onClick={e => openContext('prompts', e.currentTarget)}>{tr('promptsT', lang)}{notePrompts.length ? ' · ' + notePrompts.length : ''}</button>
+                <button ref={mapOpener} type="button" className="g-linkbtn" data-testid="ctx-show-map" onClick={showOnMap}>{tr('ctxShowMap', lang)}</button>
+                {graphs.filter(g => g.noteIds.includes(note.id)).map(g => <span className="g-kind" key={g.id}>{g.title}</span>)}
+              </div>
+            </div>
+
             {hint && (
               <div className="g-hint">
                 <span>{tr("hintFirst", lang)}</span>
@@ -800,7 +1047,14 @@ export function NotesView({
               </div>
             )}
 
-            <div data-testid="editor">
+            <div data-testid="editor" onKeyDown={(e) => {
+              // Keep handled editor keys (e.g. list outdent); otherwise visit
+              // the title before the body in the reverse keyboard path.
+              if (e.key === "Tab" && e.shiftKey && !e.defaultPrevented && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                titleRef.current?.focus();
+              }
+            }}>
               <EditorContent editor={editor} />
             </div>
 
@@ -889,11 +1143,12 @@ export function NotesView({
                     role="option"
                     aria-selected={i === suggest.active}
                     data-testid={`link-suggest-item-${i}`}
+                    aria-label={`${noteAccessibleName(n, lang)} · ${noteUpdatedLabel(n, lang)}`}
                     className={"n-suggestitem" + (i === suggest.active ? " active" : "")}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => pickSuggest(n.id)}
                   >
-                    <span>{n.title || tr("newNoteTitle", lang)}</span>
+                    <span className={!n.title.trim() ? "g-note-derived" : undefined} title={noteAccessibleName(n, lang)}>{noteDisplayName(n, lang)}<small className="muted"> · {noteUpdatedLabel(n, lang)} · {n.text.slice(0, PREVIEW_LEN)}</small></span>
                     {note.linkedIds.includes(n.id) && <span className="g-ok">✓</span>}
                   </button>
                 ))}
@@ -925,13 +1180,13 @@ export function NotesView({
                 role="menu"
                 style={{ left: slash.x, top: slash.y }}
               >
-                {SLASH_RUNNERS.map((r, i) => (
+                {[SLASH_RUNNERS.slice(0, 2), SLASH_RUNNERS.slice(2)].map((group) => <div role="group" className="n-slash-group" key={group[0]?.testid}>{group.map((r) => (
                   <button
                     key={r.testid}
                     type="button"
                     role="menuitem"
                     data-testid={r.testid}
-                    className={"n-suggestitem" + (i === slash.active ? " active" : "")}
+                    className={"n-suggestitem" + (SLASH_RUNNERS.indexOf(r) === slash.active ? " active" : "")}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => {
                       setSlash(null);
@@ -940,15 +1195,14 @@ export function NotesView({
                   >
                     {r.label}
                   </button>
-                ))}
+                ))}</div>)}
               </div>
             )}
 
-            <div className="g-card g-calcs">
+            {note.calcs.length > 0 && <div className="g-card g-calcs" data-testid="calc-block">
               <div className="g-card-t">
                 {tr("calcsT", lang)} ({note.calcs.length})
               </div>
-              {note.calcs.length === 0 && <div className="muted small">{tr("emptyCalcs", lang)}</div>}
               {varNames.length > 0 && (
                 <div className="g-vars">
                   <span className="muted small">{tr("varsHint", lang)}</span>
@@ -965,11 +1219,13 @@ export function NotesView({
                   ))}
                 </div>
               )}
-              {note.calcs.map((c) => {
+              {note.calcs.map((c, calcIndex) => {
                 const d = calcDisplay(c, note.calcs, lang);
                 return (
                   <div className="g-calcrow" key={c.id}>
                     <input
+                      ref={calcIndex === note.calcs.length - 1 ? calcNameRef : undefined}
+                      data-testid="calc-name"
                       value={c.name}
                       onChange={(e) => actions.updateCalc(note.id, c.id, { name: e.target.value })}
                       placeholder={tr("calcNamePh", lang)}
@@ -998,222 +1254,26 @@ export function NotesView({
                   </div>
                 );
               })}
-              <button type="button" className="g-btn sm g-wide" onClick={() => actions.addCalc(note.id)}>
+              <button type="button" className="g-btn sm g-wide" onClick={requestCalculation}>
                 {tr("addCalc", lang)}
               </button>
-            </div>
+            </div>}
           </section>
         )}
       </div>
       )}
 
-      {rightOpen ? (
-        <aside className="g-right n-ctx">
-          <button
-            type="button"
-            className="g-btn sm ghost"
-            title={tr("panelToggle", lang)}
-            aria-label={tr("panelToggle", lang)}
-            onClick={onToggleRight}
-          >
-            &#8249;
-          </button>
-          <div className="n-tabs" data-testid="ctx-tabs" role="tablist">
-            {tabDefs.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                role="tab"
-                aria-selected={tab === t.id}
-                data-testid={t.testid}
-                className={"n-tab" + (tab === t.id ? " active" : "")}
-                onClick={() => setTab(t.id)}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-          {tab === "links" && note && (
-            <div className="g-card">
-              <div className="g-card-t">
-                {tr("linkedT", lang)} ({note.linkedIds.length})
-              </div>
-              {note.linkedIds.length === 0 && <div className="muted small">{tr("emptyOrphans", lang)}</div>}
-              <ul>
-                {note.linkedIds.map((id) => (
-                  <li key={id} className="g-linkrow-li">
-                    <button type="button" className="g-linkbtn" onClick={() => onOpenNote(id)}>
-                      {notes.find((n) => n.id === id)?.title ?? id.slice(-4)}
-                    </button>
-                    <button
-                      type="button"
-                      className="g-unlink"
-                      title={tr("unlinkTitle", lang)}
-                      aria-label={tr("unlinkTitle", lang)}
-                      onClick={() => removeLinkUndo(id)}
-                    >
-                      ×
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              {incoming.length > 0 && (
-                <>
-                  <div className="g-card-t sub">
-                    {tr("backlinksT", lang)} ({incoming.length})
-                  </div>
-                  <ul>
-                    {incoming.map((n) => (
-                      <li key={n.id}>
-                        <button type="button" className="g-linkbtn" onClick={() => onOpenNote(n.id)}>
-                          &#8592; {n.title}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-              {broken.length > 0 && (
-                <>
-                  <div className="g-card-t sub">
-                    {tr("brokenF", lang)} ({broken.length})
-                  </div>
-                  <ul>
-                    {broken.map((id) => (
-                      <li key={id} className="g-linkrow-li">
-                        <span className="muted small">? {id.slice(-4)}</span>
-                        <button
-                          type="button"
-                          className="g-unlink"
-                          title={tr("unlinkTitle", lang)}
-                          aria-label={tr("unlinkTitle", lang)}
-                          onClick={() => removeLinkUndo(id)}
-                        >
-                          ×
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-              <button type="button" className="g-btn sm g-wide" onClick={focusEditorEnd}>
-                {tr("addLinkBtn", lang)}
-              </button>
-              {orphans.length > 0 && (
-                <>
-                  <div className="g-card-t sub">
-                    {tr("orphansT", lang)} ({orphans.length})
-                  </div>
-                  {orphans.slice(0, orphShown).map((n) => (
-                    <div className="g-sugg" key={n.id}>
-                      <button type="button" className="g-linkbtn" onClick={() => onOpenNote(n.id)}>
-                        • {n.title || tr("newNoteTitle", lang)}
-                      </button>
-                    </div>
-                  ))}
-                </>
-              )}
-            </div>
-          )}
-          {tab === "similar" && (
-            <div className="g-card warn">
-              <div className="g-card-t">
-                {tr("similarT", lang)} ({similar.length})
-              </div>
-              {similar.length === 0 && <div className="muted small">{tr("similarEmpty", lang)}</div>}
-              {similar.length > 0 && (
-                <div className="muted small">
-                  {tr("listShownOf", lang).replace("{x}", String(Math.min(simShown, similar.length))).replace("{y}", String(similar.length))}
-                </div>
-              )}
-              {similar.slice(0, simShown).map((s) => (
-                <div className="g-sugg" key={s.id}>
-                  <button type="button" className="g-linkbtn" onClick={() => onOpenNote(s.id)}>
-                    • {s.title}
-                  </button>
-                  <button type="button" className="g-linkbtn" onClick={() => onOpenNote(s.id)}>
-                    [{tr("linkQ", lang)}]
-                  </button>
-                </div>
-              ))}
-              {simShown < similar.length && (
-                <button type="button" className="g-btn sm g-tpl-more" onClick={() => setSimShown((s) => s + 3)}>
-                  {tr("tplShowMore", lang).replace("{n}", String(Math.min(3, similar.length - simShown)))}
-                </button>
-              )}
-            </div>
-          )}
-          {tab === "tasks" && note && (
-            <div className="g-card g-note-tasks">
-              <div className="g-card-t">
-                {tr("noteTasksT", lang)} ({noteTasks.length})
-              </div>
-              {noteTasks.length === 0 && <div className="muted small">{tr("emptyNoteTasks", lang)}</div>}
-              {noteTasks.map((t) => (
-                <div className="g-sugg" key={t.id}>
-                  <label className={`g-undone${t.done ? " done" : ""}`}>
-                    <input type="checkbox" checked={t.done} onChange={() => actions.toggleTask(t.id)} />
-                    <span>
-                      {t.text}
-                      {t.desc && <div className="g-tdesc">{t.desc}</div>}
-                    </span>
-                  </label>
-                  <span>
-                    <button type="button" className="g-linkbtn" onClick={() => actions.deleteTask(t.id)}>
-                      [{tr("deleteNote", lang)}]
-                    </button>
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-          {tab === "prompts" && (
-            <div className="g-card">
-              <div className="g-card-t">
-                {tr("promptsT", lang)} ({notePrompts.length})
-              </div>
-              {notePrompts.length === 0 && <div className="muted small">{tr("notePromptsEmpty", lang)}</div>}
-              {notePrompts.map((p) => (
-                <div className="g-sugg" key={p.id}>
-                  <span>
-                    • {p.title} <span className="g-kind">{p.kind}</span>
-                  </span>
-                  <span>
-                    <button type="button" className="g-linkbtn" onClick={() => onOpenPrompt(p.id)}>
-                      [{tr("openBtn", lang)}]
-                    </button>{" "}
-                    <button type="button" className="g-linkbtn" onClick={() => onUnbind(p.id)}>
-                      [{tr("unbindBtn", lang)}]
-                    </button>
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-          {tab === "snip" && (
-            <div className="g-card">
-              <div className="g-card-t">{tr("snipT", lang)}</div>
-              <div className="g-tplbtns">
-                <button type="button" className="g-chip sm" onClick={() => insertTpl("lec")}>
-                  {tr("snipLecture", lang)}
-                </button>
-                <button type="button" className="g-chip sm" onClick={() => insertTpl("ent")}>
-                  {tr("snipEnt", lang)}
-                </button>
-                <button type="button" className="g-chip sm" onClick={() => insertTpl("proj")}>
-                  {tr("snipProj", lang)}
-                </button>
-              </div>
-            </div>
-          )}
-        </aside>
-      ) : (
-        <aside className="g-rail-r">
-          <button type="button" title={tr("panelToggle", lang)} aria-label={tr("panelToggle", lang)} onClick={onToggleRight}>
-            &#8250;
-          </button>
-        </aside>
-      )}
+      {ctxOpen && note && <Suspense fallback={<div role="status">{tr('ctxTitle', lang)}…</div>}>
+        <NoteContext lang={lang} note={note} notes={notes} graphs={graphs} tasks={tasks} prompts={prompts} actions={actions} tab={tab} onTab={setTab}
+          pinned={rightOpen && pinAllowed} canPin={pinAllowed} onPin={onToggleRight} onClose={closeContext} autoFocus={!returnMapFocus.current}
+          onOpenNote={onOpenNote} onOpenPlan={onOpenPlan} onOpenPrompt={onOpenPrompt} onUnbind={onUnbind}
+          onAddLink={() => { closeContext(); focusEditorEnd(); }} onTask={openTaskFromSelection} onInsertPrompt={openPrompt} onShowMap={showOnMap} />
+      </Suspense>}
+      {promptOpen && note && <Suspense fallback={<div role="status">{tr('insertPrompt', lang)}…</div>}>
+        <PromptInsert lang={lang} templates={templates} saves={prompts}
+          valid={!!promptTarget.current && promptTargetMatches(promptTarget.current, { profileId, epoch: sessionEpoch, noteId: note.id })}
+          onInsert={insertPrompt} onClose={closePrompt} onDraft={keepPromptDraft} />
+      </Suspense>}
 
     </div>
   );

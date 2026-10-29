@@ -1,5 +1,6 @@
 // E2E group G4-story (run order: e2e/check6.cjs).
 module.exports = async function (t) {
+  const { openContext, closeContext } = t;
   const { MAP_UNLOCK, seedProfiles, v5store, storyEntryNotes, storyGrownLegacy, reseed, beginGroup, check, assert, newViaPalette, pickViaPalette, page } = t;
 
   // ---------- GROUP G4-story: Alpha/Beta entry (lock toast), growth in P7 ----------
@@ -26,19 +27,19 @@ module.exports = async function (t) {
     await page.getByTestId('nav-notes').click();
     await page.locator('.g-notes-tools .g-in').fill('Beta');
     await page.locator('.g-noterow', { hasText: 'Beta' }).first().locator('.g-noteopen').click();
-    await page.locator('.g-right').waitFor();
-    await page.getByTestId('ctx-tab-similar').click();
-    const t = await page.locator('.g-right').innerText();
+    await openContext(page);
+    const t = await page.getByTestId('ctx-panel').innerText();
     assert(t.includes('Alpha'), 'real similar missing');
     assert(!t.includes('Normalization'), 'fake similar present');
   });
   await check('P7 broken flow', async () => {
+    await closeContext(page);
     await page.locator('.tiptap').click();
     await page.keyboard.type('[[Alpha');
     await page.getByTestId('link-suggest').waitFor();
     await page.keyboard.press('Enter');
-    await page.getByTestId('ctx-tab-links').click();
-    await page.locator('.g-card', { hasText: 'Связанное' }).locator('li', { hasText: 'Alpha' }).locator('.g-linkbtn').click();
+    await openContext(page, 'links');
+    await page.getByTestId('ctx-panel').getByRole('tabpanel').locator('li', { hasText: 'Alpha' }).locator('.g-linkbtn').click();
     await page.getByTestId('notes-more').click();
     await page.getByTestId('notes-menu-trash').click();
     await page.getByTestId('nav-map').click();
@@ -47,7 +48,8 @@ module.exports = async function (t) {
     await page.getByTestId('nav-notes').click();
     await page.locator('.g-notes-tools .g-in').fill('Beta');
     await page.locator('.g-noterow', { hasText: 'Beta' }).first().locator('.g-noteopen').click();
-    assert((await page.locator('.g-card', { hasText: 'Связанное' }).locator('li').count()) === 0, 'refs not purged');
+    await openContext(page);
+    assert((await page.getByTestId('ctx-panel').getByRole('tabpanel').locator('li').count()) === 0, 'refs not purged');
   });
   await check('P7 rename propagation', async () => {
     await newViaPalette(page);
@@ -60,11 +62,11 @@ module.exports = async function (t) {
     await page.locator('.g-title-in').fill('Gamma');
     await page.keyboard.press('Enter');
     await pickViaPalette(page, 'Delta', 'Delta');
-    await page.getByTestId('ctx-tab-links').click();
-    const t = await page.locator('.g-card', { hasText: 'Связанное' }).innerText();
+    await openContext(page, 'links');
+    const t = await page.getByTestId('ctx-panel').getByRole('tabpanel').innerText();
     assert(t.includes('Gamma') && !t.includes('Beta'), `refs not updated: ${t}`);
   });
-  await check('P7 unique titles', async () => {
+  await check('P7 explicit titles remain unique', async () => {
     await newViaPalette(page);
     await page.locator('.g-title-in').fill('Gamma');
     await page.keyboard.press('Enter');
@@ -107,10 +109,13 @@ module.exports = async function (t) {
     await page.locator('.s-rail.collapsed').waitFor();
   });
   await check('P9 create from rail', async () => {
+    const before = await page.evaluate(() => location.hash);
     await page.getByTestId('quickadd').click();
-    await page.getByTestId('palette').waitFor();
-    await page.getByTestId('palette').getByRole('button', { name: '+ Новая заметка' }).click();
-    await page.locator('.g-title-in').waitFor();
+    await page.waitForFunction(prev => location.hash !== prev && location.hash.startsWith('#/notes/'), before);
+    assert(await page.getByTestId('palette').count() === 0, 'creation opened the search palette');
+    await page.getByTestId('title-in').waitFor();
+    assert((await page.getByTestId('title-in').inputValue()) === '', 'rail note has an automatic title');
+    assert(await page.getByTestId('editor').getByRole('textbox').evaluate(el => document.activeElement === el), 'rail creation did not focus body');
     await page.locator('.s-rail').getByLabel('Меню').click();
     assert((await page.locator('.s-rail.collapsed').count()) === 0, 'not expanded');
   });
@@ -129,12 +134,14 @@ module.exports = async function (t) {
     assert((await page.locator('.g-title-in').inputValue()) === 'Gamma', 'not opened');
   });
   await check('P11 backlinks both ways', async () => {
-    const t = await page.locator('.g-card', { hasText: 'Связанное' }).innerText();
+    await openContext(page);
+    const t = await page.getByTestId('ctx-panel').getByRole('tabpanel').innerText();
     assert(t.includes('Delta'), `no incoming: ${t}`);
   });
 
 
   await check('P12 graph create+rename', async () => {
+    await closeContext(page);
     await page.getByTestId('nav-map').click();
     await page.getByTestId('map-graphs').click();
     await page.getByRole('menuitem', { name: '+ Новый' }).click();

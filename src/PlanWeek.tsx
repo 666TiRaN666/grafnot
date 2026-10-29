@@ -26,7 +26,7 @@ export function PlanWeek({
   onAdd,
   onUpdate,
   onDelete,
-  onOpenNote,
+  onOpenNote, createRequest = 0,
 }: {
   lang: Lang;
   tasks: TaskItem[];
@@ -37,6 +37,7 @@ export function PlanWeek({
   onUpdate: (id: string, patch: { text?: string; desc?: string; due?: string }) => void;
   onDelete: (id: string) => void;
   onOpenNote: (id: string) => void;
+  createRequest?: number;
 }) {
   const today = todayISO();
   const [offset, setOffset] = useState(0);
@@ -85,6 +86,10 @@ export function PlanWeek({
     const p = clampXY(x, y + 8);
     setPopup({ iso, x: p.x, y: p.y });
   };
+
+  useEffect(() => { if (createRequest) openAt(mTab === "inbox" ? "" : mDay, 16, 80);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createRequest]);
 
   // ‹/›/T travel the weeks (never inside a field or dialog).
   useEffect(() => {

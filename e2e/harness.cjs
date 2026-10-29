@@ -355,11 +355,29 @@ async function orphanStores(pg) {
 // S2 shell helpers: new notes and cross-entity jumps go through Quick Add.
 // Palette picks remount the editor: always wait for the hash move plus the
 // freshly mounted title before typing, never for a merely attached input.
+async function closeContext(pg) {
+  if (await pg.getByTestId('ctx-panel').count()) {
+    if (await pg.getByTestId('palette').count()) await pg.keyboard.press('Escape');
+    await pg.getByTestId('ctx-close').click();
+  }
+}
+async function openContext(pg, tab = 'links') {
+  if (!(await pg.getByTestId('ctx-panel').count())) {
+    await pg.getByTestId(tab === 'links' ? 'ctx-all-links' : tab === 'tasks' ? 'ctx-open-tasks' : 'ctx-open-prompts').click();
+    await pg.getByTestId('ctx-panel').waitFor();
+  }
+  await pg.getByTestId('ctx-tab-' + tab).click();
+}
+async function insertCalculation(pg) {
+  await closeContext(pg);
+  await pg.getByTestId('insert-open').click();
+  await pg.getByTestId('insert-item-calc').click();
+}
+
 async function newViaPalette(pg) {
+  await closeContext(pg);
   const before = await pg.evaluate(() => window.location.hash);
   await pg.getByTestId('quickadd').click();
-  await pg.getByTestId('palette').waitFor();
-  await pg.getByTestId('palette').getByRole('button', { name: '+ Новая заметка' }).click();
   await pg.waitForFunction((prev) => window.location.hash !== prev && window.location.hash.indexOf('#/notes/') === 0, before, { timeout: 8000 });
   // Attached only: the editor remounts on navigation, and Playwright fills
   // re-resolve the selector, so typing below always lands in the new note
@@ -367,6 +385,7 @@ async function newViaPalette(pg) {
   await pg.locator('.g-title-in').waitFor();
 }
 async function pickViaPalette(pg, text, expectTitle) {
+  await closeContext(pg);
   await pg.keyboard.press('Control+k');
   await pg.getByTestId('palette-input').fill(text);
   await pg.locator('[data-testid^="palette-item-"]', { hasText: text }).first().click();
@@ -485,6 +504,7 @@ const API = {
   check,
   assert,
   orphanStores,
+  openContext, closeContext, insertCalculation,
   newViaPalette,
   pickViaPalette,
 };

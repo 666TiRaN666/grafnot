@@ -119,7 +119,7 @@ module.exports = async function (t) {
     attachErrorGuards(m);
     await m.goto(URL, { waitUntil: 'networkidle' });
     try {
-      await m.getByTestId('tab-add').click();
+      await m.getByTestId('palette-open').click();
       await m.getByTestId('palette').waitFor();
       const w = await m.getByTestId('palette').evaluate((el) => el.getBoundingClientRect().width);
       assert(w >= 300, `palette narrow: ${w}`);

@@ -1,5 +1,6 @@
 // E2E group G2-editor (run order: e2e/check6.cjs).
 module.exports = async function (t) {
+  const { openContext, closeContext } = t;
   const { seedProfiles, v5store, seedNote, beginGroup, check, assert, page } = t;
 
   // ---------- GROUP G2-editor: editor, tasks, calendar (one empty note) ----------
@@ -41,12 +42,13 @@ module.exports = async function (t) {
     await page.keyboard.press('Control+a');
     await page.getByTitle('+ Задача').click();
     assert((await page.locator('.g-modal').count()) === 0, 'dialog opened');
-    await page.getByTestId('ctx-tab-tasks').click();
-    await page.locator('.g-note-tasks').waitFor();
-    const t = await page.locator('.g-note-tasks').innerText();
+    await openContext(page, 'tasks');
+    await page.getByTestId('ctx-panel').getByRole('tabpanel').waitFor();
+    const t = await page.getByTestId('ctx-panel').getByRole('tabpanel').innerText();
     assert(t.includes('(1)') && t.includes('Hi'), 'task not filed: ' + t.slice(0, 120));
   });
   await check('P1b edit task desc in panel', async () => {
+    await closeContext(page);
     await page.getByTestId('nav-plan').click();
     await page.locator('.g-taskline', { hasText: 'Hi' }).click();
     await page.getByTestId('task-panel').waitFor();

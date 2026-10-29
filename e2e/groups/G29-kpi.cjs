@@ -83,7 +83,7 @@ module.exports = async function (t) {
     await page.getByTestId('link-suggest').waitFor();
     await page.keyboard.press('Enter');
     assert((await page.locator('.g-modal').count()) === 0, 'dialog opened');
-    await page.locator('.g-right', { hasText: 'Beta' }).waitFor();
+    await page.getByTestId('ctx-block').filter({ hasText: 'Beta' }).waitFor();
   });
 
   await check('S13 note delete+undo is 1+1', async () => {

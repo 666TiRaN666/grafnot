@@ -3,10 +3,11 @@ import type { Lang } from "./i18n";
 import { tr } from "./i18n";
 import type { Note } from "./store";
 import { Hi } from "./widgets";
+import { noteAccessibleName, noteDisplayName } from "./noteName";
 
 function clampXY(x: number, y: number): { x: number; y: number } {
   const w = window.innerWidth || 1024;
-  return { x: Math.max(8, Math.min(x, w - 300)), y: Math.max(8, y) };
+  return { x: Math.max(8, Math.min(x, w - Math.min(330, w - 16) - 8)), y: Math.max(8, y) };
 }
 
 /** «В заметку ▾» popup (search + 5 recent) plus the binding chip.
@@ -59,8 +60,8 @@ export function NoteAttach({
       </span>
       {bindingId && (
         <div className="w-notechip">
-          <button type="button" className="g-linkbtn" onClick={() => onOpenNote(bindingId)}>
-            {tr("boundNoteT", lang)}: {bound?.title ?? bindingId.slice(-4)}
+          <button type="button" className="g-linkbtn" aria-label={bound ? `${tr("boundNoteT", lang)}: ${noteAccessibleName(bound, lang)}` : undefined} onClick={() => onOpenNote(bindingId)}>
+            {tr("boundNoteT", lang)}: {bound ? <span className={!bound.title.trim() ? "g-note-derived" : undefined} title={noteAccessibleName(bound, lang)}>{noteDisplayName(bound, lang)}</span> : bindingId.slice(-4)}
           </button>{" "}
           <button type="button" className="g-unlink" title={tr("unbindBtn", lang)} aria-label={tr("unbindBtn", lang)} onClick={onClear}>
             ×
@@ -95,6 +96,7 @@ export function NoteAttach({
               role="option"
               aria-selected={false}
               data-testid={`w-note-pick-${ni}`}
+              aria-label={noteAccessibleName(n, lang)}
               className="n-suggestitem"
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
@@ -103,7 +105,7 @@ export function NoteAttach({
                 setQuery("");
               }}
             >
-              <Hi text={n.title} q={query} />
+              <span className={!n.title.trim() ? "g-note-derived" : undefined} title={noteAccessibleName(n, lang)}><Hi text={noteDisplayName(n, lang)} q={query} /></span>
             </button>
           ))}
           {rows.length === 0 && (

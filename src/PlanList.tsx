@@ -3,6 +3,7 @@ import type { Lang } from "./i18n";
 import { tr } from "./i18n";
 import type { Note, TaskItem } from "./store";
 import { Hi, fmtDue } from "./widgets";
+import { noteAccessibleName, noteDisplayName } from "./noteName";
 import { addDaysISO, groupTasks, todayISO } from "./taskGroups";
 import type { TaskGroupKey } from "./taskGroups";
 
@@ -33,7 +34,7 @@ export function PlanList({
   onUpdate,
   onOpenNote,
   openId = null,
-  onLeaveOpen,
+  onLeaveOpen, createRequest = 0,
 }: {
   lang: Lang;
   tasks: TaskItem[];
@@ -47,6 +48,7 @@ export function PlanList({
   openId?: string | null;
   /** The panel left `openId` (closed or switched): the route drops the id. */
   onLeaveOpen?: () => void;
+  createRequest?: number;
 }) {
   const today = todayISO();
   const [query, setQuery] = useState("");
@@ -165,6 +167,10 @@ export function PlanList({
     else titleRef.current?.focus();
   };
 
+  useEffect(() => { if (createRequest) openComposer(); /* same entry as N */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createRequest]);
+
   // `/` searches, `N` composes (guarded: never inside a field or dialog).
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
@@ -217,10 +223,11 @@ export function PlanList({
     </div>
   );
 
-  const titleOf = (id: string | undefined) => notes.find((n) => n.id === id)?.title;
+  const noteOf = (id: string | undefined) => notes.find((n) => n.id === id);
 
   const renderRow = (t: TaskItem) => {
-    const src = titleOf(t.noteId);
+    const sourceNote = noteOf(t.noteId);
+    const src = sourceNote ? noteDisplayName(sourceNote, lang) : undefined;
     const overdue = t.due !== undefined && t.due !== "" && t.due < today;
     return (
       <div
@@ -283,7 +290,8 @@ export function PlanList({
             (src ? (
               <button
                 type="button"
-                className="g-src"
+                className={"g-src" + (sourceNote && !sourceNote.title.trim() ? " g-note-derived" : "")}
+                aria-label={sourceNote ? `${tr("fromSrc", lang)}: ${noteAccessibleName(sourceNote, lang)}` : undefined}
                 onClick={(e) => {
                   e.stopPropagation();
                   onOpenNote(t.noteId as string);
@@ -540,7 +548,8 @@ export function TaskPanel({
   // editor, so no sync effect is needed; cross-tab changes reload the page.
   const [title, setTitle] = useState(task.text);
   const [desc, setDesc] = useState(task.desc ?? "");
-  const src = notes.find((n) => n.id === task.noteId)?.title;
+  const sourceNote = notes.find((n) => n.id === task.noteId);
+  const src = sourceNote ? noteDisplayName(sourceNote, lang) : undefined;
 
   return (
     <aside
@@ -620,7 +629,8 @@ export function TaskPanel({
           {src ? (
             <button
               type="button"
-              className="g-src"
+              className={"g-src" + (sourceNote && !sourceNote.title.trim() ? " g-note-derived" : "")}
+                aria-label={sourceNote ? `${tr("fromSrc", lang)}: ${noteAccessibleName(sourceNote, lang)}` : undefined}
               onClick={() => {
                 onClose();
                 onOpenNote(task.noteId as string);

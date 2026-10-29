@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { tr } from './i18n';
 import type { Lang } from './i18n';
 import { filterPalette } from './paletteModel';
-import type { PaletteEntry } from './paletteModel';
+import type { PaletteGroup, PaletteEntry } from './paletteModel';
 import { useListNav } from './useListNav';
 
 /** S2 Quick Add / command palette. Groups of 3-4 (notes, tasks, prompts,
@@ -24,14 +24,17 @@ export function Palette({
   prompts: PaletteEntry[];
   commands: PaletteEntry[];
   groupName: (g: PaletteEntry['group']) => string;
-  onPick: (e: PaletteEntry) => void;
+  /** The query travels with the pick: a note opens at its first match. */
+  onPick: (e: PaletteEntry, query: string) => void;
   onClose: () => void;
 }) {
   const [q, setQ] = useState('');
-  const rows = filterPalette(q, notes, tasks, prompts, commands);
+  const [limits, setLimits] = useState<Partial<Record<PaletteGroup, number>>>({});
+  const rows = filterPalette(q, notes, tasks, prompts, commands, limits);
+  const all = filterPalette(q, notes, tasks, prompts, commands, { notes: Infinity, tasks: Infinity, prompts: Infinity, commands: Infinity });
   const nav = useListNav(rows.length, (i) => {
     const r = rows[i];
-    if (r) onPick(r);
+    if (r) onPick(r, q);
   });
   return (
     <div className="s-pal-back" onClick={onClose}>
@@ -50,6 +53,7 @@ export function Palette({
           value={q}
           onChange={(e) => {
             setQ(e.target.value);
+            setLimits({});
             nav.reset();
           }}
           onKeyDown={nav.onKeyDown}
@@ -63,15 +67,21 @@ export function Palette({
               key={r.id}
               type="button"
               data-testid={`palette-item-${i}`}
+              title={r.accessibleName ?? r.title}
+              aria-label={r.accessibleName ? `${r.accessibleName} · ${r.sub}` : undefined}
               className={`s-pal-item${i === nav.active ? ' active' : ''}`}
               onMouseEnter={() => nav.setActive(i)}
-              onClick={() => onPick(r)}
+              onClick={() => onPick(r, q)}
             >
               <span className="g-kind">{groupName(r.group)}</span>
-              <span>{r.title}</span>
+              <span className={r.derived ? "g-note-derived" : undefined}>{r.title}</span>
               <span className="muted">{r.sub}</span>
             </button>
           ))}
+          {(['notes', 'tasks', 'prompts', 'commands'] as const).map(group => {
+            const remaining = all.filter(r => r.group === group).length - rows.filter(r => r.group === group).length;
+            return remaining > 0 ? <button type="button" key={group} className="g-btn sm s-pal-more" data-testid={'palette-more-' + group} onClick={() => setLimits(l => ({ ...l, [group]: (l[group] ?? 4) + 50 }))}>{groupName(group)} · {tr('tplShowMore', lang).replace('{n}', String(Math.min(50, remaining)))}</button> : null;
+          })}
         </div>
       </div>
     </div>

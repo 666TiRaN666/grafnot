@@ -1,5 +1,6 @@
 // E2E group G5-prompt (run order: e2e/check6.cjs).
 module.exports = async function (t) {
+  const { openContext, closeContext } = t;
   const { seedProfiles, v5store, beginGroup, check, assert, newViaPalette, pickViaPalette, page } = t;
 
   // ---------- GROUP G5-prompt: prompt page on an empty store ----------
@@ -62,22 +63,23 @@ module.exports = async function (t) {
     await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
     await page.getByTestId('nav-notes').click();
     await page.locator('.g-noterow', { hasText: 'Prompthost' }).first().locator('.g-noteopen').click();
-    await page.getByTestId('ctx-tab-prompts').click();
-    const card = page.locator('.g-card', { hasText: 'Промпты' });
+    await openContext(page, 'prompts');
+    const card = page.getByTestId('ctx-panel').getByRole('tabpanel');
     await card.waitFor();
     assert((await card.innerText()).includes('Code review'), 'not linked');
     await card.getByRole('button', { name: 'Открыть' }).click();
     await page.getByTestId('prompt-workbench').waitFor();
     assert((await page.getByTestId('prompt-workbench').innerText()).includes('Code review'), 'linked save did not open');
     await pickViaPalette(page, 'Prompthost');
-    await page.getByTestId('ctx-tab-prompts').click();
-    await page.locator('.g-card', { hasText: 'Промпты' }).getByRole('button', { name: 'Отвязать' }).click();
-    assert((await page.locator('.g-card', { hasText: 'Промпты' }).innerText()).includes('Нет привязанных'), 'not unbound');
+    await openContext(page, 'prompts');
+    await page.getByTestId('ctx-panel').getByRole('tabpanel').getByRole('button', { name: 'Отвязать' }).click();
+    assert((await page.getByTestId('ctx-panel').getByRole('tabpanel').innerText()).includes('Нет привязанных'), 'not unbound');
   });
 
 
 
   await check('P13d syntax per model + inline risk', async () => {
+    await closeContext(page);
     const lastBody = () => page.evaluate(() => (JSON.parse(window.localStorage.getItem('grafnot-store-p1') || '{}').customTpls.slice(-1)[0] || {}).body || '');
     await page.getByTestId('nav-prompt').click();
     await page.locator('[data-testid="prompt-item"]', { hasText: 'Арт: персонаж' }).click();

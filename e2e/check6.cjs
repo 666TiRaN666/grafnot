@@ -38,6 +38,7 @@ const ORDER = [
   'G29-kpi',
   'G33-identity',
   'G34-trash',
+  'G35-rollout',
 ];
 
 run(ORDER).catch((e) => {

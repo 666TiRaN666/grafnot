@@ -156,6 +156,8 @@ describe("profile data cleanup", () => {
       // W5: explicit rail choice; deleting a profile must remove it too.
       "grafnot-side-mode:pf1",
       "grafnot-right:pf1",
+      "grafnot-ctx:pf1",
+      "grafnot-add-mode:pf1",
       "grafnot-hint-first:pf1",
       "grafnot-section:pf1",
       "grafnot-prompt-density:pf1",
