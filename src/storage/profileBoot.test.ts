@@ -285,7 +285,7 @@ describe("loadProfileStore", () => {
     }
   });
   it("blocks future payloads", () => {
-    const raw = JSON.stringify({ schemaVersion: 7, notes: [], tasks: [], activeId: "" });
+    const raw = JSON.stringify({ schemaVersion: SCHEMA_VERSION + 1, notes: [], tasks: [], activeId: "" });
     const s = objStorage({ "grafnot-store-p1": raw });
     const r = loadProfileStore("p1", s);
     expect(r.kind).toBe("blocked");
@@ -360,7 +360,7 @@ describe("legacy adoption under quota and damage (STAGE_09, red first)", () => {
     expect([...m.keys()].filter((k) => k.startsWith("grafnot-store-"))).toEqual(storesBefore);
   });
   it("waits for an explicit choice when legacy is unreadable", () => {
-    for (const raw of ["{oops", JSON.stringify({ schemaVersion: 7, notes: [], tasks: [], activeId: "" })]) {
+    for (const raw of ["{oops", JSON.stringify({ schemaVersion: SCHEMA_VERSION + 1, notes: [], tasks: [], activeId: "" })]) {
       const { map } = fakeWindow({ "grafnot-store-v2": raw });
       resetRegistryCache();
       const r = ensureRegistryCached();

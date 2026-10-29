@@ -12,7 +12,7 @@ npm run build      # tsc + сборка в dist/
 npm test           # unit-тесты (vitest)
 npm run check:weight  # отчёт веса JS-бандла + предохранитель от baseline (лимитов нет)
 npm run preview    # раздача собранного (для ручной проверки и e2e)
-npm run e2e        # 178 e2e-проверок (Playwright, нужен preview :5199)
+npm run e2e        # 181 e2e-проверка (Playwright, нужен preview :5199)
 npm run e2e:matrix   # S5 + список задач под 12 фиксированными датами: сам собирает dist и поднимает свой preview :5199 (не в CI)
 npm run check:i18n  # missing/parity/dead-гейт i18n-ключей (RU/EN/KZ)
 npm run check:i18n:selftest  # мутационный самотест гейта (4 фикстуры)
@@ -21,7 +21,7 @@ npm run gates -- --e2e                     # + сборка, вес, свой pr
 npm run gates -- --groups=G20-plan,G21-week  # + сборка, вес, preview, только эти e2e-группы
 ```
 
-E2E: 178 e2e-проверок на Playwright поверх `vite preview` (вход `e2e/check6.cjs`, обвязка `e2e/harness.cjs`, группы `e2e/groups/<имя>.cjs`; часть групп: `GROUPS=G20-plan,G21-week npm run e2e`)
+E2E: 181 e2e-проверка на Playwright поверх `vite preview` (вход `e2e/check6.cjs`, обвязка `e2e/harness.cjs`, группы `e2e/groups/<имя>.cjs`; часть групп: `GROUPS=G20-plan,G21-week npm run e2e`)
 (пустой старт, редактор, задачи, неделя, связи, вычисления, карта, переименование, панели, промпты, корзина/undo, мобильная навигация, тосты, профили,
 блокировки битого стора, ErrorBoundary, честные статусы сохранения, две вкладки, восстановление реестра, адопция legacy).
 Сьют не зависит от дня недели и часового пояса: даты сидов вида `@today+N`/`@mon+N` раскрываются внутри страницы (зона Asia/Almaty, T2); `npm run e2e:matrix` гоняет S5 и список задач по 12 датам (Пн…Вс, границы месяца/года).
@@ -56,12 +56,13 @@ Graph { id, title, noteIds: string[] }   // заметка может быть �
 TaskItem { id, text, desc?, done, due?: ISO, noteId? }
 PromptSave { id, kind: 'image'|'llm', title, model?, tokens?, templateId?, params?, noteId?, created }
 LlmTpl { id, name, body, defaults, kind?: 'image', model?, tokens? }  // v6: состояние конструктора картинки
-Store { notes, tasks, trash, trashTasks, graphs, prompts, customTpls, activeId }  // + schemaVersion 6 при записи
+TrashMeta { incoming: string[], graphs: string[], at }  // v7: что указывало на удалённую заметку
+Store { notes, tasks, trash, trashTasks, graphs, prompts, customTpls, activeId, trashMeta }  // + schemaVersion 7 при записи
 ```
 
 Архитектурные решения (не менять молча):
 
-1. **Связи — только по id, не по заголовкам.** Переименование O(1), висяков по построению нет: удаление заметки вычищает её id из чужих `linkedIds`. Заголовки уникальны (автосуффикс) — нужно поиску и диалогам.
+1. **Связи — только по id, не по заголовкам.** Переименование O(1), висяков по построению нет: удаление заметки вычищает её id из чужих `linkedIds` и из `graph.noteIds`, а запись `trashMeta[id]` (v7, W4, D3) хранит, кто на неё ссылался и в каких графах она была; Undo и «Восстановить» возвращают связи и членство туда, где источник ещё существует, не откатывая других правок (`src/trashRestore.ts`). Заголовки уникальны (автосуффикс) — нужно поиску и диалогам.
 2. **Нет поля «тетрадь».** Единственный источник принадлежности — `graph.noteIds`; «Без графа» вычисляется. Новые заметки стартуют без графа и назначаются через модалку состава.
 3. **Миграции — чистая функция `migrate()` + `schemaVersion`.** Старые title-ссылки резолвятся в id за один проход, недостающие цели считаются и показываются тостом. Тесты: `src/store.test.ts`.
 4. **Физика графа изолирована в `src/graphLayout.ts`** (единственное место, знающее про d3-force): ручные тики без таймера → детерминированность для e2e. Тесты: `src/graphLayout.test.ts`.
@@ -96,7 +97,8 @@ src/
   SettingsPage.tsx — настройки страницей #/settings/<section> (профили, вид, корзина, клавиши, данные)
    settingsNav.ts  — секции настроек (тип, список, заголовки; чистое)
    shortcuts.ts    — единый реестр шорткатов S12 (16 записей с P2; из него Клавиши + G28-матрица)
-  store.ts        — типы, migrate() до v6, localStorage, хелперы (сироты, битые, вставка, filterTasks)
+  store.ts        — типы, migrate() до v7, localStorage, хелперы (сироты, битые, вставка, filterTasks)
+  trashRestore.ts — корзина заметок с точным восстановлением связей и членства (чистые) + тесты
   useListNav.ts   — общая клавиатурная навигация списков (стрелки + Enter)
   useListState.ts — общее состояние списков (запрос, лимит, показ, навигация)
   useArmConfirm.ts — общий arm-confirm необратимых удалений
@@ -121,7 +123,7 @@ src/
   data.ts         — шаблоны {name, body, defaults} + 4 встроенных; SearchItem (+kind=prompt)
    index.css       — обе темы, rail-режимы, адаптив, подсветка совпадений, coarse-цели 44px (S11)
    JourneyMap.md — персона, эмоциональная кривая, этапы и точки роста
-   promptUtils.test.ts, tplFilter.test.ts, store.test.ts, graphLayout.test.ts, promptData.test.ts, placement/router/useUndo.test.ts, weight-guard.test.js, paletteModel.test.ts, linkSuggest.test.ts, taskGroups.test.ts, weekCal.test.ts, promptLibrary.test.ts, workbenchModel.test.ts, imageTags.test.ts, builderModel.test.ts, mapCamera.test.ts — 151 тест ядра
+   promptUtils.test.ts, tplFilter.test.ts, store.test.ts, trashRestore.test.ts, graphLayout.test.ts, promptData.test.ts, placement/router/useUndo.test.ts, weight-guard.test.js, paletteModel.test.ts, linkSuggest.test.ts, taskGroups.test.ts, weekCal.test.ts, promptLibrary.test.ts, workbenchModel.test.ts, imageTags.test.ts, builderModel.test.ts, mapCamera.test.ts — 165 тестов ядра
    syncWording/settings/snippetTerms/promptSearch/listPrefs/mobileNav/shortcuts/toast/useListState/useArmConfirm/profiles/prefs/activeId/clipboard/newId/profileBoot.test.ts — 149 тестов UX-проходов и профилей
 scripts/check-weight.js (+ weight-guard.js) — отчёт веса бандла + предохранитель
 scripts/check-i18n.js — missing/parity/dead-гейт i18n-ключей (+ scripts/check-i18n.selftest.js — мутационный самотест гейта)
@@ -129,7 +131,7 @@ scripts/audit-targets.cjs — аудит целей N1 (report/enforce, desktop+
 scripts/check-css-unused.cjs — поиск мёртвых .g-классов
 scripts/gates.cjs, scripts/e2e-weekday-matrix.cjs — раннеры; scripts/runner-lib.cjs — общий вердикт, окружение e2e и свой preview (+ scripts/runner.selftest.cjs)
 e2e/check6.cjs — вход e2e и порядок групп; e2e/harness.cjs — сиды, хелперы, раннер; e2e/manifest.cjs — EXPECTED_CHECKS/GROUP_SIZES
-e2e/groups/*.cjs — 178 e2e-проверок в 34 группах (P5–P28 база, P29 блокировки стора, P30 ErrorBoundary, P31 сохранения, P32 две вкладки, P33 реестр, P34–P36 адопция legacy, S2–S13 разделы после редизайна, G33 показанная заметка — цель команд)
+e2e/groups/*.cjs — 181 e2e-проверка в 35 группах (P5–P28 база, P29 блокировки стора, P30 ErrorBoundary, P31 сохранения, P32 две вкладки, P33 реестр, P34–P36 адопция legacy, S2–S13 разделы после редизайна, G33 показанная заметка — цель команд, G34 восстановление из корзины)
 docs/ux-baseline.md — база S0 «до» (аудит 375 элементов, 5 сценариев; сырой json аудита — локальный артефакт прогона, не в git)
 docs/fitts-report.md — S13 «до/после» по 5 сценариям (D, W, ID) + бюджеты G29
 start.bat         — быстрый запуск dev-сервера на Windows

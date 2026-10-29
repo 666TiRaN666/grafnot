@@ -52,6 +52,16 @@ export interface Graph {
   noteIds: string[];
 }
 
+/** What pointed at a trashed note when it was deleted (D3, v7): notes that
+ * linked to it and graphs it belonged to. Restore re-adds both where the
+ * source still exists; nothing else is rolled back. */
+export interface TrashMeta {
+  incoming: string[];
+  graphs: string[];
+  /** Deletion time (ms). */
+  at: number;
+}
+
 export interface Store {
   notes: Note[];
   tasks: TaskItem[];
@@ -62,10 +72,13 @@ export interface Store {
   /** User-created templates (built-ins live in data.ts). */
   customTpls: LlmTpl[];
   activeId: string;
+  /** v7: restore records keyed by trashed note id. migrate() always sets it;
+   * absent (fresh stores) means {}. */
+  trashMeta?: Record<string, TrashMeta>;
 }
 
-/** Increment on every breaking store change; drives migrate(). v4 turns customTpls into slot bodies, v5 adds task trash, v6 image templates keep model/tokens. */
-export const SCHEMA_VERSION = 6;
+/** Increment on every breaking store change; drives migrate(). v4 turns customTpls into slot bodies, v5 adds task trash, v6 image templates keep model/tokens, v7 adds trash restore records (trashMeta). */
+export const SCHEMA_VERSION = 7;
 
 /** Pre-profiles single-store key; read once when migrating to the default profile. */
 export const LEGACY_STORE_KEY = 'grafnot-store-v2';
@@ -132,6 +145,8 @@ export interface LooseStore {
   prompts?: PromptSave[];
   customTpls?: Array<LooseTpl | StoredTpl>;
   graphs?: Graph[];
+  /** v7: validated by sanitizeTrashMeta. */
+  trashMeta?: unknown;
   schemaVersion?: number;
   activeId: string;
 }
@@ -143,7 +158,8 @@ export interface LooseStore {
  * v2 -> v3: customTpls defaults to [] (sanitized, damaged entries dropped);
  * v3 -> v4: fixed p1/p2 templates become slot bodies (best-effort, tested);
  * v4 -> v5: trashTasks defaults to [];
- * v5 -> v6: image templates keep kind/model/tokens (optional, nothing to convert).
+ * v5 -> v6: image templates keep kind/model/tokens (optional, nothing to convert);
+ * v6 -> v7: trashMeta defaults to {}; records survive only for trashed notes.
  * The notebook flow runs only for real legacy: payloads without a graphs
  * array, or with notebook fields on notes (a graphs array alone counts as v2+).
  * Damaged array elements (non-objects; tasks/trashTasks/prompts/graphs with
@@ -264,8 +280,29 @@ const KNOWN_TOP_FIELDS = new Set([
   'prompts',
   'customTpls',
   'activeId',
+  'trashMeta',
   'schemaVersion',
 ]);
+
+/** v7 restore records: kept only for notes that are in the trash, with
+ * string ids; anything else is dropped and counted (never thrown). */
+function sanitizeTrashMeta(raw: unknown, trashIds: Set<string>): { meta: Record<string, TrashMeta>; dropped: number } {
+  const meta: Record<string, TrashMeta> = {};
+  if (!isObj(raw)) return { meta, dropped: 0 };
+  let dropped = 0;
+  for (const [id, v] of Object.entries(raw)) {
+    if (!trashIds.has(id) || !isObj(v) || !Array.isArray(v.incoming) || !Array.isArray(v.graphs)) {
+      dropped++;
+      continue;
+    }
+    meta[id] = {
+      incoming: v.incoming.filter((x): x is string => typeof x === 'string'),
+      graphs: v.graphs.filter((x): x is string => typeof x === 'string'),
+      at: typeof v.at === 'number' ? v.at : 0,
+    };
+  }
+  return { meta, dropped };
+}
 /** Schema version carried by a stored payload; unversioned blobs are v1 legacy. */
 function versionOf(raw: LooseStore): number {
   const v = raw.schemaVersion;
@@ -378,7 +415,10 @@ export function migrate(raw: LooseStore): {
   const tasks = sanitize(raw.tasks, isTaskItem);
   const trashTasks = sanitize(raw.trashTasks, isTaskItem);
   const prompts = sanitize(raw.prompts, isPromptSave);
-  droppedItems += tasks.dropped + trashTasks.dropped + prompts.dropped;
+  const trash = cleanTrash.map(conv);
+  // v6 -> v7: payloads without records get {} (no history is invented).
+  const trashMeta = sanitizeTrashMeta(raw.trashMeta, new Set(trash.map((n) => n.id)));
+  droppedItems += tasks.dropped + trashTasks.dropped + prompts.dropped + trashMeta.dropped;
 
   const rest: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(raw)) {
@@ -389,12 +429,13 @@ export function migrate(raw: LooseStore): {
     store: {
       notes,
       tasks: tasks.list,
-      trash: cleanTrash.map(conv),
+      trash,
       graphs,
       trashTasks: trashTasks.list,
       prompts: prompts.list,
       customTpls: convertTpls(raw.customTpls),
       activeId: typeof raw.activeId === 'string' ? raw.activeId : '',
+      trashMeta: trashMeta.meta,
     },
     droppedLinks,
     droppedItems,

@@ -4,6 +4,7 @@ import { tr } from './i18n';
 import type { LlmTpl } from './data';
 import { LEGACY_STORE_KEY, SCHEMA_VERSION, appendPromptText, loadStoreResult, saveStore, storeKeyFor } from './store';
 import type { CalcBlock, Graph, Note, PromptSave, Store } from './store';
+import { purgeNote, restoreNote, trashNote } from './trashRestore';
 import { ProfilePicker } from "./ProfilePicker";
 import type { ProfileRegistry } from "./profiles";
 import {
@@ -880,11 +881,10 @@ export default function App() {
     const victim = notes.find((n) => n.id === id);
     if (!victim) return;
     const next = notes.filter((n) => n.id !== victim.id);
+    // D3: trashNote records incoming links and graph membership for restore.
     setStore((s) => {
-      const rest = s.notes
-        .filter((n) => n.id !== victim.id)
-        .map((n) => (n.linkedIds.includes(victim.id) ? { ...n, linkedIds: n.linkedIds.filter((x) => x !== victim.id) } : n));
-      return { ...s, notes: rest, trash: [victim, ...s.trash], activeId: rest[0]?.id ?? '' };
+      const t = trashNote(s, victim.id, Date.now());
+      return { ...t, activeId: t.notes[0]?.id ?? '' };
     });
     // The route pins the open note: follow the store's new active note so
     // the editor does not linger on the deleted id (old 'home' behavior).
@@ -904,14 +904,13 @@ export default function App() {
   const restoreTrash = (id: string) => {
     const n = storeRef.current.trash.find((x) => x.id === id);
     if (!n) return;
-    setStore((s) => ({ ...s, trash: s.trash.filter((x) => x.id !== id), notes: [n, ...s.notes], activeId: n.id }));
+    setStore((s) => ({ ...restoreNote(s, id), activeId: n.id }));
     go('notes', n.id);
     notify(tr('toastTrashRestored', lang));
   };
 
   const purgeTrash = (id: string) => {
-    setStore((s) => ({ ...s, trash: s.trash.filter((x) => x.id !== id) }));
-
+    setStore((s) => purgeNote(s, id));
   };
 
   const restoreTrashTask = (id: string) => {

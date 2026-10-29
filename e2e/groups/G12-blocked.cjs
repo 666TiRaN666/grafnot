@@ -69,7 +69,8 @@ module.exports = async function (t) {
       assert((await page.locator('.g-banner[role="alert"]').count()) > 0, 'no blocked banner');
     });
     await check('P29 future schema never overwritten', async () => {
-      const raw = JSON.stringify({ schemaVersion: 7, notes: [], tasks: [], activeId: '' });
+      // One above the current SCHEMA_VERSION (7 since W4): a payload from a newer app.
+      const raw = JSON.stringify({ schemaVersion: 8, notes: [], tasks: [], activeId: '' });
       await reseed(page, blockedSeed(raw));
       await page.waitForTimeout(1500);
       assert((await rawOf('grafnot-store-b1')) === raw, 'autosave rewrote the key');

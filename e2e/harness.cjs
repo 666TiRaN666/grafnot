@@ -149,10 +149,12 @@ function seedLegacy(store) {
 }
 // Mirror of SCHEMA_VERSION in src/store.ts: v5store seeds a CURRENT-schema
 // store (name kept from v5); migration paths seed older versions explicitly.
-const CURRENT_SCHEMA = 6;
+const CURRENT_SCHEMA = 7;
 function v5store(notes, activeId, extra) {
   return Object.assign(
-    { schemaVersion: CURRENT_SCHEMA, notes, tasks: [], trash: [], trashTasks: [], graphs: [], prompts: [], customTpls: [], activeId },
+    // trashMeta (v7) included: a current-schema seed must equal what the app
+    // writes, or the first save looks like a content change to other tabs.
+    { schemaVersion: CURRENT_SCHEMA, notes, tasks: [], trash: [], trashTasks: [], graphs: [], prompts: [], customTpls: [], activeId, trashMeta: {} },
     extra || {},
   );
 }

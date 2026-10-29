@@ -91,7 +91,7 @@ describe('v5 -> v6 image templates (UX-03)', () => {
 
 describe('v3 -> v4 migration', () => {
   it('bumps schema and defaults customTpls, keeps prompts', () => {
-    expect(SCHEMA_VERSION).toBe(6);
+    expect(SCHEMA_VERSION).toBe(7);
     const { store } = migrate({
       ...legacy(),
       prompts: [{ id: 'p1', kind: 'image', title: 't', model: 'Pony', tokens: ['a'], created: 1 }],
@@ -148,6 +148,45 @@ describe("v4 -> v5 task trash", () => {
     const t = { id: "t1", text: "Old", done: false };
     const { store } = migrate({ ...legacy(), trashTasks: [t] });
     expect(store.trashTasks).toEqual([t]);
+  });
+});
+
+describe('v6 -> v7 trash restore records (D3)', () => {
+  const trashedNote = { id: 't', title: 'Old', content: '', text: 'x', linkedIds: [], calcs: [], updated: 1 };
+  it('bumps the schema to 7', () => {
+    expect(SCHEMA_VERSION).toBe(7);
+  });
+  it('defaults trashMeta to {} for v6 payloads', () => {
+    const { store } = migrate({ ...legacy(), schemaVersion: 6 });
+    expect(store.trashMeta).toEqual({});
+  });
+  it('keeps valid records of trashed notes and drops the rest', () => {
+    const { store, droppedItems, rest } = migrate({
+      ...legacy(),
+      schemaVersion: 7,
+      trash: [trashedNote],
+      trashMeta: {
+        t: { incoming: ['a', 5, 'b'], graphs: ['g1'], at: 9 },
+        gone: { incoming: ['a'], graphs: [], at: 1 },
+        bad: 'nope',
+      },
+    } as unknown as LooseStore);
+    expect(store.trashMeta).toEqual({ t: { incoming: ['a', 'b'], graphs: ['g1'], at: 9 } });
+    expect(droppedItems).toBe(2);
+    expect(rest).not.toHaveProperty('trashMeta');
+  });
+  it('survives a non-object trashMeta', () => {
+    const { store } = migrate({ ...legacy(), schemaVersion: 7, trashMeta: [1, 2] } as unknown as LooseStore);
+    expect(store.trashMeta).toEqual({});
+  });
+  it('round-trips through save and load', () => {
+    const s = mem();
+    const loaded = migrate({ ...legacy(), schemaVersion: 7, trash: [trashedNote], trashMeta: { t: { incoming: ['a'], graphs: [], at: 3 } } } as unknown as LooseStore).store;
+    expect(saveStore(loaded, 'pf1', s)).toBe(true);
+    const back = loadStoreResult('pf1', s);
+    expect(back.status).toBe('ok');
+    expect(back.store?.trashMeta).toEqual({ t: { incoming: ['a'], graphs: [], at: 3 } });
+    expect(JSON.parse(s.getItem(storeKeyFor('pf1')) ?? '{}').schemaVersion).toBe(7);
   });
 });
 
