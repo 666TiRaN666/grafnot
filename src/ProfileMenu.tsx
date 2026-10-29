@@ -4,9 +4,10 @@ import { tr } from './i18n';
 import type { ProfileRegistry } from './profiles';
 import { useListNav } from './useListNav';
 
-export function ProfileMenu({ lang, registry, activeId, collapsed, onSelect, onManage, onSettings }: {
+export function ProfileMenu({ lang, registry, activeId, collapsed, onSelect, onManage, onTrash, trashCount, onSettings }: {
   lang: Lang; registry: ProfileRegistry; activeId: string; collapsed: boolean;
-  onSelect: (id: string) => void; onManage: () => void; onSettings: () => void;
+  /** The trash has no phone tab: its entry lives here (desktop: the rail). */
+  onSelect: (id: string) => void; onManage: () => void; onTrash: () => void; trashCount: number; onSettings: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null);
@@ -16,9 +17,10 @@ export function ProfileMenu({ lang, registry, activeId, collapsed, onSelect, onM
     setOpen(false);
     if (i < profiles.length) { const p = profiles[i]; if (p && p.id !== activeId) onSelect(p.id); }
     else if (i === profiles.length) onManage();
+    else if (i === profiles.length + 1) onTrash();
     else onSettings();
   };
-  const nav = useListNav(profiles.length + 2, pick);
+  const nav = useListNav(profiles.length + 3, pick);
   useEffect(() => {
     if (!open) return;
     root.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
@@ -37,12 +39,13 @@ export function ProfileMenu({ lang, registry, activeId, collapsed, onSelect, onM
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         const items = root.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]');
         const current = items ? Array.from(items).indexOf(document.activeElement as HTMLButtonElement) : 0;
-        items?.[(current + (e.key === 'ArrowDown' ? 1 : profiles.length + 1)) % (profiles.length + 2)]?.focus();
+        items?.[(current + (e.key === 'ArrowDown' ? 1 : profiles.length + 2)) % (profiles.length + 3)]?.focus();
       }
     }}>
       {profiles.map((p, i) => <button key={p.id} type="button" role="menuitem" className="n-menuitem" aria-current={p.id === activeId ? 'true' : undefined} onClick={() => pick(i)}>{p.id === activeId ? '✓ ' : ''}{p.name}</button>)}
       <button type="button" role="menuitem" className="n-menuitem" onClick={() => pick(profiles.length)}>{tr('profileManage', lang)}</button>
-      <button type="button" role="menuitem" className="n-menuitem" onClick={() => pick(profiles.length + 1)}>{tr('settings', lang)}</button>
+      <button type="button" role="menuitem" className="n-menuitem" onClick={() => pick(profiles.length + 1)}>{tr('trashT', lang)}{trashCount > 0 ? ` · ${trashCount}` : ''}</button>
+      <button type="button" role="menuitem" className="n-menuitem" onClick={() => pick(profiles.length + 2)}>{tr('settings', lang)}</button>
     </div>}
   </div>;
 }

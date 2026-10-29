@@ -162,6 +162,9 @@ describe("profile data cleanup", () => {
       "grafnot-section:pf1",
       "grafnot-prompt-density:pf1",
       "grafnot-recent-tags:pf1",
+      // Map pins are per profile and go with it.
+      "grafnot-map-pins:pf1",
+      "grafnot-trash-days:pf1",
       "grafnot-list-limits:pf1",
       "grafnot-tpl-limit:pf1",
     ]);

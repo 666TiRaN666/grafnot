@@ -44,6 +44,8 @@ export interface TaskItem {
   due?: string;
   /** Source note context; absent for standalone tasks. */
   noteId?: string;
+  /** Set while the task sits in the trash: deletion time (ms) for auto-cleanup. */
+  trashedAt?: number;
 }
 
 export interface Graph {

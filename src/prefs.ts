@@ -16,7 +16,18 @@ export const PREF_KEYS = {
   section: "grafnot-section",
   density: "grafnot-prompt-density",
   recentTags: "grafnot-recent-tags",
+  /** Map pins per scope ('all', 'ungrouped' or a graph id): { scope: { noteId: {x, y} } }. */
+  mapPins: "grafnot-map-pins",
+  /** Trash auto-cleanup in days: '0' off (default), '30', '90'. */
+  trashDays: "grafnot-trash-days",
 } as const;
+
+/** Allowed auto-cleanup periods; anything else reads as off. */
+export const TRASH_DAY_CHOICES = [0, 30, 90] as const;
+export type TrashDays = (typeof TRASH_DAY_CHOICES)[number];
+export function parseTrashDays(v: string | null | undefined): TrashDays {
+  return v === '30' ? 30 : v === '90' ? 90 : 0;
+}
 
 export type PrefName = keyof typeof PREF_KEYS;
 

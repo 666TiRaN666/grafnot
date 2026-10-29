@@ -48,8 +48,9 @@ module.exports = async function (t) {
     await waitStore(() => JSON.parse(window.localStorage.getItem('grafnot-store-p1')).trash.some((n) => n.id === 'b'), 'Beta not in trash');
   }
   async function restoreBetaFromTrash() {
+    // The old settings link still lands on the trash section.
     await page.evaluate(() => { window.location.hash = '#/settings/trash'; });
-    const row = page.getByTestId('settings-page').locator('.g-sugg', { hasText: 'Beta' });
+    const row = page.getByTestId('trash-page').locator('.g-sugg', { hasText: 'Beta' });
     await row.getByRole('button', { name: /восстановить/ }).click();
     await waitStore(() => JSON.parse(window.localStorage.getItem('grafnot-store-p1')).notes.some((n) => n.id === 'b'), 'Beta not restored');
   }
@@ -71,6 +72,58 @@ module.exports = async function (t) {
     await restoreBetaFromTrash();
     await page.waitForTimeout(600);
     assertRestored(await storeOf(), 'reload + trash');
+  });
+
+  await check('Trash is its own section: rail entry with count, phone menu entry, not in settings', async () => {
+    await reseed(page, seed());
+    await deleteBeta();
+    const entry = page.getByTestId('nav-trash');
+    assert((await entry.innerText()).includes('1'), 'trash entry shows no count');
+    await entry.click();
+    await page.waitForFunction(() => location.hash === '#/trash');
+    await page.getByTestId('trash-page').locator('.g-sugg', { hasText: 'Beta' }).waitFor();
+    await page.goto(t.URL + '#/settings/profiles', { waitUntil: 'networkidle' });
+    assert(await page.getByTestId('settings-nav-trash').count() === 0, 'settings still has a trash tab');
+    const ctx = await t.browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true, storageState: await page.context().storageState() });
+    const pg = await ctx.newPage();
+    try {
+      await pg.goto(t.URL + '#/notes/a', { waitUntil: 'networkidle' });
+      await pg.getByTestId('profile-menu-open').click();
+      await pg.getByRole('menuitem', { name: /Корзина/ }).click();
+      await pg.getByTestId('trash-page').locator('.g-sugg', { hasText: 'Beta' }).waitFor();
+    } finally { await ctx.close(); }
+  });
+
+  await check('Trash auto-cleanup removes only entries older than the chosen period', async () => {
+    const day = 24 * 60 * 60 * 1000;
+    const agedSeed = (days) => {
+      const now = Date.now();
+      const s = seedProfiles({
+        profiles: [{ id: 'p1', name: 'Основной', created: 1 }], activeId: 'p1',
+        stores: { p1: v5store([seedNote('a', 'Alpha', { content: '<p>alpha body</p>', text: 'alpha body' })], 'a', {
+          trash: [seedNote('old', 'Old note'), seedNote('fresh', 'Fresh note'), seedNote('undated', 'Undated note')],
+          trashMeta: { old: { incoming: [], graphs: [], at: now - 40 * day }, fresh: { incoming: [], graphs: [], at: now - 2 * day } },
+          trashTasks: [{ id: 'tOld', text: 'Old task', done: false, trashedAt: now - 45 * day }, { id: 'tNew', text: 'New task', done: false, trashedAt: now - day }],
+        }) },
+        prefs: days ? { 'grafnot-trash-days:p1': String(days) } : {},
+      });
+      return s;
+    };
+    const ids = () => page.evaluate(() => { const s = JSON.parse(localStorage.getItem('grafnot-store-p1')); return { notes: s.trash.map(n => n.id).sort().join(), tasks: s.trashTasks.map(t => t.id).sort().join() }; });
+    // Off by default: nothing disappears.
+    await reseed(page, agedSeed(0));
+    await page.goto(t.URL + '#/trash', { waitUntil: 'networkidle' });
+    await page.getByTestId('trash-page').locator('.g-sugg', { hasText: 'Old note' }).waitFor();
+    assert((await ids()).notes === 'fresh,old,undated', 'cleanup ran while off');
+    // Choosing 30 days removes the old note and task at once; undated stays.
+    await page.getByTestId('trash-autoclean').selectOption('30');
+    await page.waitForFunction(() => { const s = JSON.parse(localStorage.getItem('grafnot-store-p1')); return !s.trash.some(n => n.id === 'old') && !s.trashTasks.some(t => t.id === 'tOld'); }, null, { timeout: 8000 });
+    const after = await ids();
+    assert(after.notes === 'fresh,undated' && after.tasks === 'tNew', 'cleanup removed the wrong entries: ' + JSON.stringify(after));
+    // A stored period also applies when the profile opens.
+    await reseed(page, agedSeed(30));
+    await page.waitForFunction(() => { const s = JSON.parse(localStorage.getItem('grafnot-store-p1')); return !s.trash.some(n => n.id === 'old'); }, null, { timeout: 8000 });
+    assert((await ids()).notes === 'fresh,undated', 'startup cleanup wrong');
   });
 
   await check('D3 restore keeps edits made after the deletion', async () => {

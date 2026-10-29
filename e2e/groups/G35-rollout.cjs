@@ -187,6 +187,15 @@ module.exports = async function(t) {
     } finally { await ctx.close(); }
   });
 
+  await check('Palette keeps keys typed right after its first opening', async () => {
+    await reseed(page, seed());
+    await page.getByTestId('palette-open').click();
+    await page.keyboard.type('Beta');
+    await page.getByTestId('palette-input').waitFor();
+    assert(await page.getByTestId('palette-input').inputValue() === 'Beta', 'first keys lost: ' + await page.getByTestId('palette-input').inputValue());
+    await page.keyboard.press('Escape');
+  });
+
   await check('W8 palette opens a note with the caret at the first match', async () => {
     await reseed(page, seedProfiles({
       profiles: [{ id: 'p1', name: 'Основной', created: 1 }], activeId: 'p1',

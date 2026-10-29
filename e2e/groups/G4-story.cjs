@@ -169,17 +169,19 @@ module.exports = async function (t) {
       await page.getByTestId('map-members').waitFor({ state: 'detached', timeout: 8000 });
     });
     assert((await page.locator('circle.g-vnode').count()) === 2, 'not isolated');
-    assert((await page.locator('line.g-vedge').count()) >= 1, 'no edges in Math');
+    assert((await page.locator('.g-vedge').count()) >= 1, 'no edges in Math');
     await page.getByTestId('map-graphs').click();
     await page.getByTestId('map-graphs-pop').getByRole('menuitem', { name: /HCI/ }).click();
     const hci = await page.locator('circle.g-vnode').count();
     assert(hci > 2, `HCI small: ${hci}`);
   });
   await check('P12 zoom+drag', async () => {
+    const scaleOf = (tf) => Number((/scale\(([-\d.]+)\)/.exec(tf || '') || [])[1]);
     const before = await page.locator('g.g-view').getAttribute('transform');
     await page.getByLabel('Приблизить').click();
     const after = await page.locator('g.g-view').getAttribute('transform');
-    assert(before !== after && (after || '').includes('1.25'), `no zoom: ${after}`);
+    // The camera fits the graph first, so the zoom step is relative to that fit.
+    assert(before !== after && Math.abs(scaleOf(after) / scaleOf(before) - 1.25) < 0.01, `no zoom: ${before} -> ${after}`);
     // Drag the node farthest from the canvas center toward it: edge nodes
     // plus an outward vector would leave the viewport and drop the gesture.
     // Only fully visible nodes qualify (outside the svg the press lands on
@@ -213,22 +215,32 @@ module.exports = async function (t) {
 
   await check('P12 hit zone r24', async () => {
     await page.getByTestId('nav-map').click();
+    const zoomed = await page.locator('g.g-view').getAttribute('transform');
     await page.getByTestId('map-graphs').click();
     await page.getByTestId('map-graphs-pop').getByRole('menuitem', { name: /Math/ }).click();
-    // The scope switch resets pan/zoom asynchronously (canvas view effect):
-    // geometry must be read after the reset lands, never on a stale
+    // The scope switch refits the camera asynchronously (canvas view effect):
+    // geometry must be read after the fit lands, never on a stale
     // transform left by P12 zoom+drag (STAGE_11 flake root cause).
     await page.waitForFunction(
-      () => document.querySelector('g.g-view')?.getAttribute('transform') === 'translate(0 0) scale(1)',
-      null,
+      (old) => document.querySelectorAll('circle.g-vnode').length === 2 && document.querySelector('g.g-view')?.getAttribute('transform') !== old,
+      zoomed,
       { timeout: 8000 },
     );
+    // A resized canvas refits once more: read geometry only when the camera holds still.
+    for (let i = 0, prev = null; i < 20; i++) {
+      const cur = await page.locator('g.g-view').getAttribute('transform');
+      if (cur === prev) break;
+      prev = cur;
+      await page.waitForTimeout(120);
+    }
     const pt = await page.evaluate(() => {
       const svg = document.querySelector('svg.g-canvas');
       const cc = svg.querySelector('circle.g-vnode');
       const r = svg.getBoundingClientRect();
-      const s = Math.min(r.width / 800, r.height / 500);
-      const ox = (r.width - 800 * s) / 2, oy = (r.height - 500 * s) / 2;
+      // The viewBox follows the canvas proportions; read it, do not assume 800x500.
+      const vb = svg.viewBox.baseVal;
+      const s = Math.min(r.width / vb.width, r.height / vb.height);
+      const ox = (r.width - vb.width * s) / 2, oy = (r.height - vb.height * s) / 2;
       const g = svg.querySelector('g.g-view');
       const mm = /translate\(([-\d.]+) ([-\d.]+)\) scale\(([-\d.]+)\)/.exec(g.getAttribute('transform'));
       const tx = +mm[1], ty = +mm[2], k = +mm[3];

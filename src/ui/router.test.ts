@@ -31,6 +31,11 @@ describe('hash router', () => {
     }
   });
 
+  it('gives the trash its own route and keeps the old settings link', () => {
+    expect(parseRoute(buildRoute({ section: 'trash' }))).toEqual({ section: 'trash' });
+    expect(parseRoute('#/settings/trash')).toEqual({ section: 'trash' });
+  });
+
   it('falls back to notes on empty or unknown hashes', () => {
     expect(parseRoute('')).toEqual({ section: 'notes' });
     expect(parseRoute('#/nope')).toEqual({ section: 'notes' });

@@ -6,7 +6,7 @@ import { LEGACY_STORE_KEY, SCHEMA_VERSION, appendPromptText, loadStoreResult, sa
 import type { CalcBlock, Graph, Note, PromptSave, Store } from './store';
 import { parseImport, storeDigest } from './importStore';
 import type { ImportReason } from './importStore';
-import { purgeNote, restoreNote, trashNote } from './trashRestore';
+import { expireTrash, purgeNote, restoreNote, trashNote } from './trashRestore';
 import { ProfilePicker } from "./ProfilePicker";
 import type { ProfileRegistry } from "./profiles";
 import {
@@ -19,7 +19,8 @@ import {
   updateProfiles,
   setActiveProfile,
 } from "./profiles";
-import { prefKeyFor } from "./prefs";
+import { parseTrashDays, prefKeyFor } from "./prefs";
+import type { TrashDays } from "./prefs";
 import { ErrorBoundary, Icon, Modal, StatusBanner, ToastStack, dismissToast, fmtDue } from './widgets';
 import type { ToastMsg } from './widgets';
 import type { NotesActions } from './NotesView';
@@ -52,7 +53,17 @@ import type { SettingsSection } from './settingsNav';
 // Settings and the palette open on demand: they travel in their own chunks,
 // like the editors (S2 rule 5). Ctrl+K fetches a few kilobytes on first open.
 const SettingsPage = lazy(() => import('./SettingsPage').then((m) => ({ default: m.SettingsPage })));
-const Palette = lazy(() => import('./Palette').then((m) => ({ default: m.Palette })));
+const TrashPage = lazy(() => import('./TrashPage').then((m) => ({ default: m.TrashPage })));
+// Keys typed right after the first open must land in the field: the chunk
+// is warmed at start and, once loaded, renders without a Suspense frame.
+type PaletteProps = Parameters<typeof import('./Palette').Palette>[0];
+let readyPalette: typeof import('./Palette').Palette | undefined;
+const loadPalette = () => import('./Palette').then(m => { readyPalette = m.Palette; return m; });
+const LazyPalette = lazy(() => loadPalette().then((m) => ({ default: m.Palette })));
+function Palette(props: PaletteProps) {
+  const [Component] = useState(() => readyPalette ?? LazyPalette);
+  return <Component {...props} />;
+}
 import type { PaletteEntry } from './paletteModel';
 import { navigate, parseRoute, useRoute } from './ui/router';
 import type { RouteSection } from './ui/router';
@@ -93,7 +104,10 @@ function save(key: string, value: string): void {
 
 export default function App() {
   // Creating a note is global: warm its separate chunk before the first input.
-  useEffect(() => { void loadNotesView().catch(() => { /* Opening still reaches ErrorBoundary. */ }); }, []);
+  useEffect(() => {
+    void loadNotesView().catch(() => { /* Opening still reaches ErrorBoundary. */ });
+    void loadPalette().catch(() => { /* The lazy path retries on open. */ });
+  }, []);
   const readStoredRaw = (pid: string): string | null => {
     try {
       return window.localStorage.getItem(storeKeyFor(pid));
@@ -608,7 +622,7 @@ export default function App() {
   const deleteTask = (id: string) => {
     const victim = tasks.find((x) => x.id === id);
     if (!victim) return;
-    setStore((s) => ({ ...s, tasks: s.tasks.filter((x) => x.id !== id), trashTasks: [victim, ...s.trashTasks] }));
+    setStore((s) => ({ ...s, tasks: s.tasks.filter((x) => x.id !== id), trashTasks: [{ ...victim, trashedAt: Date.now() }, ...s.trashTasks] }));
     notifyAction(tr("toastTaskDeleted", lang), tr("undoToast", lang), () => restoreTrashTask(victim.id));
   };
 
@@ -1015,8 +1029,9 @@ export default function App() {
 
   const restoreTrashTask = (id: string) => {
     // Fresh store like restoreTrash: Undo callbacks fire long after arming.
-    const t = storeRef.current.trashTasks.find((x) => x.id === id);
-    if (!t) return;
+    const found = storeRef.current.trashTasks.find((x) => x.id === id);
+    if (!found) return;
+    const { trashedAt: _gone, ...t } = found;
     setStore((s) => ({ ...s, trashTasks: s.trashTasks.filter((x) => x.id !== id), tasks: [t, ...s.tasks] }));
     notify(tr("toastTaskRestored", lang));
   };
@@ -1262,7 +1277,7 @@ export default function App() {
     if (e.cmd === 'go-map') return openMap();
     if (e.cmd === 'go-prompts') return go('prompts');
     if (e.cmd === 'go-settings') return go('settings', 'profiles');
-    if (e.cmd === 'open-trash') return go('settings', 'trash');
+    if (e.cmd === 'open-trash') return go('trash');
     if (e.group === 'notes' && e.refId) {
       openNoteById(e.refId);
       findRef.current = { noteId: e.refId, query };
@@ -1347,7 +1362,9 @@ export default function App() {
           ? tr('kmap', lang)
           : section === 'prompts'
             ? tr('nav_prompt', lang)
-            : tr('settings', lang);
+            : section === 'trash'
+              ? tr('trashT', lang)
+              : tr('settings', lang);
 
   const settingsSection: SettingsSection =
     section === 'settings' && isSettingsSection(route.param) ? route.param : 'profiles';
@@ -1400,6 +1417,33 @@ export default function App() {
   useEffect(() => {
     if (profileId) save(prefKeyFor('addMode', profileId), addMode);
   }, [addMode, profileId]);
+
+  // Trash auto-cleanup (per profile, off by default): runs when a profile
+  // opens and when the period changes; entries without a time are kept.
+  const [trashDays, setTrashDays] = useState<TrashDays>(() => parseTrashDays(load(prefKeyFor('trashDays', profileId ?? undefined), '0')));
+  const trashDaysProfile = useRef(profileId);
+  useEffect(() => {
+    // A profile switch loads its own period before anything is written.
+    if (trashDaysProfile.current !== profileId) {
+      trashDaysProfile.current = profileId;
+      setTrashDays(parseTrashDays(load(prefKeyFor('trashDays', profileId ?? undefined), '0')));
+      return;
+    }
+    if (profileId) save(prefKeyFor('trashDays', profileId), String(trashDays));
+  }, [trashDays, profileId]);
+  useEffect(() => {
+    if (!profileId || storeBlocked || boot.registryFailed) return;
+    // Read the period of THIS profile: right after a switch the state may
+    // still hold the previous profile's value (the effect above reloads it).
+    const days = parseTrashDays(load(prefKeyFor('trashDays', profileId), '0'));
+    const now = Date.now();
+    const count = expireTrash(storeRef.current, days, now).removed;
+    if (count === 0) return;
+    setStore((s) => expireTrash(s, days, now).store);
+    notify(tr('trashAutoCleaned', lang).replace('{n}', String(count)));
+    // Cleanup is tied to opening a profile and to changing the period.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileId, trashDays, storeBlocked]);
   const addAction = mobileAddAction(section, addMode);
   const addLabel = addAction === 'task' ? tr('addTaskLabel', lang) : addAction === 'prompt' ? tr('addPromptLabel', lang) : addAction === 'choose' ? tr('addChooseLabel', lang) : tr('addNoteLabel', lang);
   const runMobileAdd = (choice = addAction) => {
@@ -1444,7 +1488,7 @@ export default function App() {
     </div>
   );
 
-  const profileMenu = <ProfileMenu key={profileId} lang={lang} registry={registry} activeId={profileId ?? ''} collapsed={isPhone || !sideOpen} onSelect={(id) => { void enterProfile(id); }} onManage={() => go('settings', 'profiles')} onSettings={() => go('settings', 'appearance')} />;
+  const profileMenu = <ProfileMenu key={profileId} lang={lang} registry={registry} activeId={profileId ?? ''} collapsed={isPhone || !sideOpen} onSelect={(id) => { void enterProfile(id); }} onManage={() => go('settings', 'profiles')} onTrash={() => go('trash')} trashCount={trash.length + trashTasks.length} onSettings={() => go('settings', 'appearance')} />;
   const showSaveDetails = () => {
     if (shellBlocked || saveState === 'failed' || saveState === 'conflict') {
       const host = document.querySelector<HTMLElement>('.s-strip:not(:empty)') ?? document.querySelector<HTMLElement>('.g-main');
@@ -1489,7 +1533,8 @@ export default function App() {
           <div className="s-railfoot">
             {!isPhone && saveStatus}
             {!isPhone && profileMenu}
-            {shellBtn('sliders', 'nav-settings', tr('settings', lang), section === 'settings', () => go('settings', 'profiles'), trash.length + trashTasks.length)}
+            {shellBtn('trash', 'nav-trash', tr('trashT', lang), section === 'trash', () => go('trash'), trash.length + trashTasks.length)}
+            {shellBtn('sliders', 'nav-settings', tr('settings', lang), section === 'settings', () => go('settings', 'profiles'))}
           </div>
         </aside>
 
@@ -1738,6 +1783,7 @@ export default function App() {
                 notes={notes}
                 graphs={graphs}
                 notify={notify}
+                notifyAction={notifyAction}
                 onOpen={openNoteById}
                 onPurge={purgeLink}
                 onCreateGraph={createGraph}
@@ -1875,17 +1921,26 @@ export default function App() {
               onRenameProfile={renameProfileById}
               onDeleteProfile={deleteProfileById}
               onSwitchProfile={() => setProfileConfirmOpen(true)}
+              onExportData={() => {
+                if (profileId && !exportRaw(storeKeyFor(profileId))) notify(tr('toastBackupFailed', lang));
+              }}
+              onExportCurrent={downloadMemory}
+              onImportFile={importFileAsProfile}
+            />
+            </Suspense>
+          )}
+          {section === 'trash' && (
+            <Suspense fallback={lazyFallback}>
+            <TrashPage
+              lang={lang}
               trash={trash}
               trashTasks={trashTasks}
               onRestoreNote={restoreTrash}
               onRestoreTask={restoreTrashTask}
               onPurgeNote={purgeTrash}
               onPurgeTask={purgeTrashTask}
-              onExportData={() => {
-                if (profileId && !exportRaw(storeKeyFor(profileId))) notify(tr('toastBackupFailed', lang));
-              }}
-              onExportCurrent={downloadMemory}
-              onImportFile={importFileAsProfile}
+              autoDays={trashDays}
+              onAutoDays={setTrashDays}
             />
             </Suspense>
           )}

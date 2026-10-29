@@ -270,7 +270,9 @@ export function NotesView({
   const [draft, setDraft] = useState(note?.title ?? "");
   const titleRef = useRef<HTMLInputElement | null>(null);
   const [tab, setTab] = useState<ContextTab>(() => sessions.get(noteId ?? '')?.tab ?? 'links');
-  const [ctxOpen, setCtxOpen] = useState(() => rightOpen || (sessions.get(noteId ?? '')?.open ?? false));
+  // A temporary panel returns only with Back/Forward; opening the note anew
+  // (list, palette, a nav click) shows it closed, as it came.
+  const [ctxOpen, setCtxOpen] = useState(() => rightOpen || (lastNavigationWasTraversal() && (sessions.get(noteId ?? '')?.open ?? false)));
   const [insertOpen, setInsertOpen] = useState(false);
   const insertRoot = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -617,8 +619,8 @@ export function NotesView({
   const shownNote = useRef<string | null>(null);
   useLayoutEffect(() => {
     const ed = editorRef.current, saved = noteId ? sessions.get(noteId) : undefined;
-    // A temporary panel comes back on a return from another section (mount,
-    // see useState above) or on Back/Forward; opening another note closes it.
+    // A temporary panel comes back only on Back/Forward (here and in the
+    // useState above); opening another note closes it.
     if (shownNote.current !== null && shownNote.current !== noteId) {
       setCtxOpen(rightOpen || (lastNavigationWasTraversal() && (saved?.open ?? false)));
       setTab(saved?.tab ?? 'links');

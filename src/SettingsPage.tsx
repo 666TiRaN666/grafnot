@@ -1,8 +1,6 @@
 import { useRef, useState } from 'react';
 import { tr } from './i18n';
-import { noteAccessibleName, noteDisplayName } from './noteName';
 import type { Lang, Theme } from './i18n';
-import type { Note, TaskItem } from './store';
 import type { ProfileRegistry } from './profiles';
 import { ConfirmDialog } from './ui/primitives';
 import { SETTINGS_SECTIONS, settingsSectionTitle } from './settingsNav';
@@ -22,8 +20,8 @@ function importErrorText(why: ImportReason | 'write', lang: Lang): string {
   }
 }
 
-/** S2 settings as a page (#/settings/<section>), not a modal. Destructive
- * actions (profile delete, trash purge) confirm through ConfirmDialog. */
+/** S2 settings as a page (#/settings/<section>), not a modal. Profile delete
+ * confirms through ConfirmDialog; the trash is its own section (TrashPage). */
 export function SettingsPage({
   lang,
   section,
@@ -37,12 +35,6 @@ export function SettingsPage({
   onRenameProfile,
   onDeleteProfile,
   onSwitchProfile,
-  trash,
-  trashTasks,
-  onRestoreNote,
-  onRestoreTask,
-  onPurgeNote,
-  onPurgeTask,
   onExportData, onExportCurrent, onImportFile, addMode, onAddMode, saveState,
 }: {
   lang: Lang;
@@ -57,12 +49,6 @@ export function SettingsPage({
   onRenameProfile: (id: string, name: string) => void;
   onDeleteProfile: (id: string) => void;
   onSwitchProfile: () => void;
-  trash: Note[];
-  trashTasks: TaskItem[];
-  onRestoreNote: (id: string) => void;
-  onRestoreTask: (id: string) => void;
-  onPurgeNote: (id: string) => void;
-  onPurgeTask: (id: string) => void;
   onExportData: () => void;
   /** W14: the version on screen, including edits not yet written. */
   onExportCurrent: () => void;
@@ -70,21 +56,13 @@ export function SettingsPage({
   onImportFile: (file: File) => Promise<ImportReason | 'write' | null>;
   addMode: AddMode; onAddMode: (mode: AddMode) => void; saveState: string;
 }) {
-  const [trashQ, setTrashQ] = useState('');
   const [newName, setNewName] = useState('');
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
-  const [pendingPurge, setPendingPurge] = useState<{ kind: 'note' | 'task'; id: string; title: string } | null>(null);
   const [pendingProfile, setPendingProfile] = useState<{ id: string; name: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<ImportReason | 'write' | null>(null);
-
-  const needle = trashQ.trim().toLowerCase();
-  const shownTrash = needle ? trash.filter((n) => `${n.title} ${n.text}`.toLowerCase().includes(needle)) : trash;
-  const shownTasks = needle
-    ? trashTasks.filter((t) => `${t.text} ${t.desc ?? ''}`.toLowerCase().includes(needle))
-    : trashTasks;
 
   const commitRename = () => {
     if (renamingId && renameDraft.trim()) onRenameProfile(renamingId, renameDraft.trim());
@@ -236,58 +214,6 @@ export function SettingsPage({
         </div>
       )}
 
-      {section === 'trash' && (
-        <div>
-          <div className="g-notes-tools">
-            <input
-              className="g-in"
-              value={trashQ}
-              onChange={(e) => setTrashQ(e.target.value)}
-              placeholder={tr('trashSearchPh', lang)}
-              aria-label={tr('trashSearchPh', lang)}
-            />
-          </div>
-          {shownTrash.length === 0 && shownTasks.length === 0 && (
-            <div className="muted">{tr('emptyTrash', lang)}</div>
-          )}
-          {shownTrash.map((n) => (
-            <div className="g-sugg" key={n.id}>
-              <span className={!n.title.trim() ? "g-note-derived" : undefined} title={noteAccessibleName(n, lang)}>{noteDisplayName(n, lang)}</span>
-              <span>
-                <button type="button" className="g-linkbtn" onClick={() => onRestoreNote(n.id)}>
-                  [{tr('restoreBtn', lang)}]
-                </button>{' '}
-                <button
-                  type="button"
-                  className="g-linkbtn"
-                  onClick={() => setPendingPurge({ kind: 'note', id: n.id, title: noteDisplayName(n, lang) })}
-                >
-                  [{tr('delForever', lang)}]
-                </button>
-              </span>
-            </div>
-          ))}
-          {shownTasks.length > 0 && <div className="g-card-t sub">{tr('tasks', lang)}</div>}
-          {shownTasks.map((t) => (
-            <div className="g-sugg" key={t.id}>
-              <span>{t.text}</span>
-              <span>
-                <button type="button" className="g-linkbtn" onClick={() => onRestoreTask(t.id)}>
-                  [{tr('restoreBtn', lang)}]
-                </button>{' '}
-                <button
-                  type="button"
-                  className="g-linkbtn"
-                  onClick={() => setPendingPurge({ kind: 'task', id: t.id, title: t.text })}
-                >
-                  [{tr('delForever', lang)}]
-                </button>
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-
       {section === 'keys' && (
         <div>
           {SHORTCUTS.map((s) => (
@@ -332,21 +258,6 @@ export function SettingsPage({
         </div>
       )}
 
-      {pendingPurge && (
-        <ConfirmDialog
-          title={tr('delForever', lang)}
-          message={pendingPurge.title}
-          confirmLabel={tr('confirmPurge', lang)}
-          cancelLabel={tr('cancelBtn', lang)}
-          danger
-          onConfirm={() => {
-            if (pendingPurge.kind === 'note') onPurgeNote(pendingPurge.id);
-            else onPurgeTask(pendingPurge.id);
-            setPendingPurge(null);
-          }}
-          onCancel={() => setPendingPurge(null)}
-        />
-      )}
       {pendingProfile && (
         <ConfirmDialog
           title={tr('delForever', lang)}

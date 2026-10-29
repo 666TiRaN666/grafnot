@@ -55,9 +55,8 @@ module.exports = async function (t) {
     await page.getByTestId('task-group-done').getByRole('button').first().click();
     await page.locator('.g-taskline', { hasText: 'Fix login button' }).getByTestId('task-row-menu').click();
     await page.getByTestId('task-menu-del').click();
-    await page.getByTestId('nav-settings').click();
-    await page.getByTestId('settings-nav-trash').click();
-    await page.getByTestId('settings-page').locator('.g-sugg', { hasText: 'Fix login button' }).waitFor();
+    await page.getByTestId('nav-trash').click();
+    await page.getByTestId('trash-page').locator('.g-sugg', { hasText: 'Fix login button' }).waitFor();
   });
 
   await check('P21 graph members search limit checkbox', async () => {

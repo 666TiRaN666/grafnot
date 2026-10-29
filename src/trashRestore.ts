@@ -47,6 +47,27 @@ export function purgeNote(s: Store, id: string): Store {
   return { ...s, trash: s.trash.filter((x) => x.id !== id), trashMeta: withoutMeta(s, id) };
 }
 
+export const TRASH_DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Auto-cleanup of the trash: entries deleted longer ago than `days` go for
+ * good (notes with their restore records). An entry whose deletion time is
+ * unknown (trashed before times were kept) stays; `days` 0 turns it off. */
+export function expireTrash(s: Store, days: number, now: number): { store: Store; removed: number } {
+  if (!(days > 0)) return { store: s, removed: 0 };
+  const limit = now - days * TRASH_DAY_MS;
+  const oldNotes = s.trash.filter((n) => {
+    const at = s.trashMeta?.[n.id]?.at;
+    return typeof at === 'number' && at > 0 && at < limit;
+  });
+  const oldTasks = s.trashTasks.filter((t) => typeof t.trashedAt === 'number' && t.trashedAt < limit);
+  if (oldNotes.length === 0 && oldTasks.length === 0) return { store: s, removed: 0 };
+  let next = s;
+  for (const n of oldNotes) next = purgeNote(next, n.id);
+  const gone = new Set(oldTasks.map((t) => t.id));
+  next = { ...next, trashTasks: next.trashTasks.filter((t) => !gone.has(t.id)) };
+  return { store: next, removed: oldNotes.length + oldTasks.length };
+}
+
 function withoutMeta(s: Store, id: string): Record<string, NonNullable<Store['trashMeta']>[string]> {
   const next = { ...(s.trashMeta ?? {}) };
   delete next[id];

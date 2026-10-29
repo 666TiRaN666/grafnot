@@ -406,11 +406,11 @@ module.exports = async function (t) {
     await page.getByTestId('notes-more').click();
     await page.getByTestId('notes-menu-trash').click();
     assert((await page.getByRole('status').allTextContents()).join(' ').includes(title), 'derived delete toast name missing');
-    await page.getByTestId('nav-settings').click();
-    await page.getByTestId('settings-nav-trash').click();
-    // The settings container survives hash navigation; wait for the trash content.
-    await page.getByTestId('settings-page').getByText(title, { exact: true }).waitFor();
-    assert((await page.getByTestId('settings-page').innerText()).includes(title), 'derived trash name missing');
+    await page.getByTestId('nav-trash').click();
+    await page.getByTestId('trash-page').getByText(title, { exact: true }).waitFor();
+    assert((await page.getByTestId('trash-page').innerText()).includes(title), 'derived trash name missing');
+    // The trash page can show before the debounced save lands: wait for the write.
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('grafnot-store-p1')).trash.some(n => n.id === 'u'), null, { timeout: 8000 });
     assert((await storeOf()).trash.find(n => n.id === 'u').title === '', 'trash materialized a display name');
   });
 

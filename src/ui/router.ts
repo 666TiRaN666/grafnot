@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 /** New IA sections (S2+). The legacy 6-page state ('home' included) is NOT
  * part of this contract: S3 merges home+notes into #/notes/:id.
  */
-export type RouteSection = 'notes' | 'plan' | 'map' | 'prompts' | 'settings';
+export type RouteSection = 'notes' | 'plan' | 'map' | 'prompts' | 'trash' | 'settings';
 export interface Route {
   section: RouteSection;
   param?: string;
@@ -25,7 +25,10 @@ export function parseRoute(hash: string): Route {
   if (head === 'map') return segs[1] ? { section: 'map', param: segs[1] === 'note' && segs[2] ? 'note/' + segs[2] : segs[1] } : { section: 'map' };
   // S9: prompts nests one level (edit/<id>); item ids never contain '/'.
   if (head === 'prompts') return segs[1] ? { section: 'prompts', param: segs.slice(1).join('/') } : { section: 'prompts' };
+  if (head === 'trash') return { section: 'trash' };
   if (head === 'settings') {
+    // The trash used to be a settings tab: old links keep working.
+    if (segs[1] === 'trash') return { section: 'trash' };
     return segs[1] ? { section: 'settings', param: segs[1] } : { section: 'settings' };
   }
   return { section: 'notes' };

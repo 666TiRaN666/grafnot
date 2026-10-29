@@ -9,7 +9,7 @@ module.exports = async function (t) {
     await page.getByTestId('nav-settings').click();
     await page.getByTestId('settings-page').waitFor();
     assert((await page.locator('.g-modal').count()) === 0, 'settings still modal');
-    for (const nav of ['settings-nav-profiles', 'settings-nav-appearance', 'settings-nav-trash', 'settings-nav-keys', 'settings-nav-data']) {
+    for (const nav of ['settings-nav-profiles', 'settings-nav-appearance', 'settings-nav-keys', 'settings-nav-data']) {
       assert((await page.getByTestId(nav).count()) === 1, 'no ' + nav);
     }
     assert((await page.evaluate(() => window.location.hash)).includes('#/settings'), 'no settings hash');

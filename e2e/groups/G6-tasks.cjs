@@ -50,10 +50,9 @@ module.exports = async function (t) {
     await page.getByTestId('task-menu-del').click();
     await page.locator('.g-toast-undo').waitFor();
     assert((await page.locator('.g-taskline', { hasText: 'TrashProbe' }).count()) === 0, 'task not trashed');
-    await page.getByTestId('nav-settings').click();
-    await page.getByTestId('settings-nav-trash').click();
-    await page.getByTestId('settings-page').locator('.g-sugg', { hasText: 'TrashProbe' }).waitFor();
-    await page.getByTestId('settings-page').locator('.g-sugg', { hasText: 'TrashProbe' }).getByRole('button', { name: 'восстановить' }).click();
+    await page.getByTestId('nav-trash').click();
+    await page.getByTestId('trash-page').locator('.g-sugg', { hasText: 'TrashProbe' }).waitFor();
+    await page.getByTestId('trash-page').locator('.g-sugg', { hasText: 'TrashProbe' }).getByRole('button', { name: 'восстановить' }).click();
     assert((await page.locator('.g-sugg', { hasText: 'TrashProbe' }).count()) === 0, 'task not restored');
     await page.keyboard.press('Escape');
     await page.getByTestId('nav-plan').click();
@@ -63,28 +62,28 @@ module.exports = async function (t) {
   await check('P17b purge needs arm confirm', async () => {
     await page.locator('.g-taskline', { hasText: 'TrashProbe' }).getByTestId('task-row-menu').click();
     await page.getByTestId('task-menu-del').click();
-    await page.getByTestId('nav-settings').click();
-    await page.getByTestId('settings-nav-trash').click();
-    const trow = page.getByTestId('settings-page').locator('.g-sugg', { hasText: 'TrashProbe' });
+    await page.getByTestId('nav-trash').click();
+    const trow = page.getByTestId('trash-page').locator('.g-sugg', { hasText: 'TrashProbe' });
     await trow.getByRole('button', { name: 'Удалить навсегда' }).click();
     await page.getByRole('alertdialog').waitFor();
-    assert((await page.getByTestId('settings-page').locator('.g-sugg', { hasText: 'TrashProbe' }).count()) === 1, 'purged without confirm');
+    assert((await page.getByTestId('trash-page').locator('.g-sugg', { hasText: 'TrashProbe' }).count()) === 1, 'purged without confirm');
     await page.getByRole('alertdialog').getByRole('button', { name: 'Точно? Удалить навсегда' }).click();
-    assert((await page.getByTestId('settings-page').locator('.g-sugg', { hasText: 'TrashProbe' }).count()) === 0, 'task not purged');
+    assert((await page.getByTestId('trash-page').locator('.g-sugg', { hasText: 'TrashProbe' }).count()) === 0, 'task not purged');
     await page.keyboard.press('Escape');
     await page.getByTestId('nav-notes').click();
     await page.locator('.g-noterow').first().locator('.g-noteopen').click();
     await page.locator('.g-title-in').waitFor();
     await page.getByTestId('notes-more').click();
     await page.getByTestId('notes-menu-trash').click();
-    await page.getByTestId('nav-settings').click();
-    await page.getByTestId('settings-nav-trash').click();
-    const n0 = await page.getByTestId('settings-page').locator('.g-sugg').count();
-    await page.getByTestId('settings-page').locator('.g-sugg').first().getByRole('button', { name: 'Удалить навсегда' }).click();
+    await page.getByTestId('nav-trash').click();
+    // The trash page is a lazy chunk: count rows only once they are drawn.
+    await page.getByTestId('trash-page').locator('.g-sugg').first().waitFor();
+    const n0 = await page.getByTestId('trash-page').locator('.g-sugg').count();
+    await page.getByTestId('trash-page').locator('.g-sugg').first().getByRole('button', { name: 'Удалить навсегда' }).click();
     await page.getByRole('alertdialog').waitFor();
-    assert((await page.getByTestId('settings-page').locator('.g-sugg').count()) === n0, 'note purged without confirm');
+    assert((await page.getByTestId('trash-page').locator('.g-sugg').count()) === n0, 'note purged without confirm');
     await page.getByRole('alertdialog').getByRole('button', { name: 'Точно? Удалить навсегда' }).click();
-    assert((await page.getByTestId('settings-page').locator('.g-sugg').count()) === n0 - 1, 'note not purged');
+    assert((await page.getByTestId('trash-page').locator('.g-sugg').count()) === n0 - 1, 'note not purged');
   });
 
   await check('P17c old store without trashTasks migrates', async () => {
@@ -100,9 +99,8 @@ module.exports = async function (t) {
     }));
     await page.getByTestId('nav-plan').click();
     await page.locator('.g-taskline', { hasText: 'Old' }).waitFor();
-    await page.getByTestId('nav-settings').click();
-    await page.getByTestId('settings-nav-trash').click();
-    await page.getByTestId('settings-page').locator('.muted', { hasText: 'Корзина пуста' }).waitFor();
+    await page.getByTestId('nav-trash').click();
+    await page.getByTestId('trash-page').locator('.muted', { hasText: 'Корзина пуста' }).waitFor();
   });
 
     await check('P18 ctrl+k finds saved prompt and opens its card', async () => {

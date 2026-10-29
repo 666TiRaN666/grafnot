@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Note, Store } from './store';
-import { purgeNote, restoreNote, trashNote } from './trashRestore';
+import { expireTrash, purgeNote, restoreNote, trashNote, TRASH_DAY_MS } from './trashRestore';
 
 const note = (id: string, linkedIds: string[] = [], text = id): Note => ({
   id,
@@ -101,5 +101,35 @@ describe('purgeNote', () => {
     const s = purgeNote(trashNote(base(), 'b', 100), 'b');
     expect(s.trash).toEqual([]);
     expect(s.trashMeta?.b).toBeUndefined();
+  });
+});
+
+describe('expireTrash', () => {
+  const now = 100 * TRASH_DAY_MS;
+  const aged = (): Store => {
+    let s = trashNote(base(), 'b', now - 40 * TRASH_DAY_MS);
+    s = trashNote(s, 'c', now - 5 * TRASH_DAY_MS);
+    return {
+      ...s,
+      trash: [...s.trash, note('legacy')],
+      trashTasks: [
+        { id: 'old', text: 'old', done: false, trashedAt: now - 31 * TRASH_DAY_MS },
+        { id: 'new', text: 'new', done: false, trashedAt: now - 1 * TRASH_DAY_MS },
+        { id: 'unknown', text: 'unknown', done: false },
+      ],
+    };
+  };
+  it('removes notes and tasks deleted longer ago than the limit, with their restore records', () => {
+    const r = expireTrash(aged(), 30, now);
+    expect(r.removed).toBe(2);
+    expect(r.store.trash.map((n) => n.id).sort()).toEqual(['c', 'legacy']);
+    expect(r.store.trashTasks.map((t) => t.id)).toEqual(['new', 'unknown']);
+    expect(r.store.trashMeta?.b).toBeUndefined();
+    expect(r.store.trashMeta?.c).toBeDefined();
+  });
+  it('keeps entries whose deletion time is unknown, and does nothing when off', () => {
+    const s = aged();
+    expect(expireTrash(s, 0, now)).toEqual({ store: s, removed: 0 });
+    expect(expireTrash(s, 30, now).store.trash.some((n) => n.id === 'legacy')).toBe(true);
   });
 });
