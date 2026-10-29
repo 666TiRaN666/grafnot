@@ -36,6 +36,7 @@ const ORDER = [
   'G27-mob',
   'G28-keys',
   'G29-kpi',
+  'G33-identity',
 ];
 
 run(ORDER).catch((e) => {

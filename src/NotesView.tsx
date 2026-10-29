@@ -11,21 +11,23 @@ import { PREVIEW_LEN } from "./promptUtils";
 import { useListState } from "./useListState";
 import { parseBracketQuery, rankLinkSuggest } from "./linkSuggest";
 
+/** Note commands take the id of the note they act on (D1): the shown note,
+ * never an app-wide "active" one. */
 export interface NotesActions {
-  updateTitle: (v: string) => void;
-  updateDoc: (doc: Note["content"], text: string) => void;
+  updateTitle: (noteId: string, v: string) => void;
+  updateDoc: (noteId: string, doc: Note["content"], text: string) => void;
   createTask: (d: { text: string; desc: string; due?: string; noteId?: string }) => void;
   updateTask: (id: string, patch: { text?: string; desc?: string; due?: string }) => void;
   toggleTask: (id: string) => void;
   deleteTask: (id: string) => void;
-  duplicate: () => void;
-  exportMd: () => void;
-  deleteNote: () => void;
-  addLink: (id: string) => void;
-  removeLink: (id: string) => void;
-  addCalc: () => void;
-  updateCalc: (id: string, patch: { name?: string; expr?: string }) => void;
-  deleteCalc: (id: string) => void;
+  duplicate: (noteId: string) => void;
+  exportMd: (noteId: string) => void;
+  deleteNote: (noteId: string) => void;
+  addLink: (noteId: string, targetId: string) => void;
+  removeLink: (noteId: string, targetId: string) => void;
+  addCalc: (noteId: string) => void;
+  updateCalc: (noteId: string, calcId: string, patch: { name?: string; expr?: string }) => void;
+  deleteCalc: (noteId: string, calcId: string) => void;
   /** Create a note and return its id (used by the `[[` create-row). */
   createLinkedNote: (title: string) => string;
   /** Toast with an action button (Undo / Open). Lives 8s per N4. */
@@ -290,24 +292,27 @@ export function NotesView({
   }, [noteId, note?.title]);
 
   const commitTitle = () => {
-    if (note && draft !== note.title) actions.updateTitle(draft);
+    if (note && draft !== note.title) actions.updateTitle(note.id, draft);
   };
 
   const langRef = useRef(lang);
+  // The editor instance outlives note switches: its handlers read the note
+  // currently shown through this ref, never a stale render closure (D1).
+  const noteRef = useRef(note);
+  noteRef.current = note;
   const editor = useEditor({
     extensions: [StarterKit, Placeholder.configure({ placeholder: () => tr("editorPh", langRef.current) })],
     content: note?.content,
     onUpdate: ({ editor: e }) => {
-      if (!note) return;
-      actions.updateDoc(e.getJSON(), e.getText());
+      const cur = noteRef.current;
+      if (!cur) return;
+      actions.updateDoc(cur.id, e.getJSON(), e.getText());
       setWords(e.getText());
       syncInlineMenus(e);
     },
   });
   const editorRef = useRef(editor);
   editorRef.current = editor;
-  const noteRef = useRef(note);
-  noteRef.current = note;
 
   // Self-heal (P4): the mounted doc must converge to the store doc. A
   // delete→undo cycle (or chunk/remount timing) can leave a stale or empty
@@ -428,8 +433,7 @@ export function NotesView({
       .focus()
       .deleteRange({ from: sg.start, to: sg.end })
       .run();
-    if (targetId) actions.addLink(targetId);
-    else actions.addLink(id);
+    actions.addLink(n.id, targetId ?? id);
     setSuggest(null);
     notify(tr("toastLinked", lang));
   };
@@ -452,7 +456,7 @@ export function NotesView({
       { testid: "slash-item-2", label: tr("snipLecture", lang), run: () => { delSlash(at); insertTpl("lec"); } },
       { testid: "slash-item-3", label: tr("snipEnt", lang), run: () => { delSlash(at); insertTpl("ent"); } },
       { testid: "slash-item-4", label: tr("snipProj", lang), run: () => { delSlash(at); insertTpl("proj"); } },
-      { testid: "slash-item-5", label: tr("addCalc", lang), run: () => { delSlash(at); actions.addCalc(); } },
+      { testid: "slash-item-5", label: tr("addCalc", lang), run: () => { delSlash(at); const cur = noteRef.current; if (cur) actions.addCalc(cur.id); } },
       { testid: "slash-item-6", label: tr("addLinkBtn", lang), run: () => { delSlash(at); focusEditorEnd(); } },
     ];
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -597,7 +601,7 @@ export function NotesView({
   };
 
   const removeLinkUndo = (id: string) => {
-    actions.removeLink(id);
+    if (note) actions.removeLink(note.id, id);
   };
 
   const insertVar = (display: string) => {
@@ -606,7 +610,7 @@ export function NotesView({
     const targetId = focusCalc ?? note.calcs[note.calcs.length - 1]?.id;
     if (!targetId) return;
     const cur = note.calcs.find((c) => c.id === targetId)?.expr ?? "";
-    actions.updateCalc(targetId, { expr: cur + (cur && !/\s$/.test(cur) ? " " : "") + v });
+    actions.updateCalc(note.id, targetId, { expr: cur + (cur && !/\s$/.test(cur) ? " " : "") + v });
   };
 
   const varNames = note
@@ -752,7 +756,7 @@ export function NotesView({
                       data-testid="notes-menu-export"
                       onClick={() => {
                         setMoreOpen(false);
-                        actions.exportMd();
+                        if (note) actions.exportMd(note.id);
                       }}
                     >
                       {tr("exportMd", lang)}
@@ -764,7 +768,7 @@ export function NotesView({
                       data-testid="notes-menu-duplicate"
                       onClick={() => {
                         setMoreOpen(false);
-                        actions.duplicate();
+                        if (note) actions.duplicate(note.id);
                       }}
                     >
                       {tr("duplicate", lang)}
@@ -777,7 +781,7 @@ export function NotesView({
                       data-testid="notes-menu-trash"
                       onClick={() => {
                         setMoreOpen(false);
-                        actions.deleteNote();
+                        if (note) actions.deleteNote(note.id);
                       }}
                     >
                       {tr("deleteNote", lang)}
@@ -967,14 +971,14 @@ export function NotesView({
                   <div className="g-calcrow" key={c.id}>
                     <input
                       value={c.name}
-                      onChange={(e) => actions.updateCalc(c.id, { name: e.target.value })}
+                      onChange={(e) => actions.updateCalc(note.id, c.id, { name: e.target.value })}
                       placeholder={tr("calcNamePh", lang)}
                       className="g-calc-name"
                       aria-label={tr("calcNamePh", lang)}
                     />
                     <input
                       value={c.expr}
-                      onChange={(e) => actions.updateCalc(c.id, { expr: e.target.value })}
+                      onChange={(e) => actions.updateCalc(note.id, c.id, { expr: e.target.value })}
                       onFocus={() => setFocusCalc(c.id)}
                       placeholder={tr("calcExprPh", lang)}
                       className="g-calc-expr mono"
@@ -987,14 +991,14 @@ export function NotesView({
                       type="button"
                       className="g-tdel show"
                       aria-label={tr("closeBtn", lang)}
-                      onClick={() => actions.deleteCalc(c.id)}
+                      onClick={() => actions.deleteCalc(note.id, c.id)}
                     >
                       ×
                     </button>
                   </div>
                 );
               })}
-              <button type="button" className="g-btn sm g-wide" onClick={actions.addCalc}>
+              <button type="button" className="g-btn sm g-wide" onClick={() => actions.addCalc(note.id)}>
                 {tr("addCalc", lang)}
               </button>
             </div>

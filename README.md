@@ -12,7 +12,7 @@ npm run build      # tsc + сборка в dist/
 npm test           # unit-тесты (vitest)
 npm run check:weight  # отчёт веса JS-бандла + предохранитель от baseline (лимитов нет)
 npm run preview    # раздача собранного (для ручной проверки и e2e)
-npm run e2e        # 168 e2e-проверок (Playwright, нужен preview :5199)
+npm run e2e        # 176 e2e-проверок (Playwright, нужен preview :5199)
 npm run e2e:matrix   # S5 + список задач под 12 фиксированными датами: сам собирает dist и поднимает свой preview :5199 (не в CI)
 npm run check:i18n  # missing/parity/dead-гейт i18n-ключей (RU/EN/KZ)
 npm run check:i18n:selftest  # мутационный самотест гейта (4 фикстуры)
@@ -21,7 +21,7 @@ npm run gates -- --e2e                     # + сборка, вес, свой pr
 npm run gates -- --groups=G20-plan,G21-week  # + сборка, вес, preview, только эти e2e-группы
 ```
 
-E2E: 168 e2e-проверок на Playwright поверх `vite preview` (вход `e2e/check6.cjs`, обвязка `e2e/harness.cjs`, группы `e2e/groups/<имя>.cjs`; часть групп: `GROUPS=G20-plan,G21-week npm run e2e`)
+E2E: 176 e2e-проверок на Playwright поверх `vite preview` (вход `e2e/check6.cjs`, обвязка `e2e/harness.cjs`, группы `e2e/groups/<имя>.cjs`; часть групп: `GROUPS=G20-plan,G21-week npm run e2e`)
 (пустой старт, редактор, задачи, неделя, связи, вычисления, карта, переименование, панели, промпты, корзина/undo, мобильная навигация, тосты, профили,
 блокировки битого стора, ErrorBoundary, честные статусы сохранения, две вкладки, восстановление реестра, адопция legacy).
 Сьют не зависит от дня недели и часового пояса: даты сидов вида `@today+N`/`@mon+N` раскрываются внутри страницы (зона Asia/Almaty, T2); `npm run e2e:matrix` гоняет S5 и список задач по 12 датам (Пн…Вс, границы месяца/года).
@@ -67,6 +67,7 @@ Store { notes, tasks, trash, trashTasks, graphs, prompts, customTpls, activeId }
 4. **Физика графа изолирована в `src/graphLayout.ts`** (единственное место, знающее про d3-force): ручные тики без таймера → детерминированность для e2e. Тесты: `src/graphLayout.test.ts`.
 5. **Промпты живут в общем сторе**, а не в отдельном хранилище. Привязка односторонняя (`promptSave.noteId`), обратная сторона — вычисляемый фильтр. Словарь тегов — честно помеченный статический семпл (`promptData.ts`: версия, дата, источник), живого обновления нет по дизайну. Порог риска — именованная константа, синтаксис моделей — чисто презентационный `renderPrompt` (`promptUtils.ts` + тесты).
 6. **Вес:** отчёт и предохранитель +50% от baseline, лимитов нет (`npm run check:weight`, baseline — `docs/weight-baseline.json`). Рост веса виден в отчёте.
+7. **Показанная заметка — единственная цель команд (W2, D1).** Заметку на экране определяет маршрут `#/notes/:id`; текст, заголовок, удаление, копия, экспорт, связи и вычисления получают её id явно (`NotesActions`). `Store.activeId` — только последняя показанная заметка (посадка при запуске без хэша), он следует за маршрутом и командами не читается. Тесты: e2e `G33-identity`.
 
 ## Профили (изоляция данных и настроек)
 
@@ -127,7 +128,7 @@ scripts/audit-targets.cjs — аудит целей N1 (report/enforce, desktop+
 scripts/check-css-unused.cjs — поиск мёртвых .g-классов
 scripts/gates.cjs, scripts/e2e-weekday-matrix.cjs — раннеры; scripts/runner-lib.cjs — общий вердикт, окружение e2e и свой preview (+ scripts/runner.selftest.cjs)
 e2e/check6.cjs — вход e2e и порядок групп; e2e/harness.cjs — сиды, хелперы, раннер; e2e/manifest.cjs — EXPECTED_CHECKS/GROUP_SIZES
-e2e/groups/*.cjs — 168 e2e-проверок в 33 группах (P5–P28 база, P29 блокировки стора, P30 ErrorBoundary, P31 сохранения, P32 две вкладки, P33 реестр, P34–P36 адопция legacy, S2–S13 разделы после редизайна)
+e2e/groups/*.cjs — 176 e2e-проверок в 34 группах (P5–P28 база, P29 блокировки стора, P30 ErrorBoundary, P31 сохранения, P32 две вкладки, P33 реестр, P34–P36 адопция legacy, S2–S13 разделы после редизайна, G33 показанная заметка — цель команд)
 docs/ux-baseline.md — база S0 «до» (аудит 375 элементов, 5 сценариев; сырой json аудита — локальный артефакт прогона, не в git)
 docs/fitts-report.md — S13 «до/после» по 5 сценариям (D, W, ID) + бюджеты G29
 start.bat         — быстрый запуск dev-сервера на Windows

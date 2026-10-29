@@ -483,19 +483,21 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lang, notes]);
 
+  // D1: the route names the shown note; store.activeId follows it (see the
+  // route effect below) and is only the landing note for the next start.
   const openNoteById = (id: string) => {
-    setStore((s) => ({ ...s, activeId: id }));
     go('notes', id);
   };
 
-  const updateActive = (fn: (n: Note) => Note) => {
-    setStore((s) => ({ ...s, notes: s.notes.map((n) => (n.id === s.activeId ? { ...fn(n), updated: Date.now() } : n)) }));
+  /** Note commands always name their note: the one the user acted on. */
+  const updateNote = (id: string, fn: (n: Note) => Note) => {
+    setStore((s) => ({ ...s, notes: s.notes.map((n) => (n.id === id ? { ...fn(n), updated: Date.now() } : n)) }));
   };
 
   /** With id-links rename touches only the note itself. */
-  const renameActive = (v: string) => {
-    const title = uniqueTitle(v, activeId);
-    updateActive((n) => ({ ...n, title }));
+  const renameNote = (id: string, v: string) => {
+    const title = uniqueTitle(v, id);
+    updateNote(id, (n) => ({ ...n, title }));
   };
 
   const toggleTask = (id: string) => {
@@ -852,8 +854,8 @@ export default function App() {
     notify(tr('taskUpdated', lang));
   };
 
-  const deleteActiveNote = () => {
-    const victim = activeNote;
+  const deleteNote = (id: string) => {
+    const victim = notes.find((n) => n.id === id);
     if (!victim) return;
     const next = notes.filter((n) => n.id !== victim.id);
     setStore((s) => {
@@ -901,14 +903,15 @@ export default function App() {
     setStore((s) => ({ ...s, trashTasks: s.trashTasks.filter((x) => x.id !== id) }));
 
   };
-    const duplicateActive = () => {
-    if (!activeNote) return;
+  const duplicateNote = (id: string) => {
+    const src = notes.find((n) => n.id === id);
+    if (!src) return;
     const copy: Note = {
-      ...activeNote,
+      ...src,
       id: newId("n"),
-      title: uniqueTitle(`${activeNote.title} (${tr('duplicate', lang)})`),
-      linkedIds: [...activeNote.linkedIds],
-      calcs: activeNote.calcs.map((c) => ({ ...c })),
+      title: uniqueTitle(`${src.title} (${tr('duplicate', lang)})`),
+      linkedIds: [...src.linkedIds],
+      calcs: src.calcs.map((c) => ({ ...c })),
       updated: Date.now(),
     };
     setStore((s) => ({ ...s, notes: [copy, ...s.notes], activeId: copy.id }));
@@ -916,25 +919,26 @@ export default function App() {
     go('notes', copy.id);
   };
 
-  const exportActive = () => {
-    if (!activeNote) return;
-    const md = `# ${activeNote.title}\n\n${activeNote.text}`;
+  const exportNote = (id: string) => {
+    const note = notes.find((n) => n.id === id);
+    if (!note) return;
+    const md = `# ${note.title}\n\n${note.text}`;
     const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `${activeNote.title || 'note'}.md`;
+    a.download = `${note.title || 'note'}.md`;
     a.click();
     window.setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     notify(tr('toastExported', lang));
   };
 
-  const addLink = (id: string) => {
-    updateActive((n) => (n.linkedIds.includes(id) ? n : { ...n, linkedIds: [...n.linkedIds, id] }));
+  const addLink = (noteId: string, id: string) => {
+    updateNote(noteId, (n) => (n.linkedIds.includes(id) ? n : { ...n, linkedIds: [...n.linkedIds, id] }));
   };
 
-  const removeLink = (id: string) => {
-    updateActive((n) => ({ ...n, linkedIds: n.linkedIds.filter((x) => x !== id) }));
-    notifyAction(tr('toastUnlinked', lang), tr('undoToast', lang), () => addLink(id));
+  const removeLink = (noteId: string, id: string) => {
+    updateNote(noteId, (n) => ({ ...n, linkedIds: n.linkedIds.filter((x) => x !== id) }));
+    notifyAction(tr('toastUnlinked', lang), tr('undoToast', lang), () => addLink(noteId, id));
   };
 
   /** Drop a dangling reference from every note at once. */
@@ -1013,30 +1017,30 @@ export default function App() {
     }));
   };
 
-  const addCalc = () => {
-    updateActive((n) => ({ ...n, calcs: [...n.calcs, { id: newId("c"), name: '', expr: '' }] }));
+  const addCalc = (noteId: string) => {
+    updateNote(noteId, (n) => ({ ...n, calcs: [...n.calcs, { id: newId("c"), name: '', expr: '' }] }));
   };
 
-  const updateCalc = (id: string, patch: Partial<CalcBlock>) => {
-    updateActive((n) => ({ ...n, calcs: n.calcs.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
+  const updateCalc = (noteId: string, id: string, patch: Partial<CalcBlock>) => {
+    updateNote(noteId, (n) => ({ ...n, calcs: n.calcs.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
   };
 
-  const deleteCalc = (id: string) => {
-    updateActive((n) => ({ ...n, calcs: n.calcs.filter((c) => c.id !== id) }));
+  const deleteCalc = (noteId: string, id: string) => {
+    updateNote(noteId, (n) => ({ ...n, calcs: n.calcs.filter((c) => c.id !== id) }));
   };
 
 
 
   const actions: NotesActions = {
-    updateTitle: renameActive,
-    updateDoc: (doc, text) => updateActive((n) => ({ ...n, content: doc, text })),
+    updateTitle: renameNote,
+    updateDoc: (noteId, doc, text) => updateNote(noteId, (n) => ({ ...n, content: doc, text })),
     createTask: (d) => addTask(d.text, { desc: d.desc, due: d.due, noteId: d.noteId }),
     updateTask,
     toggleTask,
     deleteTask,
-    duplicate: duplicateActive,
-    exportMd: exportActive,
-    deleteNote: deleteActiveNote,
+    duplicate: duplicateNote,
+    exportMd: exportNote,
+    deleteNote,
     addLink,
     removeLink,
     addCalc,
@@ -1212,6 +1216,15 @@ export default function App() {
   const planTaskId = section === 'plan' && route.param?.startsWith('list/') ? route.param.slice('list/'.length) : null;
   const openNote: Note | undefined =
     section === 'notes' && route.param ? notes.find((n) => n.id === route.param) : undefined;
+  // D1: Back/Forward, deep links and manual hash changes all move the shown
+  // note; activeId follows so the next start lands on it. Commands never read
+  // activeId — they take the shown note's id explicitly.
+  const openNoteId = openNote?.id;
+  useEffect(() => {
+    if (openNoteId && activeId !== openNoteId) {
+      setStore((s) => (s.activeId === openNoteId || !s.notes.some((n) => n.id === openNoteId) ? s : { ...s, activeId: openNoteId }));
+    }
+  }, [openNoteId, activeId]);
   // S9: template routes render the workbench (save mode when the id is a
   // save); builder and unknown ids are resolved separately below.
   const tplEntries = useMemo(() => buildTplEntries(LLM_TEMPLATES, store.customTpls), [store.customTpls]);
