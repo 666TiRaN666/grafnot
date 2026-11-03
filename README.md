@@ -155,6 +155,7 @@ e2e/groups/*.cjs — 232 e2e-проверки в 38 группах (G0–G37; р
 docs/ux-baseline.md — база S0 «до» (аудит 375 элементов, 5 сценариев; сырой json аудита — локальный артефакт прогона, не в git)
 docs/fitts-report.md — S13 «до/после» по 5 сценариям (D, W, ID) + бюджеты G29
 start.bat         — быстрый запуск dev-сервера на Windows
+start.sh          — то же для Linux (`./start.sh`; при общем с Windows node_modules сам добавляет Linux-модули через `deps:dual`)
 ```
 
 ## UI — testid-контракт (S0 заморожен; изменение S2 записано здесь)
