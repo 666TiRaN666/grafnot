@@ -388,7 +388,11 @@ async function pickViaPalette(pg, text, expectTitle) {
   await closeContext(pg);
   await pg.keyboard.press('Control+k');
   await pg.getByTestId('palette-input').fill(text);
-  await pg.locator('[data-testid^="palette-item-"]', { hasText: text }).first().click();
+  // Notes that mention the title as a [[link]] match the query too: with a
+  // known title, pick the row whose title is exactly it.
+  const items = pg.locator('[data-testid^="palette-item-"]', { hasText: text });
+  const target = expectTitle !== undefined ? items.filter({ has: pg.getByText(expectTitle, { exact: true }) }) : items;
+  await target.first().click();
   if (expectTitle !== undefined) {
     await pg.waitForFunction((t) => (document.querySelector('.g-title-in') || {}).value === t, expectTitle, { timeout: 8000 });
   }

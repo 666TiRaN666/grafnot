@@ -46,12 +46,16 @@ module.exports = async function (t) {
     assert(await rows.count() === 4, 'skills filter shows ' + (await rows.count()));
     await rows.filter({ hasText: 'Навык: ревью кода' }).click();
     await page.getByTestId('skill-builder').waitFor();
-    assert((await page.getByTestId('skill-save').innerText()).includes('Сохранить копию'), 'built-in would be overwritten');
+    // The previous builder (the user's own skill) stays mounted until the
+    // route re-renders: wait for the built-in's label instead of reading once.
+    await page.waitForFunction(() => (document.querySelector('[data-testid="skill-save"]') || {}).textContent?.includes('Сохранить копию'), null, { timeout: 8000 })
+      .catch(() => { throw new Error('built-in would be overwritten'); });
     const [dl] = await Promise.all([page.waitForEvent('download'), page.getByTestId('skill-download').click()]);
     assert(dl.suggestedFilename() === 'SKILL.md', 'file name ' + dl.suggestedFilename());
     const text = require('fs').readFileSync(await dl.path(), 'utf8');
     assert(text.includes('name: code-review') && text.includes('## Порядок действий'), 'download content wrong');
     await page.getByTestId('skill-save').click();
-    await page.waitForFunction(() => JSON.parse(localStorage.getItem('grafnot-store-p1')).customTpls.some((x) => x.kind === 'skill' && x.name === 'code-review'), null, { timeout: 8000 });
+    // The copy gets a name of its own (focus group: two «code-review» were indistinguishable).
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('grafnot-store-p1')).customTpls.some((x) => x.kind === 'skill' && x.name === 'code-review-2' && x.skill.name === 'code-review-2'), null, { timeout: 8000 });
   });
 };

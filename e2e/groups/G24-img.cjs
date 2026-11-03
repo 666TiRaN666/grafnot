@@ -60,7 +60,7 @@ module.exports = async function (t) {
   });
 
   await check('S8 save as template', async () => {
-    await page.getByRole('button', { name: 'Сохранить как шаблон' }).click();
+    await page.getByTestId('img-save-tpl').click();
     // Name = first two tags: the art defaults come first now (UX-03).
     await page.locator('[data-testid="prompt-item"]', { hasText: 'masterpiece, best quality (Flux)' }).first().waitFor();
   });
@@ -76,10 +76,10 @@ module.exports = async function (t) {
     await chip.getByLabel('Меню').click();
     assert((await page.getByRole('menuitemradio').count()) === 3, 'no weight items under Pony');
     await page.getByRole('menuitemradio', { name: 'Сильнее' }).click();
-    await page.locator('[data-testid="tag-chip"]', { hasText: '((blue hair))' }).waitFor();
+    await page.locator('[data-testid="tag-chip"]', { hasText: '(blue hair:1.2)' }).waitFor();
     await page.getByTestId('prompt-workbench').getByRole('button', { name: 'Flux', exact: true }).click();
     await page.waitForFunction(
-      () => !(document.querySelector('[data-testid="prompt-result"]')?.textContent || '').includes('(('),
+      () => !(document.querySelector('[data-testid="prompt-result"]')?.textContent || '').includes(':1.2'),
       null, { timeout: 8000 },
     );
     await chip.getByLabel('Меню').click();
@@ -89,7 +89,7 @@ module.exports = async function (t) {
   await check('S8 Pony restores kept weights', async () => {
     await page.getByTestId('prompt-workbench').getByRole('button', { name: 'Pony', exact: true }).click();
     await page.waitForFunction(
-      () => (document.querySelector('[data-testid="prompt-result"]')?.textContent || '').includes('((blue hair))'),
+      () => (document.querySelector('[data-testid="prompt-result"]')?.textContent || '').includes('(blue hair:1.2)'),
       null, { timeout: 8000 },
     );
   });
@@ -120,9 +120,9 @@ module.exports = async function (t) {
     await chips().nth(1).waitFor();
     await chips().first().getByLabel('Меню').click();
     await page.getByRole('menuitemradio', { name: 'Сильнее' }).click();
-    await page.locator('[data-testid="tag-chip"]', { hasText: '((blue eyes))' }).waitFor();
+    await page.locator('[data-testid="tag-chip"]', { hasText: '(blue eyes:1.2)' }).waitFor();
     await page.getByTestId('prompt-workbench').getByRole('button', { name: 'Flux', exact: true }).click();
-    await page.getByRole('button', { name: 'Сохранить как шаблон' }).click();
+    await page.getByTestId('img-save-tpl').click();
     const row = page.locator('[data-testid="prompt-item"]', { hasText: 'watercolor (Flux)' }).first();
     await row.waitFor();
     await page.getByTestId('nav-notes').click();
@@ -133,12 +133,12 @@ module.exports = async function (t) {
     await page.getByTestId('tag-input').waitFor();
     assert((await pressed('Flux')) === 'true', 'model not restored');
     const got = await chips().allInnerTexts();
-    assert(got.length === 2 && got[0].includes('((blue eyes))') && got[1].includes('watercolor'), 'tags not restored: ' + got.join('|'));
+    assert(got.length === 2 && got[0].includes('(blue eyes:1.2)') && got[1].includes('watercolor'), 'tags not restored: ' + got.join('|'));
     const res = (await page.getByTestId('prompt-result').innerText()).trim();
     assert(res === 'blue eyes and watercolor', 'result (and counter) wrong: ' + res);
     await page.getByTestId('prompt-workbench').getByRole('button', { name: 'Pony', exact: true }).click();
     await page.waitForFunction(
-      () => (document.querySelector('[data-testid="prompt-result"]')?.textContent || '') === '((blue eyes)), watercolor',
+      () => (document.querySelector('[data-testid="prompt-result"]')?.textContent || '') === '(blue eyes:1.2), watercolor',
       null, { timeout: 8000 },
     );
   });
@@ -166,7 +166,7 @@ module.exports = async function (t) {
     const flux = await result();
     assert(!flux.includes('--ar') && !flux.includes('score_9'), 'Flux carries foreign syntax: ' + flux);
     await model('Midjourney');
-    await page.getByRole('button', { name: 'Сохранить как шаблон' }).click();
+    await page.getByTestId('img-save-tpl').click();
     await page.locator('[data-testid="prompt-item"]', { hasText: '(Midjourney)' }).first().waitFor();
     await page.waitForFunction(() => (JSON.parse(localStorage.getItem('grafnot-store-p1') || '{}').customTpls || []).some((t) => t.model === 'Midjourney' && t.aspect === '2:3' && (t.negative || []).length === 9), null, { timeout: 8000 });
     await page.reload({ waitUntil: 'networkidle' });
@@ -175,6 +175,19 @@ module.exports = async function (t) {
     await page.getByTestId('tag-input').waitFor();
     assert(await page.getByTestId('aspect-2:3').getAttribute('aria-pressed') === 'true', 'frame not restored');
     assert(await page.getByTestId('neg-chip').count() === 9, 'negative not restored');
+  });
+
+  await check('Image: the chip menu reorders tags without a keyboard', async () => {
+    await openImageWb();
+    await page.getByTestId('tag-input').fill('blue eyes');
+    await page.keyboard.press('Enter');
+    const look = () => page.getByTestId('lane-look').locator('[data-testid="tag-chip"]').allInnerTexts();
+    const before = await look();
+    const last = page.getByTestId('lane-look').locator('[data-testid="tag-chip"]').last();
+    await last.getByLabel('Меню').click();
+    await page.getByRole('menuitem', { name: /Раньше/ }).click();
+    const after = await look();
+    assert(after[after.length - 2] === before[before.length - 1] && after[after.length - 1] === before[before.length - 2], 'menu did not move the tag: ' + after.join('|'));
   });
 
   await check('Image: a tag moved to another lane takes the prompt order with it', async () => {

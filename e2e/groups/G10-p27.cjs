@@ -37,9 +37,9 @@ module.exports = async function (t) {
     await page.getByTestId('nav-settings').click();
     await page.getByTestId('settings-page').waitFor();
     await page.getByTestId('settings-nav-appearance').click();
-    await page.getByTestId('settings-page').getByRole('button', { name: 'KZ', exact: true }).click();
+    await page.getByTestId('settings-page').getByRole('button', { name: 'Қазақша', exact: true }).click();
     assert((await page.getByTestId('settings-page').innerText()).includes('Тақырып'), 'KZ not applied');
-    await page.getByTestId('settings-page').getByRole('button', { name: 'RU', exact: true }).click();
+    await page.getByTestId('settings-page').getByRole('button', { name: 'Русский', exact: true }).click();
     assert((await page.getByTestId('settings-page').innerText()).includes('Тема'), 'RU not restored');
     await page.getByTestId('nav-notes').click();
   });

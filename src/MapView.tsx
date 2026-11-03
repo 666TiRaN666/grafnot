@@ -302,7 +302,9 @@ function GraphCanvas({
     if (!d) return;
     if (d.mode === 'node' && d.id && d.moved) {
       const sim = simRef.current;
-      const keep = !!pinnedRef.current[d.id];
+      // A dropped note stays where it was put (focus group: it sprang
+      // back); a cancelled drag lets an unpinned note go as before.
+      const keep = !cancelled || !!pinnedRef.current[d.id];
       sim?.release(d.id, keep);
       if (sim && reduceMotion) {
         sim.step(200);
@@ -796,6 +798,8 @@ export function MapView({
               autoFocus
               autoComplete="off"
               className="g-gtitle-in m-rename"
+              data-testid="map-graph-name"
+              placeholder={graph.title}
               value={gDraft}
               onChange={(e) => setGDraft(e.target.value)}
               onBlur={commitGraphTitle}
@@ -880,6 +884,9 @@ export function MapView({
                   setScope(id);
                   onRoute(id);
                   setSwitcherOpen(false);
+                  // Name it right away (focus group: graphs piled up as «Новый граф 2, 3…»).
+                  setGDraft("");
+                  setRenaming(true);
                 }}
               >
                 {tr("newGraph", lang)}
@@ -995,13 +1002,13 @@ export function MapView({
               </span>
               <button
                 type="button"
-                className="g-linkbtn"
+                className="g-btn sm"
                 onClick={() => {
                   onPurge(b.id);
                   notify(tr("toastUnlinked", lang));
                 }}
               >
-                [{tr("fixBtn", lang)}]
+                {tr("fixBtn", lang)}
               </button>
             </span>
           ))}

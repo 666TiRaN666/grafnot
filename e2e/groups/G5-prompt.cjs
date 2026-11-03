@@ -94,11 +94,12 @@ module.exports = async function (t) {
     await page.keyboard.press('Enter');
     await page.locator('[data-testid="tag-chip"]', { hasText: 'blue hair' }).waitFor();
     await page.getByRole('button', { name: 'SDXL', exact: true }).click();
-    await page.getByRole('button', { name: 'Сохранить как шаблон' }).click();
+    await page.getByTestId('img-save-tpl').click();
     await page.locator('[data-testid="prompt-item"]', { hasText: 'masterpiece, best quality (SDXL)' }).waitFor();
-    await page.waitForFunction(() => ((JSON.parse(window.localStorage.getItem('grafnot-store-p1') || '{}').customTpls || []).some((t) => (t.body || '').includes('(blue'))), null, { timeout: 8000 });
+    await page.waitForFunction(() => ((JSON.parse(window.localStorage.getItem('grafnot-store-p1') || '{}').customTpls || []).some((t) => (t.body || '').includes('blue hair'))), null, { timeout: 8000 });
     const sdxlBody = await lastBody();
-    assert(sdxlBody.includes('(blue hair)') || sdxlBody.includes('(blue eyes)'), `bad SDXL body: ${sdxlBody.slice(0, 120)}`);
+    // SDXL: plain comma tags; parentheses only carry a weight, (tag:1.2).
+    assert(sdxlBody.includes('blue hair') && !sdxlBody.includes('(blue'), `bad SDXL body: ${sdxlBody.slice(0, 120)}`);
     await page.getByTestId('nav-prompt').click();
     await page.locator('[data-testid="prompt-item"]', { hasText: 'Арт: персонаж' }).click();
     await page.getByRole('button', { name: 'Flux', exact: true }).click();
@@ -106,7 +107,7 @@ module.exports = async function (t) {
     await page.locator('[data-testid^="tag-suggest-item-"]').first().waitFor();
     await page.keyboard.press('Enter');
     await page.locator('[data-testid="tag-chip"]', { hasText: 'blue eyes' }).waitFor();
-    await page.getByRole('button', { name: 'Сохранить как шаблон' }).click();
+    await page.getByTestId('img-save-tpl').click();
     await page.locator('[data-testid="prompt-item"]', { hasText: 'masterpiece, best quality (Flux)' }).waitFor();
     await page.waitForFunction(() => ((JSON.parse(window.localStorage.getItem('grafnot-store-p1') || '{}').customTpls || []).some((t) => (t.body || '').includes('blue eyes') && !(t.body || '').includes('(blue'))), null, { timeout: 8000 });
     const fluxBody = await lastBody();

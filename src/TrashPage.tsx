@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { tr } from './i18n';
 import type { Lang } from './i18n';
 import { noteAccessibleName, noteDisplayName } from './noteName';
@@ -32,6 +32,20 @@ export function TrashPage({
   onPurgeTask: (id: string) => void;
 }) {
   const [q, setQ] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
+  // `/` focuses the search, as in every other list.
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      const inField = !!t?.closest?.('input, textarea, select, [contenteditable]');
+      if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !inField && !t?.closest?.('.g-modal')) {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, []);
   const [pending, setPending] = useState<{ kind: 'note' | 'task'; id: string; title: string } | null>(null);
   const needle = q.trim().toLowerCase();
   const notes = needle ? trash.filter((n) => `${n.title} ${n.text}`.toLowerCase().includes(needle)) : trash;
@@ -53,7 +67,10 @@ export function TrashPage({
       {!empty && (
         <div className="g-notes-tools">
           <input
+            ref={searchRef}
+            type="search"
             className="g-in"
+            data-testid="trash-search"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder={tr('trashSearchPh', lang)}
@@ -67,11 +84,11 @@ export function TrashPage({
         <div className="g-sugg" key={n.id}>
           <span className={!n.title.trim() ? 'g-note-derived' : undefined} title={noteAccessibleName(n, lang)}>{noteDisplayName(n, lang)}</span>
           <span>
-            <button type="button" className="g-linkbtn" onClick={() => onRestoreNote(n.id)}>
-              [{tr('restoreBtn', lang)}]
+            <button type="button" className="g-btn sm" onClick={() => onRestoreNote(n.id)}>
+              {tr('restoreBtn', lang)}
             </button>{' '}
-            <button type="button" className="g-linkbtn" onClick={() => setPending({ kind: 'note', id: n.id, title: noteDisplayName(n, lang) })}>
-              [{tr('delForever', lang)}]
+            <button type="button" className="g-btn sm ghost danger" onClick={() => setPending({ kind: 'note', id: n.id, title: noteDisplayName(n, lang) })}>
+              {tr('delForever', lang)}
             </button>
           </span>
         </div>
@@ -81,11 +98,11 @@ export function TrashPage({
         <div className="g-sugg" key={t.id}>
           <span>{t.text}</span>
           <span>
-            <button type="button" className="g-linkbtn" onClick={() => onRestoreTask(t.id)}>
-              [{tr('restoreBtn', lang)}]
+            <button type="button" className="g-btn sm" onClick={() => onRestoreTask(t.id)}>
+              {tr('restoreBtn', lang)}
             </button>{' '}
-            <button type="button" className="g-linkbtn" onClick={() => setPending({ kind: 'task', id: t.id, title: t.text })}>
-              [{tr('delForever', lang)}]
+            <button type="button" className="g-btn sm ghost danger" onClick={() => setPending({ kind: 'task', id: t.id, title: t.text })}>
+              {tr('delForever', lang)}
             </button>
           </span>
         </div>

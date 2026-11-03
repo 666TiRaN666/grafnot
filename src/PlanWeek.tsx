@@ -6,6 +6,7 @@ import { todayISO } from "./taskGroups";
 import { weekRange } from "./weekCal";
 import { TaskPanel } from "./PlanList";
 import { useMedia } from "./ui/useMedia";
+import { monthYear, weekdayShort } from "./dateNames";
 
 /** Pointer travel that turns a press into a drag (S10 map uses the same). */
 const DRAG_PX = 4;
@@ -53,7 +54,6 @@ export function PlanWeek({
   // and hidden chips would otherwise poison selectors and hit-testing.
   const narrow = useMedia("(max-width: 760px)");
 
-  const loc = lang === "KZ" ? "kk-KZ" : lang === "EN" ? "en-US" : "ru-RU";
   const days = useMemo(() => weekRange(offset, today), [offset, today]);
   const mDay = mDayState && days.includes(mDayState) ? mDayState : days.includes(today) ? today : (days[0] ?? today);
 
@@ -75,13 +75,11 @@ export function PlanWeek({
 
   const monthTitle = useMemo(() => {
     const [y, m, d] = days[0]?.split("-").map(Number) ?? [2026, 1, 1];
-    const t = new Intl.DateTimeFormat(loc, { month: "long", year: "numeric" }).format(new Date(y, (m || 1) - 1, d || 1));
-    // First letter only: CSS capitalize also raised the RU year mark ("2026 Г.").
-    return t.charAt(0).toLocaleUpperCase(loc) + t.slice(1);
-  }, [days, loc]);
+    return monthYear(new Date(y, (m || 1) - 1, d || 1), lang);
+  }, [days, lang]);
   const wd = (iso: string) => {
     const [y, m, d] = iso.split("-").map(Number);
-    return new Intl.DateTimeFormat(loc, { weekday: "short" }).format(new Date(y, (m || 1) - 1, d || 1));
+    return weekdayShort(new Date(y, (m || 1) - 1, d || 1), lang);
   };
   const dayNum = (iso: string) => Number(iso.split("-")[2]);
   const openAt = (iso: string, x: number, y: number) => {
@@ -272,6 +270,11 @@ export function PlanWeek({
                 >
                   <span>{wd(iso)}</span>
                   <strong>{dayNum(iso)}</strong>
+                  {/* Open tasks of the day: find a deadline without tapping every day. */}
+                  {(() => {
+                    const n = (byDue.get(iso) ?? []).filter((x) => !x.done).length;
+                    return n > 0 ? <span className="w-mcount" data-testid="day-count" aria-label={`${tr("nav_tasks", lang)}: ${n}`}>{n}</span> : null;
+                  })()}
                 </button>
               ))}
             </div>
@@ -313,7 +316,7 @@ export function PlanWeek({
           y={popup.y}
           title={(() => {
             const [y, m, d] = popup.iso.split("-").map(Number);
-            const s = new Intl.DateTimeFormat(loc, { weekday: "short", day: "numeric" }).format(new Date(y, (m || 1) - 1, d || 1));
+            const s = `${weekdayShort(new Date(y, (m || 1) - 1, d || 1), lang)} ${d}`;
             return `${tr("dayTaskT", lang)} · ${s}`;
           })()}
           onAdd={(text, desc) => onAdd(text, { desc: desc || undefined, due: popup.iso })}

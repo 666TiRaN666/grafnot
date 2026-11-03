@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Lang } from './i18n';
 import { tr } from './i18n';
 import type { ProfileRegistry } from './profiles';
+import { profileLabel } from './profiles';
 import { useListNav } from './useListNav';
 
 export function ProfileMenu({ lang, registry, activeId, collapsed, onSelect, onManage, onTrash, trashCount, onSettings }: {
@@ -29,8 +30,8 @@ export function ProfileMenu({ lang, registry, activeId, collapsed, onSelect, onM
     return () => document.removeEventListener('pointerdown', outside);
   }, [open]);
   return <div className="profile-menu" ref={root}>
-    <button ref={trigger} type="button" data-testid="profile-menu-open" className="s-navbtn" aria-label={tr('profilesT', lang)} aria-description={active?.name} aria-haspopup="menu" aria-expanded={open} title={active?.name} onClick={() => setOpen(v => !v)}>
-      <span aria-hidden="true">◔</span>{!collapsed && <span className="profile-label">{active?.name ?? tr('profilesT', lang)} ▾</span>}
+    <button ref={trigger} type="button" data-testid="profile-menu-open" className="s-navbtn" aria-label={tr('profilesT', lang)} aria-description={active ? profileLabel(active.name, lang) : undefined} aria-haspopup="menu" aria-expanded={open} title={active ? profileLabel(active.name, lang) : undefined} onClick={() => setOpen(v => !v)}>
+      <span aria-hidden="true">◔</span>{!collapsed && <span className="profile-label">{active ? profileLabel(active.name, lang) : tr('profilesT', lang)} ▾</span>}
     </button>
     {open && <div role="menu" className="profile-pop" data-testid="profile-menu" onKeyDown={e => {
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setOpen(false); trigger.current?.focus(); return; }
@@ -42,7 +43,7 @@ export function ProfileMenu({ lang, registry, activeId, collapsed, onSelect, onM
         items?.[(current + (e.key === 'ArrowDown' ? 1 : profiles.length + 2)) % (profiles.length + 3)]?.focus();
       }
     }}>
-      {profiles.map((p, i) => <button key={p.id} type="button" role="menuitem" className="n-menuitem" aria-current={p.id === activeId ? 'true' : undefined} onClick={() => pick(i)}>{p.id === activeId ? '✓ ' : ''}{p.name}</button>)}
+      {profiles.map((p, i) => <button key={p.id} type="button" role="menuitem" className="n-menuitem" aria-current={p.id === activeId ? 'true' : undefined} onClick={() => pick(i)}>{p.id === activeId ? '✓ ' : ''}{profileLabel(p.name, lang)}</button>)}
       <button type="button" role="menuitem" className="n-menuitem" onClick={() => pick(profiles.length)}>{tr('profileManage', lang)}</button>
       <button type="button" role="menuitem" className="n-menuitem" onClick={() => pick(profiles.length + 1)}>{tr('trashT', lang)}{trashCount > 0 ? ` · ${trashCount}` : ''}</button>
       <button type="button" role="menuitem" className="n-menuitem" onClick={() => pick(profiles.length + 2)}>{tr('settings', lang)}</button>

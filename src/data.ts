@@ -34,6 +34,8 @@ export interface SkillSpec {
   /** Expected answer shape. */
   output: string;
   examples: { input: string; output: string }[];
+  /** Language of the file's headings; absent = the interface language. */
+  lang?: 'RU' | 'EN' | 'KZ';
 }
 
 export interface LlmTpl {

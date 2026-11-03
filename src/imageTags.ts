@@ -24,18 +24,33 @@ export function moveTag<T>(list: T[], from: number, to: number): T[] {
   return next;
 }
 
-/** SDXL-style emphasis: [weak], raw, ((strong)). */
+/** Numeric emphasis as A1111 and ComfyUI read it: (tag:1.2) / (tag:0.8).
+ * Legacy ((tag)) and [tag] still count as high/low (stored templates). */
+const NUM_WEIGHT = /^\((.+):\s*(\d+(?:\.\d+)?)\)$/;
+export const WEIGHT_HIGH = 1.2;
+export const WEIGHT_LOW = 0.8;
+
 export function tagWeight(token: string): TagWeight {
   const t = token.trim();
+  const m = NUM_WEIGHT.exec(t);
+  if (m) {
+    const w = Number(m[2]);
+    return w > 1 ? "high" : w < 1 ? "low" : "normal";
+  }
   if (t.startsWith("((") && t.endsWith("))")) return "high";
   if (t.startsWith("[") && t.endsWith("]")) return "low";
   return "normal";
 }
 
-/** Remove one layer of emphasis brackets, repeatedly. */
+/** Remove emphasis (numeric or brackets), repeatedly. */
 export function stripWeight(token: string): string {
   let t = token.trim();
   for (;;) {
+    const m = NUM_WEIGHT.exec(t);
+    if (m) {
+      t = (m[1] ?? "").trim();
+      continue;
+    }
     if (t.startsWith("((") && t.endsWith("))")) {
       t = t.slice(2, -2).trim();
       continue;
@@ -55,8 +70,8 @@ export function stripWeight(token: string): string {
 export function applyWeight(tag: string, w: TagWeight): string {
   const base = stripWeight(tag);
   if (!base) return base;
-  if (w === "high") return `((${base}))`;
-  if (w === "low") return `[${base}]`;
+  if (w === "high") return `(${base}:${WEIGHT_HIGH})`;
+  if (w === "low") return `(${base}:${WEIGHT_LOW})`;
   return base;
 }
 

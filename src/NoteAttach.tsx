@@ -4,6 +4,7 @@ import { tr } from "./i18n";
 import type { Note } from "./store";
 import { Hi } from "./widgets";
 import { noteAccessibleName, noteDisplayName } from "./noteName";
+import { useFitInViewport } from "./ui/useFitInViewport";
 
 function clampXY(x: number, y: number): { x: number; y: number } {
   const w = window.innerWidth || 1024;
@@ -30,6 +31,8 @@ export function NoteAttach({
 }) {
   const [spot, setSpot] = useState<{ x: number; y: number } | null>(null);
   const [query, setQuery] = useState("");
+  // Opened near the bottom of a tablet it used to leave the screen.
+  const fit = useFitInViewport<HTMLDivElement>(spot !== null);
   const recent = useMemo(() => [...notes].sort((a, b) => b.updated - a.updated).slice(0, 5), [notes]);
   const rows = (() => {
     const needle = query.trim().toLowerCase();
@@ -70,6 +73,7 @@ export function NoteAttach({
       )}
       {spot && (
         <div
+          ref={fit}
           className="n-suggest"
           role="listbox"
           style={{ left: spot.x, top: spot.y }}

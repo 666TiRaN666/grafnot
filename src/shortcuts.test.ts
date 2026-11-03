@@ -41,6 +41,12 @@ describe("shortcuts registry", () => {
       expect(e.EN).toBeTruthy();
       expect(e.KZ).toBeTruthy();
     }
-    expect(SHORTCUTS.length).toBe(16);
+    expect(SHORTCUTS.length).toBe(19);
+  });
+  it("lists share one vocabulary: / searches and N creates wherever there is a list (focus group)", () => {
+    const has = (scope: string, keys: string) => SHORTCUTS.some((s) => s.scope === scope && s.keys === keys);
+    for (const scope of ["notes", "plan-list", "prompts"]) expect(has(scope, "N")).toBe(true);
+    for (const scope of ["notes", "plan-list", "map", "prompts", "trash"]) expect(has(scope, "/")).toBe(true);
+    expect(has("global", "Esc")).toBe(true);
   });
 });

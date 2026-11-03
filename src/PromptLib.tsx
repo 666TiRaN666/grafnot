@@ -45,6 +45,8 @@ export function PromptLib({
   const [compact, setCompact] = useState(() => loadDensity(profileId));
   const [moreOpen, setMoreOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
+  const newMenuRef = useRef<HTMLSpanElement>(null);
+  const newBtnRef = useRef<HTMLButtonElement>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -80,6 +82,13 @@ export function PromptLib({
       if (e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey && !inField && !(e.target as HTMLElement)?.closest?.(".g-modal")) {
         e.preventDefault();
         searchRef.current?.focus();
+        return;
+      }
+      // `N` creates, as in notes and tasks: here it opens the «New» menu.
+      if ((e.key === "n" || e.key === "т") && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && !inField && !(e.target as HTMLElement)?.closest?.(".g-modal")) {
+        e.preventDefault();
+        setNewOpen(true);
+        window.requestAnimationFrame(() => newMenuRef.current?.querySelector<HTMLButtonElement>("button")?.focus());
       }
     };
     window.addEventListener("keydown", h);
@@ -111,11 +120,23 @@ export function PromptLib({
           {tr("libT", lang)} ({list.filtered.length})
         </span>
         <span className="n-morewrap">
-          <button type="button" className="g-btn sm primary" data-testid="prompt-new" aria-expanded={newOpen} onClick={() => setNewOpen((v) => !v)}>
+          <button ref={newBtnRef} type="button" className="g-btn sm primary" data-testid="prompt-new" aria-expanded={newOpen} onClick={() => setNewOpen((v) => !v)}>
             {tr("newTpl", lang)} ▾
           </button>
           {newOpen && (
-            <span className="n-menu" role="menu">
+            <span
+              ref={newMenuRef}
+              className="n-menu"
+              role="menu"
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setNewOpen(false);
+                  newBtnRef.current?.focus();
+                }
+              }}
+            >
               {([["text", tr("newText", lang)], ["image", tr("newImage", lang)], ["skill", tr("newSkill", lang)]] as const).map(([k, label]) => (
                 <button key={k} type="button" role="menuitem" className="n-menuitem" data-testid={`prompt-new-${k}`} onClick={() => { setNewOpen(false); onCreate(k); }}>
                   {label}

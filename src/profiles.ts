@@ -9,6 +9,8 @@ import { listPrefsKeyFor, tplLimitKeyFor } from "./listPrefs";
 import type { PrefName } from "./prefs";
 import { PREF_KEYS, prefKeyFor } from "./prefs";
 import { LEGACY_STORE_KEY, storeKeyFor } from "./store";
+import { STR } from "./i18n";
+import type { Lang } from "./i18n";
 export interface Profile {
   id: string;
   name: string;
@@ -249,4 +251,11 @@ export function deleteProfile(reg: ProfileRegistry, id: string): ProfileRegistry
 export function setActiveProfile(reg: ProfileRegistry, id: string): ProfileRegistry {
   if (!reg.profiles.some((p) => p.id === id)) throw new Error("profile not found");
   return { ...reg, activeId: id };
+}
+
+/** A profile's name as shown: the automatic default («Основной» / Main /
+ * Негізгі) follows the interface language; a name the user typed stays. */
+export function profileLabel(name: string, lang: Lang): string {
+  const d = STR.profileDefault;
+  return name === d.RU || name === d.EN || name === d.KZ ? d[lang] : name;
 }

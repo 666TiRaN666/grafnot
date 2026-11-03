@@ -26,12 +26,16 @@ describe("moveTag", () => {
 });
 
 describe("tag weight", () => {
-  it("detects and applies SDXL-style emphasis", () => {
+  it("writes numeric A1111/ComfyUI weights and still reads the legacy brackets", () => {
     expect(tagWeight("tag")).toBe("normal");
     expect(tagWeight("[tag]")).toBe("low");
     expect(tagWeight("((tag))")).toBe("high");
-    expect(applyWeight("tag", "high")).toBe("((tag))");
-    expect(applyWeight("tag", "low")).toBe("[tag]");
+    expect(tagWeight("(tag:1.2)")).toBe("high");
+    expect(tagWeight("(tag:0.8)")).toBe("low");
+    expect(applyWeight("tag", "high")).toBe("(tag:1.2)");
+    expect(applyWeight("tag", "low")).toBe("(tag:0.8)");
+    expect(applyWeight("(tag:1.2)", "normal")).toBe("tag");
+    expect(stripWeight("(tag:0.8)")).toBe("tag");
     expect(applyWeight("((tag))", "normal")).toBe("tag");
     expect(stripWeight("((tag))")).toBe("tag");
     expect(stripWeight("[tag]")).toBe("tag");
@@ -39,9 +43,9 @@ describe("tag weight", () => {
 });
 
 describe("formatWeight per model (P3)", () => {
-  it("keeps brackets for Pony and SDXL, strips for Flux", () => {
-    expect(formatWeight("Pony", "tag", "high")).toBe("((tag))");
-    expect(formatWeight("SDXL", "tag", "low")).toBe("[tag]");
+  it("weights numbers for Pony and SDXL, strips for Flux", () => {
+    expect(formatWeight("Pony", "tag", "high")).toBe("(tag:1.2)");
+    expect(formatWeight("SDXL", "tag", "low")).toBe("(tag:0.8)");
     expect(formatWeight("Pony", "((tag))", "normal")).toBe("tag");
     // Flux is natural language: brackets would be copied as literal text
     // it does not understand, so weight is a no-op that strips.

@@ -85,6 +85,9 @@ module.exports = async function (t) {
     await page.locator('.g-title-in').fill('');
     await page.keyboard.type('Completely New');
     await page.keyboard.press('Enter');
+    // Enter hands the caret to the text (Tiptap focuses on the next frame):
+    // let it land before going back to the title, or it takes the title's focus.
+    await page.waitForFunction(() => !!document.activeElement?.closest('[data-testid="editor"]'), null, { timeout: 5000 });
     const v = await page.locator('.g-title-in').inputValue();
     assert(v === 'Completely New', `reverted: ${v}`);
     await page.locator('.g-title-in').fill('Completely Ne');
@@ -145,8 +148,7 @@ module.exports = async function (t) {
     await page.getByTestId('nav-map').click();
     await page.getByTestId('map-graphs').click();
     await page.getByRole('menuitem', { name: '+ Новый' }).click();
-    await page.getByTestId('map-menu').click();
-    await page.getByRole('menuitem', { name: 'Переименовать' }).click();
+    // A new graph asks for its name right away (focus group 29.10).
     await page.locator('.g-gtitle-in').fill('Math');
     await page.keyboard.press('Enter');
     assert((await page.getByTestId('map-graphs').innerText()).includes('Math'), 'no Math tab');
@@ -278,6 +280,8 @@ module.exports = async function (t) {
     await page.getByTestId('nav-map').click();
     await page.getByTestId('map-graphs').click();
     await page.getByRole('menuitem', { name: '+ Новый' }).click();
+    // The name field opens first; Esc keeps the default name.
+    await page.locator('.g-gtitle-in').press('Escape');
     await page.getByTestId('map-menu').click();
     await page.getByRole('menuitem', { name: 'Удалить граф' }).click();
     await page.locator('.g-toast-undo').waitFor();

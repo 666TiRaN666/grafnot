@@ -24,7 +24,8 @@ import { LLM_TEMPLATES } from './data';
 describe('prompt utils', () => {
   it('renders per-model syntax', () => {
     expect(renderPrompt('Pony', ['a', 'b'])).toBe('a, b');
-    expect(renderPrompt('SDXL', ['a', 'b'])).toBe('(a), (b)');
+    // SDXL takes plain comma tags: wrapping every tag in () weighted the whole prompt.
+    expect(renderPrompt('SDXL', ['a', 'b'])).toBe('a, b');
     expect(renderPrompt('Flux', ['a', 'b', 'c'])).toBe('a, b and c');
     expect(renderPrompt('Flux', ['a'])).toBe('a');
     expect(renderPrompt('Pony', [])).toBe('');
@@ -46,7 +47,7 @@ describe('prompt utils', () => {
     expect(template).toEqual({
       id: 'legacy-image-p-old',
       name: 'Blue art',
-      body: '(blue hair)',
+      body: 'blue hair',
       defaults: {},
       kind: 'image',
       model: 'SDXL',
@@ -65,7 +66,8 @@ describe('prompt utils', () => {
   it('parses a rendered image body back (UX-03)', () => {
     const tokens = ['a', '((b))', '[c]', '(d:1.2)'];
     expect(parseImageBody(renderPrompt('Pony', tokens))).toEqual({ model: 'Pony', tokens });
-    expect(parseImageBody(renderPrompt('SDXL', tokens))).toEqual({ model: 'SDXL', tokens });
+    // SDXL now renders like Pony (templates store the model); legacy all-paren bodies still read as SDXL.
+    expect(parseImageBody('(a), (((b)))')).toEqual({ model: 'SDXL', tokens: ['a', '((b))'] });
     // Flux drops weights at render time: only the tags come back.
     expect(parseImageBody(renderPrompt('Flux', ['((a))', 'b', 'c']))).toEqual({ model: 'Flux', tokens: ['a', 'b', 'c'] });
     expect(parseImageBody('')).toEqual({ model: 'Pony', tokens: [] });

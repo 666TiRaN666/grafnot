@@ -15,7 +15,8 @@
     "check:contrast": "node scripts/check-contrast.cjs",
     "e2e": "node e2e/check6.cjs",
     "e2e:matrix": "node scripts/e2e-weekday-matrix.cjs",
-    "gates": "node scripts/gates.cjs"
+    "gates": "node scripts/gates.cjs",
+    "deps:dual": "node scripts/native-dual.cjs"
   },
   "dependencies": {
     "@tiptap/extension-placeholder": "^3.31.3",

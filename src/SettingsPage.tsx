@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { tr } from './i18n';
 import type { Lang, Theme } from './i18n';
 import type { ProfileRegistry } from './profiles';
+import { profileLabel } from './profiles';
 import { ConfirmDialog } from './ui/primitives';
 import { SETTINGS_SECTIONS, settingsSectionTitle } from './settingsNav';
 import type { SettingsSection } from './settingsNav';
@@ -75,6 +76,18 @@ export function SettingsPage({
       <div className="g-page-h">
         <h2 className="g-h2">{tr('settings', lang)}</h2>
       </div>
+      {/* Language first and by name (focus group: found only under
+          «Appearance», as codes RU/EN/KZ, behind a «Profiles» tab). */}
+      <div className="s-langbar">
+        <span className="muted small">{tr('langL', lang)}</span>
+        <div className="g-seg" role="group" aria-label={tr('langL', lang)}>
+          {([['RU', 'Русский'], ['EN', 'English'], ['KZ', 'Қазақша']] as [Lang, string][]).map(([l, name]) => (
+            <button key={l} type="button" lang={l === 'KZ' ? 'kk' : l.toLowerCase()} data-testid={`lang-${l}`} aria-pressed={lang === l} className={'g-btn sm' + (lang === l ? ' active' : '')} onClick={() => onLang(l)}>
+              {name}
+            </button>
+          ))}
+        </div>
+      </div>
       <div className="g-seg" role="group" aria-label="settings sections">
         {SETTINGS_SECTIONS.map((s) => (
           <button
@@ -97,6 +110,10 @@ export function SettingsPage({
                 <span>
                   <input
                     className="g-in"
+                    // Focused with the current name selected: typing renames,
+                    // never lands in the "new profile" field below (focus group).
+                    autoFocus
+                    onFocus={(e) => e.currentTarget.select()}
                     value={renameDraft}
                     onChange={(e) => setRenameDraft(e.target.value)}
                     onKeyDown={(e) => {
@@ -105,34 +122,34 @@ export function SettingsPage({
                     }}
                     aria-label={tr('profileNamePh', lang)}
                   />
-                  <button type="button" className="g-linkbtn" onClick={commitRename}>
-                    [{tr('saveBtn', lang)}]
+                  <button type="button" className="g-btn sm" onClick={commitRename}>
+                    {tr('saveBtn', lang)}
                   </button>
                 </span>
               ) : (
-                <span>{p.name}</span>
+                <span>{profileLabel(p.name, lang)}</span>
               )}
               <span>
-                <button type="button" className="g-linkbtn" onClick={() => onEnterProfile(p.id)}>
-                  [{tr('profileEnter', lang)}]
+                <button type="button" className="g-btn sm" onClick={() => onEnterProfile(p.id)}>
+                  {tr('profileEnter', lang)}
                 </button>{' '}
                 <button
                   type="button"
-                  className="g-linkbtn"
+                  className="g-btn sm ghost"
                   onClick={() => {
                     setRenamingId(p.id);
                     setRenameDraft(p.name);
                   }}
                 >
-                  [{tr('renameGo', lang)}]
+                  {tr('renameGo', lang)}
                 </button>{' '}
                 {registry.profiles.length > 1 && (
                   <button
                     type="button"
-                    className="g-linkbtn"
+                    className="g-btn sm ghost danger"
                     onClick={() => setPendingProfile({ id: p.id, name: p.name })}
                   >
-                    [{tr('delForever', lang)}]
+                    {tr('delForever', lang)}
                   </button>
                 )}
               </span>
@@ -194,21 +211,6 @@ export function SettingsPage({
               >
                 {tr('themeDark', lang)}
               </button>
-            </div>
-          </div>
-          <div className="g-field">
-            <span>{tr('langL', lang)}</span>
-            <div className="g-seg" role="group" aria-label="lang">
-              {(['RU', 'EN', 'KZ'] as Lang[]).map((l) => (
-                <button
-                  key={l}
-                  type="button"
-                  className={'g-btn sm' + (lang === l ? ' active' : '')}
-                  onClick={() => onLang(l)}
-                >
-                  {l}
-                </button>
-              ))}
             </div>
           </div>
         </div>

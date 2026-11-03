@@ -12,9 +12,12 @@ import type { PromptChoice } from "./PromptInsert";
 const NoteContext = lazy(() => import("./NoteContext").then(m => ({ default: m.NoteContext })));
 const PromptInsert = lazy(() => import("./PromptInsert").then(m => ({ default: m.PromptInsert })));
 import type { Graph, Note, PromptSave, TaskItem } from "./store";
+import { linkedNoteIds } from "./store";
 import { copyText, Hi } from "./widgets";
 import { firstMatchPos } from "./paletteModel";
 import { lastNavigationWasTraversal } from "./ui/router";
+import { WikiLinks } from "./wikiLinks";
+import { useFitInViewport } from "./ui/useFitInViewport";
 import { noteAccessibleName, noteDisplayName, noteUpdatedLabel } from "./noteName";
 import { PREVIEW_LEN } from "./promptUtils";
 import { useListState } from "./useListState";
@@ -25,7 +28,7 @@ import { parseBracketQuery, rankLinkSuggest } from "./linkSuggest";
 export interface NotesActions {
   updateTitle: (noteId: string, v: string) => void;
   updateDoc: (noteId: string, doc: Note["content"], text: string) => void;
-  createTask: (d: { text: string; desc: string; due?: string; noteId?: string }) => void;
+  createTask: (d: { text: string; desc: string; due?: string; noteId?: string }) => string | undefined;
   updateTask: (id: string, patch: { text?: string; desc?: string; due?: string }) => void;
   toggleTask: (id: string) => void;
   deleteTask: (id: string) => void;
@@ -197,7 +200,7 @@ export function NotesView({
   graphs,
   onOpenNote,
   onNew,
-  templates, sessionEpoch, sessions, onShowMap,
+  templates, sessionEpoch, sessions, onShowMap, trashCount = 0, onOpenTrash,
   focusNoteId,
   onBodyFocused,
   findRequest,
@@ -221,6 +224,8 @@ export function NotesView({
   onOpenNote: (id: string) => void;
   onNew: () => void;
   templates: LlmTpl[]; sessionEpoch: number; sessions: Map<string, NoteSession>; onShowMap: (id: string) => void;
+  /** Deleted notes and tasks: a way into the trash under the list (on a phone it was only in the profile menu). */
+  trashCount?: number; onOpenTrash?: () => void;
   focusNoteId: string | null;
   onBodyFocused: () => void;
   /** Palette pick: caret at the query's first match, consumed once. */
@@ -308,6 +313,8 @@ export function NotesView({
   }, []);
 
   const [moreOpen, setMoreOpen] = useState(false);
+  const moreMenuFit = useFitInViewport<HTMLDivElement>(moreOpen);
+  const insertMenuFit = useFitInViewport<HTMLDivElement>(insertOpen);
   const [suggest, setSuggest] = useState<SuggestState | null>(null);
   const [slash, setSlash] = useState<SlashState | null>(null);
 
@@ -326,8 +333,23 @@ export function NotesView({
   // currently shown through this ref, never a stale render closure (D1).
   const noteRef = useRef(note);
   noteRef.current = note;
+  // [[Title]] markers: Ctrl/Cmd+click opens the note with that name.
+  const notesRef = useRef(notes);
+  notesRef.current = notes;
+  const openNoteRef = useRef(onOpenNote);
+  openNoteRef.current = onOpenNote;
   const editor = useEditor({
-    extensions: [StarterKit, Placeholder.configure({ placeholder: () => tr("editorPh", langRef.current) })],
+    extensions: [
+      StarterKit,
+      Placeholder.configure({ placeholder: () => tr("editorPh", langRef.current) }),
+      WikiLinks.configure({
+        hint: () => tr("wikiOpenHint", langRef.current),
+        onOpen: (title) => {
+          const target = notesRef.current.find((n) => n.title === title) ?? notesRef.current.find((n) => noteDisplayName(n, langRef.current) === title);
+          if (target) openNoteRef.current(target.id);
+        },
+      }),
+    ],
     content: note?.content,
     editorProps: {
       attributes: { role: "textbox", "aria-multiline": "true", "aria-label": tr("a11yNoteBody", lang) },
@@ -487,15 +509,17 @@ export function NotesView({
     const n = noteRef.current;
     const sg = suggest;
     if (!ed || ed.isDestroyed || !n || !sg) return;
-    // The mention typed text is removed; the link itself is the relation
-    // (linkedIds). Inserting the title into the doc would pollute palette
-    // and list search with echoed words.
-    const title = targetId ? (notes.find((x) => x.id === targetId)?.title ?? "") : sg.query.trim();
+    // The relation lives in linkedIds; the sentence keeps a readable
+    // [[Title]] marker where it was typed (a removed mention left the text
+    // broken). Renames rewrite the marker (App.updateTitle).
+    const target = targetId ? notes.find((x) => x.id === targetId) : undefined;
+    const title = targetId ? (target?.title ?? "") : sg.query.trim();
     const id = targetId ?? (title ? actions.createLinkedNote(title) : null);
     if (!id) return;
+    const shown = target ? noteDisplayName(target, lang) : title;
     ed.chain()
       .focus()
-      .deleteRange({ from: sg.start, to: sg.end })
+      .insertContentAt({ from: sg.start, to: sg.end }, `[[${shown}]] `)
       .run();
     actions.addLink(n.id, targetId ?? id);
     setSuggest(null);
@@ -642,6 +666,22 @@ export function NotesView({
       }
     }
     // A note's transient state is restored only when its document mounts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, noteId]);
+
+  // A list click asked for the text: restored caret, or the end of the note.
+  const focusOnOpen = useRef<string | null>(null);
+  const focusText = () => {
+    const ed = editorRef.current;
+    if (!ed || ed.isDestroyed) return;
+    if (!sessions.get(noteRef.current?.id ?? '') && ed.state.selection.from <= 1) ed.commands.setTextSelection(ed.state.doc.content.size);
+    ed.view.focus();
+  };
+  useLayoutEffect(() => {
+    if (focusOnOpen.current === null || focusOnOpen.current !== noteId) return;
+    focusOnOpen.current = null;
+    focusText();
+    // Runs after the document switch and the caret restore above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, noteId]);
 
@@ -805,8 +845,9 @@ export function NotesView({
   const openTaskFromSelection = () => {
     const n = noteRef.current;
     if (!n) return;
-    actions.createTask({ text: selectionText() || noteDisplayName(n, lang), desc: "", noteId: n.id });
-    actions.notifyAction(tr("toastTaskAdded", lang), tr("openBtn", lang), onOpenPlan);
+    const id = actions.createTask({ text: selectionText() || noteDisplayName(n, lang), desc: "", noteId: n.id });
+    // The action opens this task's panel, where its due date is set (focus group: tasks from notes had none).
+    if (id) actions.notifyAction(tr("toastTaskAdded", lang), tr("taskSetDue", lang), () => onOpenPlan(id));
   };
 
   const openLinkFromSelection = () => {
@@ -837,6 +878,7 @@ export function NotesView({
     : [];
 
   const incoming = note ? notes.filter((n) => n.id !== note.id && n.linkedIds.includes(note.id)) : [];
+  const linkedCount = note ? linkedNoteIds(note, notes).length : 0;
   const noteTasks = note ? tasks.filter((t) => t.noteId === note.id) : [];
   const notePrompts = note ? prompts.filter((p) => p.noteId === note.id) : [];
   const wc = words.trim() ? words.trim().split(/\s+/).length : 0;
@@ -890,19 +932,33 @@ export function NotesView({
                     data-active={n.id === noteId ? "true" : undefined}
                     data-note-id={n.id}
                     aria-label={`${noteAccessibleName(n, lang)} · ${noteUpdatedLabel(n, lang)}`}
-                    onClick={() => onOpenNote(n.id)}
+                    onClick={(e) => {
+                      // A pointer click means "work on this note": the caret goes
+                      // into its text so typing lands there (not on shortcuts).
+                      // Keyboard Enter (detail 0) keeps list navigation; phones
+                      // skip it so a tap to read does not raise the keyboard.
+                      if (e.detail > 0 && !window.matchMedia('(max-width: 760px)').matches) {
+                        if (n.id === noteId) focusText(); else focusOnOpen.current = n.id;
+                      }
+                      onOpenNote(n.id);
+                    }}
                   >
                     <span className={!n.title.trim() ? "g-note-derived" : undefined}>{<Hi text={noteDisplayName(n, lang)} q={list.query} />}</span>
                   </button>
                   {n.text.trim() && <div className="g-notesnippet">{<Hi text={n.text} q={list.query} max={PREVIEW_LEN} />}</div>}
                   <div className="g-notemeta">
-                    {noteUpdatedLabel(n, lang)} · {tr("linkedT", lang)}: {n.linkedIds.length}
+                    {noteUpdatedLabel(n, lang)} · {tr("linkedT", lang)}: {linkedNoteIds(n, notes).length}
                   </div>
                 </div>
               ))}
               {list.shown < list.filtered.length && (
                 <button type="button" className="g-btn sm g-tpl-more" onClick={() => list.showMore()}>
                   {tr("tplShowMore", lang).replace("{n}", String(Math.min(NOTES_PAGE, list.filtered.length - list.shown)))}
+                </button>
+              )}
+              {trashCount > 0 && onOpenTrash && (
+                <button type="button" className="g-linkbtn n-trashlink" data-testid="notes-trash-link" onClick={onOpenTrash}>
+                  {tr("trashT", lang)} · {trashCount}
                 </button>
               )}
             </div>
@@ -950,7 +1006,7 @@ export function NotesView({
               </span>
               <div className="n-morewrap" ref={insertRoot}>
                 <button type="button" className="g-btn sm" data-testid="insert-open" aria-expanded={insertOpen} onClick={() => setInsertOpen(v => !v)}>{tr('insertMenu', lang)} ▾</button>
-                {insertOpen && <div className="n-menu" data-testid="insert-menu" role="menu" onKeyDown={e => {
+                {insertOpen && <div ref={insertMenuFit} className="n-menu" data-testid="insert-menu" role="menu" onKeyDown={e => {
                   if (e.key === 'Escape') { setInsertOpen(false); e.currentTarget.parentElement?.querySelector<HTMLButtonElement>('[data-testid="insert-open"]')?.focus(); }
                   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                     e.preventDefault();
@@ -982,7 +1038,7 @@ export function NotesView({
                   ⋯
                 </button>
                 {moreOpen && (
-                  <div className="n-menu" data-testid="notes-menu" role="menu">
+                  <div ref={moreMenuFit} className="n-menu" data-testid="notes-menu" role="menu">
                     <button
                       type="button"
                       role="menuitem"
@@ -1007,6 +1063,19 @@ export function NotesView({
                     >
                       {tr("duplicate", lang)}
                     </button>
+                    {/* Graph membership where people look for it (focus group):
+                        the context panel keeps the same toggles. */}
+                    {note && graphs.length > 0 && (
+                      <div role="group" aria-label={tr("inGraphs", lang)}>
+                        <div className="n-menusep" role="separator" />
+                        <div className="muted small n-menuhead">{tr("inGraphs", lang)}</div>
+                        {graphs.map((g) => (
+                          <button key={g.id} type="button" role="menuitemcheckbox" aria-checked={g.noteIds.includes(note.id)} className="n-menuitem" data-testid="notes-menu-graph" onClick={() => actions.toggleMember(note.id, g.id)}>
+                            {g.noteIds.includes(note.id) ? "✓ " : "+ "}{g.title}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <div className="n-menusep" role="separator" />
                     <button
                       type="button"
@@ -1028,10 +1097,10 @@ export function NotesView({
             <div data-testid="ctx-block" className="note-context-block">
               <div className="note-context-links">
                 <span className="muted small">{tr('linkedT', lang)}: </span>
-                {note.linkedIds.length + incoming.length === 0 && <span className="muted small">{tr('ctxNoLinks', lang)}</span>}
+                {linkedCount === 0 && <span className="muted small">{tr('ctxNoLinks', lang)}</span>}
                 {[...notes.filter(n => note.linkedIds.includes(n.id)), ...incoming].filter((n, i, all) => all.findIndex(x => x.id === n.id) === i).slice(0, 3).map(n =>
                   <button type="button" className="g-linkbtn" key={n.id} aria-label={noteAccessibleName(n, lang)} onClick={() => onOpenNote(n.id)}>{incoming.some(x => x.id === n.id) && '← '}{noteDisplayName(n, lang)}</button>)}
-                <button type="button" className="g-btn sm" data-testid="ctx-all-links" onClick={e => openContext('links', e.currentTarget)}>{tr('ctxAllLinks', lang)} ({note.linkedIds.length + incoming.length})</button>
+                <button type="button" className="g-btn sm" data-testid="ctx-all-links" onClick={e => openContext('links', e.currentTarget)}>{tr('ctxAllLinks', lang)} ({linkedCount})</button>
               </div>
               <div className="note-context-tools">
                 <button type="button" className="g-btn sm" data-testid="ctx-open-tasks" onClick={e => openContext('tasks', e.currentTarget)}>{tr('noteTasksT', lang)}{noteTasks.length ? ' · ' + noteTasks.length : ''}</button>

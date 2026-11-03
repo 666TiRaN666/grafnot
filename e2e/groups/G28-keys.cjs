@@ -16,6 +16,7 @@ module.exports = async function (t) {
         'a1',
         {
           tasks: [{ id: 't1', text: 'Today run task', done: false }],
+          trash: [{ id: 'x1', title: 'Old', content: '', text: '', linkedIds: [], calcs: [], updated: 1, trashedAt: 1 }],
           graphs: [{ id: 'g1', title: 'Team', noteIds: ['a1'] }],
           customTpls: [{ id: 'ct1', name: 'My SQL', body: 'SELECT {{what}}', defaults: {} }],
         },
@@ -24,11 +25,11 @@ module.exports = async function (t) {
   }));
   const activeTestid = () => page.evaluate(() => (document.activeElement || {}).getAttribute?.('data-testid'));
 
-  await check('S12 keys page lists the 16 registry rows', async () => {
+  await check('S12 keys page lists the 19 registry rows', async () => {
     await page.getByTestId('nav-settings').click();
     await page.getByTestId('settings-nav-keys').click();
     await page.getByTestId('keys-row').first().waitFor();
-    assert((await page.getByTestId('keys-row').count()) === 16, 'keys rows != registry');
+    assert((await page.getByTestId('keys-row').count()) === 19, 'keys rows != registry');
   });
 
   await check('S12 Ctrl+K opens palette, Esc closes', async () => {
@@ -127,6 +128,31 @@ module.exports = async function (t) {
     assert((await activeTestid()) === 'prompt-search', 'library search not focused');
   });
 
+  await check('S12 N opens the «New» menu in prompts, Esc closes it back to its button', async () => {
+    await page.getByTestId('nav-prompt').click();
+    await page.getByTestId('prompt-search').waitFor();
+    await page.evaluate(() => document.activeElement && document.activeElement.blur());
+    await page.keyboard.press('n');
+    await page.waitForFunction(() => document.activeElement?.getAttribute('data-testid') === 'prompt-new-text', null, { timeout: 8000 });
+    await page.keyboard.press('Escape');
+    assert((await page.getByTestId('prompt-new-text').count()) === 0 && (await activeTestid()) === 'prompt-new', 'menu did not close to its button');
+  });
+
+  await check('S12 slash focuses trash search; Esc leaves any list search', async () => {
+    await page.getByTestId('nav-notes').click();
+    await page.getByTestId('notes-search').waitFor();
+    await page.keyboard.press('/');
+    await page.keyboard.press('Escape');
+    assert((await activeTestid()) !== 'notes-search', 'Esc kept the caret in notes search');
+    await page.evaluate(() => { window.location.hash = '#/trash'; });
+    await page.getByTestId('trash-search').waitFor();
+    await page.evaluate(() => document.activeElement && document.activeElement.blur());
+    await page.keyboard.press('/');
+    assert((await activeTestid()) === 'trash-search', 'trash search not focused');
+    await page.keyboard.press('Escape');
+    assert((await activeTestid()) !== 'trash-search', 'Esc kept the caret in trash search');
+  });
+
   await check('S12 Ctrl+Shift+F inserts a field', async () => {
     await page.evaluate(() => { window.location.hash = '#/prompts/new'; });
     await page.getByTestId('prompt-builder').waitFor();
@@ -147,10 +173,10 @@ module.exports = async function (t) {
   await check('S12 KZ keys layout has no overflow', async () => {
     await page.getByTestId('nav-settings').click();
     await page.getByTestId('settings-nav-appearance').click();
-    await page.getByRole('button', { name: 'KZ', exact: true }).click();
+    await page.getByRole('button', { name: 'Қазақша', exact: true }).click();
     await page.getByTestId('settings-nav-keys').click();
     await page.getByTestId('keys-row').first().waitFor();
-    assert((await page.getByTestId('keys-row').count()) === 16, 'keys rows missing in KZ');
+    assert((await page.getByTestId('keys-row').count()) === 19, 'keys rows missing in KZ');
     const bad = await page.evaluate(() => {
       const de = document.documentElement;
       return de.scrollWidth <= window.innerWidth + 1 ? null : `${de.scrollWidth}>${window.innerWidth}`;

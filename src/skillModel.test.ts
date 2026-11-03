@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SkillSpec } from './data';
-import { estimateTokens, lintSkill, renderSkill, skillFileName, slugify } from './skillModel';
+import { estimateTokens, lintSkill, renderSkill, skillFileName, slugify, uniqueSkillName } from './skillModel';
 
 const spec: SkillSpec = {
   format: 'skill',
@@ -32,6 +32,16 @@ describe('renderSkill', () => {
     expect(md.startsWith('# code-review')).toBe(true);
     expect(md).toContain('- No style nitpicks');
   });
+  it('AGENTS.md keeps «when to use» (focus group: it was silently dropped)', () => {
+    const md = renderSkill({ ...spec, format: 'agents' }, 'EN');
+    expect(md).toContain('When to use: the user asks to review code or a pull request.');
+  });
+  it('the file language is its own choice, not the interface language', () => {
+    const md = renderSkill({ ...spec, lang: 'EN' }, 'RU');
+    expect(md).toContain('## Instructions');
+    expect(md).toContain('Use when the user asks');
+    expect(md).not.toContain('Порядок действий');
+  });
   it('skips empty sections', () => {
     const md = renderSkill({ ...spec, rules: '', examples: [] }, 'EN');
     expect(md).not.toContain('## Rules');
@@ -60,6 +70,12 @@ describe('helpers', () => {
     expect(skillFileName('skill')).toBe('SKILL.md');
     expect(skillFileName('agents')).toBe('AGENTS.md');
     expect(skillFileName('system')).toBe('system-prompt.md');
+  });
+  it('a copy gets a name of its own', () => {
+    expect(uniqueSkillName('code-review', ['other'], 'skill')).toBe('code-review');
+    expect(uniqueSkillName('code-review', ['code-review'], 'skill')).toBe('code-review-2');
+    expect(uniqueSkillName('code-review', ['code-review', 'code-review-2'], 'skill')).toBe('code-review-3');
+    expect(uniqueSkillName('Ревьюер', ['Ревьюер'], 'system')).toBe('Ревьюер (2)');
   });
   it('estimates tokens, Cyrillic heavier than Latin', () => {
     expect(estimateTokens('')).toBe(0);

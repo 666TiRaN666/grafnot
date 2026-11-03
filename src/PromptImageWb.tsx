@@ -11,6 +11,7 @@ import { ASPECT_IDS, CAT_ORDER, catOf, moveInLane, orderTokens, renderImage } fr
 import { estimateTokens } from "./skillModel";
 import { useListNav } from "./useListNav";
 import { NoteAttach } from "./NoteAttach";
+import { FitMenu } from "./ui/FitMenu";
 
 const MODELS: AIModel[] = ["Pony", "SDXL", "Flux", "Midjourney"];
 const SUGGEST_CAP = 8;
@@ -110,6 +111,7 @@ export function PromptImageWb({
   const [negative, setNegative] = useState<string[]>(initNegative);
   const [aspect, setAspect] = useState<AspectId>(initAspect);
   const [ponyScore, setPonyScore] = useState(initPonyScore);
+  const [saveAs, setSaveAs] = useState("");
   const [input, setInput] = useState("");
   const [negInput, setNegInput] = useState("");
   const [menuIdx, setMenuIdx] = useState<number | null>(null);
@@ -253,6 +255,31 @@ export function PromptImageWb({
   };
 
   const saveName = `${tokens.slice(0, 2).map((t) => stripWeight(t)).join(", ") || "prompt"} (${model})`;
+  const draft = (): ImageTplDraft => ({ name: saveAs.trim() || saveName, body: r.positive, defaults: {}, kind: "image", model, tokens: [...tokens], negative: [...negative], aspect, ponyScore, tagCats });
+
+  // Changes are kept only by "Save as template": leaving with edits offers
+  // that save instead of dropping them silently (focus group).
+  const [initSnap] = useState(() => JSON.stringify({ model: initModel, tokens: orderTokens(initTokens, initTagCats), negative: initNegative, aspect: initAspect, ponyScore: initPonyScore, tagCats: initTagCats }));
+  const dirty = JSON.stringify({ model, tokens, negative, aspect, ponyScore, tagCats }) !== initSnap;
+  const leave = useRef<{ dirty: boolean; saved: boolean; draft: () => ImageTplDraft }>({ dirty: false, saved: false, draft });
+  useEffect(() => {
+    leave.current.dirty = dirty;
+    leave.current.draft = draft;
+  });
+  useEffect(() => {
+    const l = leave.current;
+    return () => {
+      if (l.dirty && !l.saved) {
+        const d = l.draft();
+        notifyAction(tr("imgUnsavedToast", lang), tr("saveAsTpl", lang), () => onSaveTpl(d));
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const saveTpl = () => {
+    leave.current.saved = true;
+    onSaveTpl(draft());
+  };
   const copy = async (text: string) => {
     await copyText(text);
     notify(tr("toastCopied", lang));
@@ -427,7 +454,14 @@ export function PromptImageWb({
                           ×
                         </button>
                         {menuIdx === i && (
-                          <span className="t-menu" role="menu">
+                          <FitMenu className="t-menu" role="menu">
+                            {/* Reorder without a keyboard (touch): same move as Alt+arrows. */}
+                            <button type="button" role="menuitem" className="t-menuitem" onClick={() => { moveChip(i, -1); setMenuIdx(null); }}>
+                              {tr("tagEarlier", lang)}
+                            </button>
+                            <button type="button" role="menuitem" className="t-menuitem" onClick={() => { moveChip(i, 1); setMenuIdx(null); }}>
+                              {tr("tagLater", lang)}
+                            </button>
                             {hasWeights(model) &&
                               (["low", "normal", "high"] as const).map((w) => (
                                 <button
@@ -455,7 +489,7 @@ export function PromptImageWb({
                             <button type="button" role="menuitem" className="t-menuitem danger" onClick={() => removeToken(i)}>
                               {tr("deleteNote", lang)}
                             </button>
-                          </span>
+                          </FitMenu>
                         )}
                       </div>
                     ))}
@@ -537,14 +571,13 @@ export function PromptImageWb({
               {tr("copyNeg", lang)}
             </button>
           )}
+          {!mine && dirty && <p className="muted small" role="status" data-testid="img-builtin-dirty">{tr("imgBuiltinHint", lang)}</p>}
+          <label className="t-field">
+            <span className="muted small">{tr("tplNameL", lang)}</span>
+            <input data-testid="img-tpl-name" value={saveAs} placeholder={saveName} onChange={(e) => setSaveAs(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") saveTpl(); }} />
+          </label>
           <div className="w-result-row">
-            <button
-              type="button"
-              className="g-btn sm"
-              onClick={() =>
-                onSaveTpl({ name: saveName, body: r.positive, defaults: {}, kind: "image", model, tokens: [...tokens], negative: [...negative], aspect, ponyScore, tagCats })
-              }
-            >
+            <button type="button" className="g-btn sm" data-testid="img-save-tpl" onClick={saveTpl}>
               {tr("saveAsTpl", lang)}
             </button>
             <NoteAttach lang={lang} notes={notes} bindingId={binding} onPick={pickNote} onClear={clearBinding} onOpenNote={onOpenNote} />

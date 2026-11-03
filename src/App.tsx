@@ -5,6 +5,7 @@ import type { LlmTpl } from './data';
 import { LEGACY_STORE_KEY, SCHEMA_VERSION, appendPromptText, loadStoreResult, saveStore, storeKeyFor } from './store';
 import type { CalcBlock, Graph, Note, PromptSave, Store } from './store';
 import { parseImport, storeDigest } from './importStore';
+import { renameWikiLinks } from './wikiText';
 import type { ImportReason } from './importStore';
 import { expireTrash, purgeNote, restoreNote, trashNote } from './trashRestore';
 import { ProfilePicker } from "./ProfilePicker";
@@ -49,7 +50,7 @@ import { PromptBuilder } from './PromptBuilder';
 import { PromptWorkbench } from './PromptWorkbench';
 import { PromptImageWb } from './PromptImageWb';
 import { SkillBuilder } from './SkillBuilder';
-import { emptySkill } from './skillModel';
+import { emptySkill, renderSkill, uniqueSkillName } from './skillModel';
 import { isSettingsSection } from './settingsNav';
 import type { SettingsSection } from './settingsNav';
 // Settings and the palette open on demand: they travel in their own chunks,
@@ -77,7 +78,7 @@ import type { AddMode, NoteSession } from './rolloutModel';
 import { ProfileMenu } from './ProfileMenu';
 import { useMedia } from './ui/useMedia';
 import { useKeyboardOpen } from './ui/useKeyboard';
-import { exportRaw, exportMemory } from "./exportRaw";
+import { backupFileName, exportRaw, exportMemory, importedProfileName } from "./exportRaw";
 import { SNIPPET_LEN, buildTplEntries, imageInit, makeSnippet, promptPreview } from "./promptUtils";
 import { LLM_TEMPLATES } from "./data";
 import { newId } from "./utils/newId";
@@ -103,6 +104,9 @@ function save(key: string, value: string): void {
 }
 
   const MAP_UNLOCK = 0;
+
+/** List search fields that Esc leaves (shortcut `search-leave`). */
+const SEARCH_FIELDS = new Set(['notes-search', 'task-search', 'map-search', 'prompt-search', 'trash-search']);
 
 export default function App() {
   // Creating a note is global: warm its separate chunk before the first input.
@@ -246,7 +250,8 @@ export default function App() {
 
   const notify = (text: string) => {
     const id = idRef.current++;
-    setToasts((p) => [...p, { id, text }].slice(-TOAST_QUEUED));
+    // One message per event: the same plain text already on screen is not stacked again.
+    setToasts((p) => (p.some((x) => x.text === text && !x.actionLabel) ? p : [...p, { id, text }].slice(-TOAST_QUEUED)));
     armToast(id, TOAST_MS);
   };
 
@@ -567,6 +572,10 @@ export default function App() {
         newBlank();
       } else if (e.key === 'Escape') {
         setPaletteOpen(false);
+        // Esc leaves a list search field (one rule for every section); a field
+        // that used Esc itself (clearing, closing a list) has prevented it.
+        const t = e.target as HTMLElement | null;
+        if (!e.defaultPrevented && t instanceof HTMLInputElement && SEARCH_FIELDS.has(t.dataset.testid ?? '') && !t.closest('.g-modal,[role="dialog"]')) t.blur();
       }
     };
     window.addEventListener('keydown', h);
@@ -588,7 +597,21 @@ export default function App() {
   /** With id-links rename touches only the note itself. */
   const renameNote = (id: string, v: string) => {
     const title = uniqueTitle(v, id);
+    const cur = storeRef.current.notes.find((n) => n.id === id);
     updateNote(id, (n) => ({ ...n, title }));
+    if (!cur) return;
+    // [[Old]] markers in other notes follow the new name (their order in
+    // lists stays: a rename elsewhere is not an edit of these notes).
+    const old = noteDisplayName(cur, lang), next = noteDisplayName({ ...cur, title }, lang);
+    if (old === next) return;
+    setStore((s) => ({
+      ...s,
+      notes: s.notes.map((n) => {
+        if (n.id === id) return n;
+        const r = renameWikiLinks(n.content, n.text, old, next);
+        return r ? { ...n, content: r.content, text: r.text } : n;
+      }),
+    }));
   };
 
   const toggleTask = (id: string) => {
@@ -598,14 +621,17 @@ export default function App() {
     notify(tr(t.done ? 'toastTaskBack' : 'toastTaskDone', lang));
   };
 
-  const addTask = (text: string, opts?: { desc?: string; due?: string; noteId?: string }) => {
+  /** New task id; `quiet` leaves the toast to the caller (one message per event). */
+  const addTask = (text: string, opts?: { desc?: string; due?: string; noteId?: string; quiet?: boolean }): string | undefined => {
     const v = text.trim();
-    if (!v) return;
+    if (!v) return undefined;
+    const id = newId("t");
     setStore((s) => ({
       ...s,
-      tasks: [{ id: newId("t"), text: v, desc: opts?.desc || undefined, done: false, due: opts?.due, noteId: opts?.noteId }, ...s.tasks],
+      tasks: [{ id, text: v, desc: opts?.desc || undefined, done: false, due: opts?.due, noteId: opts?.noteId }, ...s.tasks],
     }));
-    notify(tr('toastTaskAdded', lang));
+    if (!opts?.quiet) notify(tr('toastTaskAdded', lang));
+    return id;
   };
 
   const setTaskDue = (id: string, due?: string) => {
@@ -883,7 +909,7 @@ export default function App() {
       notify(tr('toastSwitchBlocked', lang));
       return 'write';
     }
-    const base = file.name.replace(/\.json$/i, '').trim().slice(0, 40) || tr('importProfileName', lang);
+    const base = importedProfileName(file.name, tr('importProfileName', lang));
     let written: string | null = null;
     const next = await persistRegistry(current => {
       const created = createProfile(current, base);
@@ -901,6 +927,8 @@ export default function App() {
       if (written) try { window.localStorage.removeItem(storeKeyFor(written)); } catch { /* nothing else to undo */ }
       return 'write';
     }
+    // The restored profile opens in the language in use now, not the default.
+    save(prefKeyFor('lang', next.activeId), lang);
     await enterProfile(next.activeId);
     notify(tr('toastImported', lang).replace('{n}', String(parsed.report.notes)).replace('{t}', String(parsed.report.tasks)));
     if (parsed.report.dropped > 0) notify(`${tr('brokenCleaned', lang)}: ${parsed.report.dropped}`);
@@ -1017,12 +1045,20 @@ export default function App() {
     return id;
   };
 
-  const restoreTrash = (id: string) => {
+  /** Undo of a delete reopens the note; the trash page keeps you there to
+   * restore several in a row and offers «Open» instead (focus group). */
+  const restoreTrash = (id: string, open = true) => {
     const n = storeRef.current.trash.find((x) => x.id === id);
     if (!n) return;
-    setStore((s) => ({ ...restoreNote(s, id), activeId: n.id }));
-    go('notes', n.id);
-    notify(`${tr('toastTrashRestored', lang)}: ${noteDisplayName(n, lang)}`);
+    const msg = `${tr('toastTrashRestored', lang)}: ${noteDisplayName(n, lang)}`;
+    if (open) {
+      setStore((s) => ({ ...restoreNote(s, id), activeId: n.id }));
+      go('notes', n.id);
+      notify(msg);
+    } else {
+      setStore((s) => restoreNote(s, id));
+      notifyAction(msg, tr('openBtn', lang), () => go('notes', n.id));
+    }
   };
 
   const purgeTrash = (id: string) => {
@@ -1181,7 +1217,7 @@ export default function App() {
   const actions: NotesActions = {
     updateTitle: renameNote,
     updateDoc: (noteId, doc, text) => updateNote(noteId, (n) => ({ ...n, content: doc, text })),
-    createTask: (d) => addTask(d.text, { desc: d.desc, due: d.due, noteId: d.noteId }),
+    createTask: (d) => addTask(d.text, { desc: d.desc, due: d.due, noteId: d.noteId, quiet: true }),
     updateTask,
     toggleTask,
     deleteTask,
@@ -1726,7 +1762,7 @@ export default function App() {
                 </button>
               )}
               <Suspense fallback={lazyFallback}>
-              <NotesView templates={store.customTpls} sessionEpoch={sessionEpochRef.current} sessions={noteSessionsRef.current} onShowMap={(id) => go("map", "note/" + id)} focusNoteId={newNoteFocusRef.current} onBodyFocused={() => { newNoteFocusRef.current = null; }} findRequest={findRef.current} onFindDone={() => { findRef.current = null; }} lang={lang} hintKey={prefKeyFor("hint", profileId)} notes={notes} openNote={openNote ?? null} tasks={tasks} graphs={graphs} onOpenNote={openNoteById} onNew={newBlank} onOpenPlan={(id) => go('plan', id ? 'list/' + id : 'list')} prompts={store.prompts} onOpenPrompt={(id) => go('prompts', id)} onUnbind={unbindPrompt} rightOpen={rightOpen} onToggleRight={() => setRightOpen((v) => !v)} actions={actions} notify={notify} profileId={profileId} />
+              <NotesView templates={store.customTpls} sessionEpoch={sessionEpochRef.current} sessions={noteSessionsRef.current} onShowMap={(id) => go("map", "note/" + id)} trashCount={trash.length + trashTasks.length} onOpenTrash={() => go('trash')} focusNoteId={newNoteFocusRef.current} onBodyFocused={() => { newNoteFocusRef.current = null; }} findRequest={findRef.current} onFindDone={() => { findRef.current = null; }} lang={lang} hintKey={prefKeyFor("hint", profileId)} notes={notes} openNote={openNote ?? null} tasks={tasks} graphs={graphs} onOpenNote={openNoteById} onNew={newBlank} onOpenPlan={(id) => go('plan', id ? 'list/' + id : 'list')} prompts={store.prompts} onOpenPrompt={(id) => go('prompts', id)} onUnbind={unbindPrompt} rightOpen={rightOpen} onToggleRight={() => setRightOpen((v) => !v)} actions={actions} notify={notify} profileId={profileId} />
               </Suspense>
             </>
           )}
@@ -1861,7 +1897,13 @@ export default function App() {
                       initial={wbEntry?.tpl.skill ?? emptySkill()}
                       saveLabel={wbEntry && !wbEntry.mine ? tr("skSaveCopy", lang) : tr("saveBtn", lang)}
                       onSave={(spec, body) => {
-                        const d = { name: spec.name.trim() || tr("newSkill", lang), body, defaults: {}, kind: 'skill' as const, skill: spec };
+                        let s = spec;
+                        if (!wbEntry?.mine) {
+                          // A copy of a built-in gets its own name, so the two are told apart.
+                          const taken = [...LLM_TEMPLATES, ...store.customTpls].map((t) => t.skill?.name ?? t.name);
+                          s = { ...spec, name: uniqueSkillName(spec.name.trim(), taken, spec.format) };
+                        }
+                        const d = { name: s.name.trim() || tr("newSkill", lang), body: s === spec ? body : renderSkill(s, lang), defaults: {}, kind: 'skill' as const, skill: s };
                         if (wbEntry?.mine) {
                           updateCustomTpl(wbEntry.tpl.id, d);
                         } else {
@@ -1881,7 +1923,8 @@ export default function App() {
                       initTokens={wbImage?.tokens ?? []}
                       initNegative={wbEntry?.tpl.negative ?? []}
                       initAspect={wbEntry?.tpl.aspect ?? '1:1'}
-                      initPonyScore={wbEntry?.tpl.ponyScore ?? false}
+                      // A new image starts with the Pony quality prefix on (Pony is the default model).
+                      initPonyScore={wbEntry ? (wbEntry.tpl.ponyScore ?? false) : true}
                       initTagCats={wbEntry?.tpl.tagCats ?? {}}
                       mine={wbEntry ? wbEntry.mine : true}
                       notes={notes}
@@ -1948,9 +1991,13 @@ export default function App() {
               onDeleteProfile={deleteProfileById}
               onSwitchProfile={() => setProfileConfirmOpen(true)}
               onExportData={() => {
-                if (profileId && !exportRaw(storeKeyFor(profileId))) notify(tr('toastBackupFailed', lang));
+                const name = registry.profiles.find((p) => p.id === profileId)?.name ?? '';
+                if (profileId && !exportRaw(storeKeyFor(profileId), backupFileName(name, 'saved'))) notify(tr('toastBackupFailed', lang));
               }}
-              onExportCurrent={downloadMemory}
+              onExportCurrent={() => {
+                const name = registry.profiles.find((p) => p.id === profileId)?.name ?? '';
+                if (!exportMemory(store, storeRestRef.current, backupFileName(name, 'current'))) notify(tr('toastBackupFailed', lang));
+              }}
               onImportFile={importFileAsProfile}
             />
             </Suspense>
@@ -1961,7 +2008,7 @@ export default function App() {
               lang={lang}
               trash={trash}
               trashTasks={trashTasks}
-              onRestoreNote={restoreTrash}
+              onRestoreNote={(id) => restoreTrash(id, false)}
               onRestoreTask={restoreTrashTask}
               onPurgeNote={purgeTrash}
               onPurgeTask={purgeTrashTask}

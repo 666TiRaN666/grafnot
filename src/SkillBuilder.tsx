@@ -7,6 +7,7 @@ import { estimateTokens, lintSkill, renderSkill, SKILL_DESC_MAX, skillDescriptio
 import type { SkillIssueId } from "./skillModel";
 
 const FORMATS: SkillFormat[] = ["skill", "system", "agents"];
+const FILE_LANGS: [Lang, string][] = [["RU", "Русский"], ["EN", "English"], ["KZ", "Қазақша"]];
 
 function formatLabel(f: SkillFormat, lang: Lang): string {
   return f === "skill" ? tr("skFmtSkill", lang) : f === "system" ? tr("skFmtSystem", lang) : tr("skFmtAgents", lang);
@@ -64,6 +65,7 @@ export function SkillBuilder({
   const [spec, setSpec] = useState<SkillSpec>(initial);
   const set = <K extends keyof SkillSpec>(k: K, v: SkillSpec[K]) => setSpec((s) => ({ ...s, [k]: v }));
   const text = renderSkill(spec, lang);
+  const fileLang = spec.lang ?? lang;
   const issues = lintSkill(spec);
   const blocking = issues.some((i) => i.level === "error");
   const descLen = skillDescription(spec, "EN").length;
@@ -77,7 +79,17 @@ export function SkillBuilder({
   );
 
   return (
-    <div className="w-work k-work" data-testid="skill-builder">
+    <div
+      className="w-work k-work"
+      data-testid="skill-builder"
+      onKeyDown={(e) => {
+        // Ctrl+S saves like the button (and never opens the browser's "save page").
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.code === "KeyS") {
+          e.preventDefault();
+          if (!blocking) onSave(spec, text);
+        }
+      }}
+    >
       <div className="w-whead">
         <div className="w-wtitle-wrap">
           <div className="w-wtitle">{title}</div>
@@ -96,6 +108,15 @@ export function SkillBuilder({
             ))}
           </div>
           <p className="muted small">{formatHint(spec.format, lang)}</p>
+          {/* Headings follow the model's language, not the interface (focus group). */}
+          <div className="t-duechips" role="group" aria-label={tr("skLangL", lang)}>
+            <span className="muted small">{tr("skLangL", lang)}</span>
+            {FILE_LANGS.map(([l, label]) => (
+              <button key={l} type="button" data-testid={`skill-lang-${l}`} className={"t-chip" + (fileLang === l ? " active" : "")} aria-pressed={fileLang === l} onClick={() => set("lang", l)}>
+                {label}
+              </button>
+            ))}
+          </div>
           <label className="t-field">
             <span className="muted small">{spec.format === "skill" ? tr("skNameMachine", lang) : tr("skNameL", lang)}</span>
             <span className="k-namerow">

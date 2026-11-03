@@ -167,6 +167,7 @@ function readSkill(v: unknown): SkillSpec | null {
     rules: s.rules as string,
     output: s.output as string,
     examples: (examples as { input: string; output: string }[]).map((e) => ({ input: e.input, output: e.output })),
+    ...(s.lang === 'RU' || s.lang === 'EN' || s.lang === 'KZ' ? { lang: s.lang } : {}),
   };
 }
 
@@ -584,6 +585,17 @@ export function saveStore(
  * Pure read: the caller saves the result under the profile key and removes the legacy key. */
 export function readLegacyStore(storage?: Pick<StoreStorage, 'getItem'>): LoadedStore | null {
   return loadStore(undefined, storage);
+}
+
+/** Every note linked with this one, either direction, each once: the one
+ * number the list, the note header and the context panel all show. */
+export function linkedNoteIds(note: Note, notes: Note[]): string[] {
+  const out = new Set<string>();
+  for (const n of notes) {
+    if (n.id === note.id) continue;
+    if (note.linkedIds.includes(n.id) || n.linkedIds.includes(note.id)) out.add(n.id);
+  }
+  return [...out];
 }
 
 /** Notes with no outgoing links that nobody references. */

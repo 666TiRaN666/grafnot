@@ -10,7 +10,7 @@ const LEGACY: PromptSave = { id: "p4", kind: "llm", title: "Legacy", templateId:
 
 describe("prompt preview for search", () => {
   it("renders image syntax", () => {
-    expect(promptPreview(IMG, [])).toBe("(a), (b)");
+    expect(promptPreview(IMG, [])).toBe("a, b");
   });
   it("renders saved llm template", () => {
     expect(promptPreview(LLM, []).includes("SELECT 2")).toBe(true);

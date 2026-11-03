@@ -56,7 +56,7 @@ module.exports = async function (t) {
     await page.keyboard.press('Enter');
     await page.getByTestId('tag-input').fill('forest');
     await page.keyboard.press('Enter');
-    await page.getByRole('button', { name: 'Сохранить как шаблон' }).click();
+    await page.getByTestId('img-save-tpl').click();
     const row = page.locator('[data-testid="prompt-item"]', { hasText: 'cat, forest' });
     await row.first().waitFor();
     assert((await row.first().innerText()).includes('Картинка'), 'no image badge');

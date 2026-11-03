@@ -196,6 +196,127 @@ module.exports = async function(t) {
     await page.keyboard.press('Escape');
   });
 
+  await check('FG a [[link]] stays in the text, opens with Ctrl+click and follows a rename', async () => {
+    await reseed(page, seed());
+    await body().click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type(' see [[Bet');
+    await page.getByTestId('link-suggest').waitFor();
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('grafnot-store-p1')).notes.find(n => n.id === 'a').text.includes('see [[Beta]]'), null, { timeout: 8000 });
+    await page.locator('[data-wikilink="Beta"]').first().click({ modifiers: ['Control'] });
+    await page.waitForFunction(() => location.hash === '#/notes/b');
+    // The hash changes before the editor shows Beta: rename only once it does.
+    await page.waitForFunction(() => document.querySelector('[data-testid="title-in"]')?.value === 'Beta', null, { timeout: 8000 });
+    await page.getByTestId('title-in').fill('Beta renamed');
+    await page.getByTestId('title-in').press('Enter');
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('grafnot-store-p1')).notes.find(n => n.id === 'a').text.includes('[[Beta renamed]]'), null, { timeout: 8000 });
+  });
+
+  await check('FG a mouse click on a note in the list puts the caret in its text', async () => {
+    await reseed(page, seed());
+    await page.getByTestId('note-item').filter({ hasText: 'Beta' }).click();
+    // The caret arrives with the note's render, a frame after the click.
+    await page.waitForFunction(() => !!document.activeElement?.closest('[data-testid="editor"]'), null, { timeout: 8000 });
+    await page.keyboard.type('Z');
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('grafnot-store-p1')).notes.find(n => n.id === 'b').text.includes('Z'), null, { timeout: 8000 });
+    assert(await page.evaluate(() => JSON.parse(localStorage.getItem('grafnot-store-p1')).notes.length) === 2, 'typing created a note');
+  });
+
+  await check('FG renaming a profile with Enter renames it and creates nothing', async () => {
+    await reseed(page, seed());
+    await page.goto(t.URL + '#/settings/profiles', { waitUntil: 'networkidle' });
+    await page.getByTestId('settings-page').getByRole('button', { name: /Переименовать/ }).first().click();
+    await page.keyboard.press('Control+a');
+    await page.keyboard.type('Жұмыс');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('grafnot-profiles-v1')).profiles.some(p => p.name === 'Жұмыс'), null, { timeout: 8000 });
+    assert(await page.evaluate(() => JSON.parse(localStorage.getItem('grafnot-profiles-v1')).profiles.length) === 1, 'rename created a profile');
+  });
+
+  await check('FG renaming in the profile picker types into the name, saves on Enter, no bracket buttons', async () => {
+    await reseed(page, seedProfiles({
+      profiles: [{ id: 'p1', name: 'One', created: 1 }, { id: 'p2', name: 'Two', created: 2 }], activeId: 'gone',
+      stores: { p1: v5store([seedNote('one', 'One note', { content: '<p>one</p>', text: 'one' })], 'one'), p2: v5store([seedNote('two', 'Two note', { content: '<p>two</p>', text: 'two' })], 'two') },
+    }));
+    const picker = page.getByTestId('profile-picker');
+    await picker.waitFor();
+    assert(!/\[[^\]]+\]/.test(await picker.innerText()), 'bracketed buttons: ' + await picker.innerText());
+    await picker.getByTestId('profile-row-p1').getByRole('button', { name: 'Переименовать' }).click();
+    await page.keyboard.press('Control+a');
+    await page.keyboard.type('Учёба');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('grafnot-profiles-v1')).profiles.some(p => p.name === 'Учёба'), null, { timeout: 8000 })
+      .catch(() => { throw new Error('picker rename did not reach the name field'); });
+    assert(await page.evaluate(() => JSON.parse(localStorage.getItem('grafnot-profiles-v1')).profiles.length) === 2, 'rename created a profile');
+    assert(await page.getByTestId('profile-name-in').inputValue() === '', 'typing landed in the new-profile field');
+  });
+
+  await check('FG menus stay on screen: note menu on a phone, «To note» at the bottom of a tablet', async () => {
+    const inside = (b, w, h) => b && b.x >= 0 && b.y >= 0 && b.x + b.width <= w + 0.5 && b.y + b.height <= h + 0.5;
+    const phone = await t.browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true, storageState: t.storageStateFor(seed()) });
+    try {
+      const pg = await phone.newPage();
+      await pg.goto(t.URL + '#/notes/a', { waitUntil: 'networkidle' });
+      await pg.getByTestId('notes-more').click();
+      const box = await pg.getByTestId('notes-menu-trash').locator('..').boundingBox();
+      assert(inside(box, 375, 812), 'note menu leaves the phone screen: ' + JSON.stringify(box));
+    } finally { await phone.close(); }
+    const tab = await t.browser.newContext({ viewport: { width: 820, height: 1180 }, hasTouch: true, storageState: t.storageStateFor(seed()) });
+    try {
+      const pg = await tab.newPage();
+      await pg.goto(t.URL + '#/prompts/art', { waitUntil: 'networkidle' });
+      const btn = pg.getByRole('button', { name: /В заметку/ });
+      await btn.evaluate((el) => { el.scrollIntoView({ block: 'end' }); });
+      await btn.click();
+      const box = await pg.getByRole('listbox').boundingBox();
+      assert(inside(box, 820, 1180), '«To note» list leaves the screen: ' + JSON.stringify(box));
+    } finally { await tab.close(); }
+  });
+
+  await check('FG the whole week fits 1366 px, phone days show their tasks, KZ names are Kazakh', async () => {
+    const weekSeed = seed(), st = JSON.parse(weekSeed['grafnot-store-p1']);
+    // storageState seeds skip the @today marker expansion: put today's date in directly.
+    const now = new Date(), iso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    st.tasks = [{ id: 'w1', text: 'Week task', done: false, due: iso }];
+    weekSeed['grafnot-store-p1'] = JSON.stringify(st);
+    const wide = await t.browser.newContext({ viewport: { width: 1366, height: 768 }, storageState: t.storageStateFor(weekSeed) });
+    try {
+      const pg = await wide.newPage();
+      await pg.goto(t.URL + '#/plan/week', { waitUntil: 'networkidle' });
+      const grid = pg.locator('.w-grid');
+      await grid.waitFor();
+      const fits = await grid.evaluate((el) => el.scrollWidth <= el.clientWidth + 1);
+      assert(fits, 'the week scrolls sideways at 1366 px');
+    } finally { await wide.close(); }
+    const kz = { ...weekSeed, 'grafnot-lang:p1': 'KZ' };
+    const phone = await t.browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true, storageState: t.storageStateFor(kz) });
+    try {
+      const pg = await phone.newPage();
+      await pg.goto(t.URL + '#/plan/week', { waitUntil: 'networkidle' });
+      const strip = pg.getByRole('group', { name: 'days' });
+      await strip.waitFor();
+      const text = await strip.innerText();
+      assert(!/Mon|Tue|Wed|Thu|Fri/.test(text) && text.includes('Дс'), 'weekday names not Kazakh: ' + text.replace(/\s+/g, ' '));
+      assert(await strip.getByTestId('day-count').count() === 1, 'days with tasks are not marked');
+    } finally { await phone.close(); }
+  });
+
+  await check('FG settings speak plainly: named languages on every tab, no phone-only setting on desktop, dated backup', async () => {
+    await reseed(page, seed());
+    await page.goto(t.URL + '#/settings/profiles', { waitUntil: 'networkidle' });
+    await page.getByTestId('settings-page').getByRole('button', { name: 'English', exact: true }).click();
+    await page.getByTestId('settings-nav-data').waitFor();
+    assert((await page.getByTestId('settings-nav-data').innerText()).trim() === 'Data', 'language did not switch from the first tab');
+    assert(!(await page.getByTestId('settings-page').innerText()).includes('['), 'bracketed link-buttons remain');
+    await page.getByTestId('settings-page').getByRole('button', { name: 'Русский', exact: true }).click();
+    await page.goto(t.URL + '#/settings/appearance', { waitUntil: 'networkidle' });
+    assert(!(await page.getByTestId('add-mode').isVisible()), 'the phone «+» setting shows on desktop');
+    await page.goto(t.URL + '#/settings/data', { waitUntil: 'networkidle' });
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.getByTestId('export-current').click()]);
+    assert(/^grafnot-.+-\d{4}-\d{2}-\d{2}\.json$/.test(dl.suggestedFilename()) && !dl.suggestedFilename().includes('unsaved'), 'backup file name: ' + dl.suggestedFilename());
+  });
+
   await check('W8 palette opens a note with the caret at the first match', async () => {
     await reseed(page, seedProfiles({
       profiles: [{ id: 'p1', name: 'Основной', created: 1 }], activeId: 'p1',

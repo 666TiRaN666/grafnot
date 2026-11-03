@@ -40,6 +40,7 @@ const ORDER = [
   'G34-trash',
   'G35-rollout',
   'G36-skills',
+  'G37-fg2',
 ];
 
 run(ORDER).catch((e) => {

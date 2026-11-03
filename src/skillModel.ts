@@ -27,7 +27,8 @@ function yamlValue(v: string): string {
 }
 
 /** The description a model sees first: what it does, then when to use it. */
-export function skillDescription(spec: SkillSpec, lang: Lang): string {
+export function skillDescription(spec: SkillSpec, uiLang: Lang): string {
+  const lang = spec.lang ?? uiLang;
   const what = sentence(spec.description);
   const when = sentence(spec.whenToUse);
   return [what && `${what}.`, when && `${H[lang].use} ${when}.`].filter(Boolean).join(' ');
@@ -49,7 +50,8 @@ function body(spec: SkillSpec, lang: Lang): string[] {
   return out;
 }
 
-export function renderSkill(spec: SkillSpec, lang: Lang): string {
+export function renderSkill(spec: SkillSpec, uiLang: Lang): string {
+  const lang = spec.lang ?? uiLang;
   const h = H[lang];
   const desc = sentence(spec.description);
   const parts: string[] = [];
@@ -57,8 +59,8 @@ export function renderSkill(spec: SkillSpec, lang: Lang): string {
     parts.push('---', `name: ${yamlValue(spec.name)}`, `description: ${yamlValue(skillDescription(spec, lang))}`, '---', '', `# ${spec.name}`, '');
   } else if (spec.format === 'agents') {
     parts.push(`# ${spec.name.trim() || 'AGENTS'}`, '');
-    if (desc) parts.push(`${desc}.`, '');
-  } else {
+  }
+  if (spec.format !== 'skill') {
     if (desc) parts.push(`${desc}.`, '');
     if (spec.whenToUse.trim()) parts.push(`${h.when}: ${sentence(spec.whenToUse)}.`, '');
   }
@@ -86,6 +88,17 @@ export function lintSkill(spec: SkillSpec): SkillIssue[] {
 /** A valid SKILL.md name from free text (Latin only; other letters drop). */
 export function slugify(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, SKILL_NAME_MAX).replace(/-+$/, '');
+}
+
+/** A name not yet taken, so a copy of a built-in is told apart from it:
+ * code-review → code-review-2 (SKILL.md names stay kebab-case). */
+export function uniqueSkillName(name: string, taken: readonly string[], format: SkillFormat): string {
+  const used = new Set(taken);
+  if (!used.has(name)) return name;
+  for (let i = 2; ; i++) {
+    const next = format === 'skill' ? `${name}-${i}` : `${name} (${i})`;
+    if (!used.has(next)) return next;
+  }
 }
 
 export function skillFileName(format: SkillFormat): string {

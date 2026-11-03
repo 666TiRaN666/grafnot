@@ -140,7 +140,8 @@ module.exports = async function (t) {
     const saveRow = page.locator('[data-testid="prompt-item"]', { hasText: 'Legacy blue art' }).filter({ hasText: 'Сохранённый' });
     await saveRow.click();
     await page.getByTestId('prompt-workbench').waitFor();
-    assert((await page.getByTestId('prompt-result').innerText()).includes('(blue hair)'), 'legacy image syntax lost');
+    const legacy = await page.getByTestId('prompt-result').innerText();
+    assert(legacy.includes('blue hair') && !legacy.includes('(blue hair)'), 'legacy image syntax lost: ' + legacy);
     await page.getByTestId('nav-notes').click();
     await page.locator('.g-noterow', { hasText: 'Legacy note' }).first().locator('.g-noteopen').click();
     await openContext(page, 'prompts');

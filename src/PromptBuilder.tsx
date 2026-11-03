@@ -79,7 +79,16 @@ export function PromptBuilder({
   const canSave = name.trim().length > 0;
 
   return (
-    <div className="b-builder" data-testid="prompt-builder">
+    <div
+      className="b-builder"
+      data-testid="prompt-builder"
+      onKeyDown={(e) => {
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.code === "KeyS") {
+          e.preventDefault();
+          if (canSave) onSave({ name: name.trim(), body, defaults, ...(kind ? { kind } : {}) });
+        }
+      }}
+    >
       <div className="w-whead">
         <div className="w-wtitle">{title}</div>
       </div>

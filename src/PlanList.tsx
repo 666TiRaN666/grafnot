@@ -158,7 +158,8 @@ export function PlanList({
     onAdd(v, { desc: cDesc.trim() || undefined, due: cDue || undefined });
     setCTitle("");
     setCDesc("");
-    // Due stays: serial entry usually shares the deadline.
+    // Each task starts without a due date: a kept one silently landed on the next task (focus group).
+    setCDue("");
     titleRef.current?.focus();
   };
 

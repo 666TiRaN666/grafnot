@@ -30,13 +30,13 @@ module.exports = async function (t) {
     await page.getByRole('button', { name: 'Добавить', exact: true }).click();
     await box.fill('Third toast probe');
     await page.getByRole('button', { name: 'Добавить', exact: true }).click();
-    assert((await page.locator('.g-toast').count()) === 2, 'stack broken');
+    // The same message on screen is not stacked again (focus group 29.10).
+    assert((await page.locator('.g-toast').count()) === 1, 'identical toasts stacked');
     const t = await page.locator('.g-toast').first().innerText();
     assert(t.includes('Задача добавлена'), `wrong toast: ${t}`);
     assert((await page.locator('.g-taskline', { hasText: 'Second toast probe' }).count()) === 1, 'long text broken');
     await page.locator('.g-toast').first().locator('.g-toast-x').click();
-    assert((await page.locator('.g-toast').count()) === 1, 'wrong one closed');
-    await page.locator('.g-toast').waitFor({ state: 'detached' });
+    assert((await page.locator('.g-toast').count()) === 0, 'toast not closed');
   });
 
   await check('P26 profiles isolate data and prefs', async () => {
@@ -61,9 +61,9 @@ module.exports = async function (t) {
     await page.getByTestId('settings-nav-appearance').click();
     await page.getByTestId('settings-page').getByRole('button', { name: 'Тёмная', exact: true }).click();
     assert((await page.locator('.g-app').getAttribute('data-theme')) === 'dark', 'dark not applied');
-    await page.getByTestId('settings-page').getByRole('button', { name: 'EN', exact: true }).click();
+    await page.getByTestId('settings-page').getByRole('button', { name: 'English', exact: true }).click();
     assert((await page.getByTestId('settings-page').innerText()).includes('Settings'), 'lang not applied');
-    await page.getByTestId('settings-page').getByRole('button', { name: 'RU', exact: true }).click();
+    await page.getByTestId('settings-page').getByRole('button', { name: 'Русский', exact: true }).click();
     await page.getByTestId('nav-notes').click();
     await page.getByTestId('nav-settings').click();
     await page.getByRole('button', { name: 'Сменить профиль' }).click();

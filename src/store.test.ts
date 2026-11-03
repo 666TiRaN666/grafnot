@@ -11,6 +11,7 @@ import {
   saveStore,
   storeKeyFor,
   unlinkedNotes,
+  linkedNoteIds,
   filterTasks,
 } from './store';
 import type { LoadResult, LooseStore, LooseTpl } from './store';
@@ -108,6 +109,18 @@ describe('image extras and skills in custom templates', () => {
       { id: 's1', name: 'Skill', body: '---', defaults: {}, kind: 'skill', skill },
       { id: 's2', name: 'Bad skill', body: 'x', defaults: {} },
     ]);
+  });
+  it('keeps the skill file language and drops an unknown one', () => {
+    const base = { format: 'system', name: 'n', description: 'd', whenToUse: '', steps: '', rules: '', output: '', examples: [] };
+    const { store } = migrate({
+      ...legacy(),
+      schemaVersion: 7,
+      customTpls: [
+        { id: 'a', name: 'A', body: 'x', defaults: {}, kind: 'skill', skill: { ...base, lang: 'EN' } },
+        { id: 'b', name: 'B', body: 'x', defaults: {}, kind: 'skill', skill: { ...base, lang: 'FR' } },
+      ] as never,
+    });
+    expect(store.customTpls.map((t) => t.skill?.lang)).toEqual(['EN', undefined]);
   });
 });
 
@@ -213,6 +226,11 @@ describe('v6 -> v7 trash restore records (D3)', () => {
 });
 
 describe('graph helpers', () => {
+  it('linkedNoteIds counts each linked note once, both directions, existing only', () => {
+    const n = (id: string, linkedIds: string[]) => ({ id, title: id, text: '', linkedIds, updated: '' }) as never;
+    const notes = [n('a', ['b', 'gone']), n('b', ['a']), n('c', ['a'])];
+    expect(linkedNoteIds(notes[0], notes)).toEqual(['b', 'c']);
+  });
   it('unlinkedNotes finds isolates by id', () => {
     const { store } = migrate(legacy());
     expect(unlinkedNotes(store.notes).map((n) => n.id)).toEqual(['c']);

@@ -39,7 +39,7 @@ export function PromptInsert({ lang, templates, saves, valid, onInsert, onClose,
     <div className="sheet-grip" aria-hidden="true" {...swipe} />
     <div className="ctx-heading"><strong>{tr('insertPrompt', lang)}</strong><button type="button" className="g-modal-x" aria-label={tr('closeBtn', lang)} onClick={onClose}>×</button></div>
     {!valid && <p role="status" className="g-status-bad">{tr('promptInsertInvalid', lang)}</p>}
-    <label className="prompt-field">{tr('search_ph', lang)}<input ref={first} autoFocus className="g-in" data-testid="prompt-insert-search" value={query} onKeyDown={nav.onKeyDown} onChange={e => { setQuery(e.target.value); setSelected(null); setShown(50); nav.reset(); }} /></label>
+    <label className="prompt-field">{tr('tplSearchPh', lang)}<input ref={first} autoFocus className="g-in" data-testid="prompt-insert-search" value={query} onKeyDown={nav.onKeyDown} onChange={e => { setQuery(e.target.value); setSelected(null); setShown(50); nav.reset(); }} /></label>
     <div className="prompt-insert-list">{hits.slice(0, shown).map((e, i) => <button type="button" key={e.id} className={'n-suggestitem' + (selected === e.id || nav.active === i ? ' active' : '')} data-testid="prompt-insert-choice" aria-pressed={selected === e.id} onClick={() => pick(i)}>{e.title}</button>)}</div>
     {shown < hits.length && <button type="button" className="g-btn sm" onClick={() => setShown(n => n + 50)}>{tr('tplShowMore', lang).replace('{n}', String(Math.min(50, hits.length - shown)))}</button>}
     {chosen && <>

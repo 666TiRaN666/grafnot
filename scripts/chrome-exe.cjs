@@ -8,8 +8,11 @@ if (process.env.CHROME_PATH) candidates.push(process.env.CHROME_PATH);
 if (process.platform === 'win32') {
   candidates.push('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe');
 } else {
-  candidates.push('/usr/bin/google-chrome', '/usr/bin/chromium-browser', '/usr/bin/chromium');
+  candidates.push('/usr/bin/google-chrome', '/usr/bin/chromium-browser', '/usr/bin/chromium', '/opt/google/chrome/chrome');
 }
+// Last resort on any OS: the Chromium build installed by
+// `npx playwright-core install chromium` (cache path resolved by playwright).
+try { candidates.push(require('playwright-core').chromium.executablePath()); } catch { /* not installed */ }
 for (const c of candidates) {
   try {
     if (c && fs.existsSync(c)) {

@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { Lang } from "./i18n";
 import { tr } from "./i18n";
 import type { Profile, ProfileRegistry } from "./profiles";
+import { profileLabel } from "./profiles";
 import { useArmConfirm } from "./useArmConfirm";
 
 export interface ProfilePickerActions {
@@ -66,6 +67,10 @@ export function ProfilePicker({
               <>
                 <input
                   className="g-in"
+                  // Focused with the current name selected: typing renames,
+                  // never lands in the "new profile" field below (focus group).
+                  autoFocus
+                  onFocus={(e) => e.currentTarget.select()}
                   value={renameDraft}
                   onChange={(e) => setRenameDraft(e.target.value)}
                   onKeyDown={(e) => {
@@ -77,33 +82,33 @@ export function ProfilePicker({
                 <span>
                   <button
                     type="button"
-                    className="g-linkbtn"
+                    className="g-btn sm"
                     disabled={!renameDraft.trim()}
                     onClick={commitRename}
                   >
-                    [{tr("renameGo", lang)}]
+                    {tr("saveBtn", lang)}
                   </button>
                 </span>
               </>
             ) : (
               <>
                 <button type="button" className="g-linkbtn" onClick={() => actions.onEnter(p.id)}>
-                  • {p.name}
+                  • {profileLabel(p.name, lang)}
                 </button>
                 <span>
-                  <button type="button" className="g-linkbtn" onClick={() => actions.onEnter(p.id)}>
-                    [{tr("profileEnter", lang)}]
+                  <button type="button" className="g-btn sm" onClick={() => actions.onEnter(p.id)}>
+                    {tr("profileEnter", lang)}
                   </button>{" "}
-                  <button type="button" className="g-linkbtn" onClick={() => startRename(p)}>
-                    [{tr("renameGo", lang)}]
+                  <button type="button" className="g-btn sm ghost" onClick={() => startRename(p)}>
+                    {tr("renameGo", lang)}
                   </button>{" "}
                   {registry.profiles.length > 1 && (
                     <button
                       type="button"
-                      className={armed ? "g-linkbtn g-danger-arm" : "g-linkbtn"}
+                      className={armed ? "g-btn sm g-danger-arm" : "g-btn sm ghost danger"}
                       onClick={() => remove(p.id)}
                     >
-                      {armed ? tr("confirmPurge", lang) : `[${tr("delForever", lang)}]`}
+                      {armed ? tr("confirmPurge", lang) : tr("delForever", lang)}
                     </button>
                   )}
                 </span>

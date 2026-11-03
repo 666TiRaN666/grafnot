@@ -21,7 +21,9 @@ export function isRisky(rate: number): boolean {
  */
 export function renderPrompt(model: AIModel, tokens: string[]): string {
   if (tokens.length === 0) return '';
-  if (model === 'SDXL') return tokens.map((t) => `(${t})`).join(', ');
+  // SDXL reads plain comma tags with (tag:1.2) weights; wrapping every tag
+  // in () gave the whole prompt ×1.1 and made weights meaningless.
+  if (model === 'SDXL') return tokens.join(', ');
   // Midjourney reads plain text; emphasis brackets would be literal.
   if (model === 'Midjourney') return tokens.map((t) => stripWeight(t)).join(', ');
   if (model === 'Flux') {

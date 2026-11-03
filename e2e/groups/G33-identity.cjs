@@ -216,7 +216,9 @@ module.exports = async function (t) {
     return new URL(pg.url()).hash.slice('#/notes/'.length);
   }
   async function focusedBody(pg = page) {
-    assert(await pg.evaluate(() => !!document.activeElement?.closest('[data-testid="editor"]')), 'new note body did not receive focus');
+    // The editor mounts a frame after the title row: wait for the caret, never read once.
+    await pg.waitForFunction(() => !!document.activeElement?.closest('[data-testid="editor"]'), null, { timeout: 5000 })
+      .catch(() => { throw new Error('new note body did not receive focus'); });
     assert((await pg.getByTestId('title-in').inputValue()) === '', 'new note has a stored automatic title');
   }
 

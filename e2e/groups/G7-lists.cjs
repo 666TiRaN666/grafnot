@@ -18,10 +18,13 @@ module.exports = async function (t) {
     // S3/N9: no limit selector; one batch of 50 with an honest counter.
     assert((await page.locator('.g-noterow').count()) === 12, 'N9 batch broken');
     assert((await page.locator('.g-notes-tools').first().locator('..').innerText()).includes('12 из 12'), 'no shown-of counter');
+    // The list re-renders after the input event: wait for it, never read once.
+    const rowsAre = (n, why) => page.waitForFunction((k) => document.querySelectorAll('.g-noterow').length === k, n, { timeout: 5000 })
+      .catch(() => { throw new Error(why); });
     await page.locator('.g-notes-tools .g-in').fill('zebra');
-    assert((await page.locator('.g-noterow').count()) === 1, 'search must narrow first');
+    await rowsAre(1, 'search must narrow first');
     await page.locator('.g-notes-tools .g-in').fill('');
-    assert((await page.locator('.g-noterow').count()) === 12, 'clear must restore batch');
+    await rowsAre(12, 'clear must restore batch');
     await page.locator('.g-notes-tools .g-in').click();
     await page.keyboard.press('ArrowDown');
     await page.keyboard.press('Enter');

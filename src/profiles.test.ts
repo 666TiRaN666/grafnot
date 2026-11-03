@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  profileLabel,
   PROFILES_KEY,
   createProfile,
   deleteProfile,
@@ -328,5 +329,14 @@ describe("updateProfiles", () => {
     expect((await updateProfiles(current => createProfile(current, "Main").registry, { storage, lock, allowAbsent: true })).status).toBe("ok");
     storage.setItem = () => {};
     expect((await updateProfiles(current => renameProfile(current, current.activeId, "Not written"), { storage, lock })).status).toBe("failed");
+  });
+});
+
+describe('profileLabel', () => {
+  it('shows the default profile name in the current language, other names as typed', () => {
+    expect(profileLabel('Основной', 'EN')).toBe('Main');
+    expect(profileLabel('Main', 'KZ')).toBe('Негізгі');
+    expect(profileLabel('Негізгі', 'RU')).toBe('Основной');
+    expect(profileLabel('Работа', 'EN')).toBe('Работа');
   });
 });
