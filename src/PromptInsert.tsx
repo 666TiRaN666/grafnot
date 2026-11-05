@@ -3,7 +3,7 @@ import type { Lang } from './i18n';
 import { tr } from './i18n';
 import type { PromptSave } from './store';
 import type { LlmTpl } from './data';
-import { LLM_TEMPLATES } from './data';
+import { builtinTemplates } from './data';
 import { buildTplEntries, fillBody, listSlots, promptPreview, imageInit } from './promptUtils';
 import { requiredSlots } from './workbenchModel';
 import { copyText } from './widgets';
@@ -24,9 +24,9 @@ export function PromptInsert({ lang, templates, saves, valid, onInsert, onClose,
   const first = useRef<HTMLInputElement>(null);
   const swipe = useSheetSwipe(onClose);
   const pool = useMemo(() => [
-    ...buildTplEntries(LLM_TEMPLATES, templates).map(e => ({ id: e.tpl.id, title: e.tpl.name, body: e.tpl.body, defaults: e.tpl.defaults, templateId: e.tpl.id, source: undefined as PromptSave | undefined, kind: e.kind === 'image' ? 'image' as const : 'llm' as const, image: e.kind === 'image' ? imageInit(e.tpl) : undefined })),
+    ...buildTplEntries(builtinTemplates(lang), templates).map(e => ({ id: e.tpl.id, title: e.tpl.name, body: e.tpl.body, defaults: e.tpl.defaults, templateId: e.tpl.id, source: undefined as PromptSave | undefined, kind: e.kind === 'image' ? 'image' as const : 'llm' as const, image: e.kind === 'image' ? imageInit(e.tpl) : undefined })),
     ...saves.map(p => ({ id: 'save-' + p.id, title: p.title, body: promptPreview(p, templates), defaults: {} as Record<string, string>, templateId: undefined, source: p, kind: p.kind, image: p.kind === 'image' ? { model: p.model, tokens: p.tokens } : undefined })),
-  ], [templates, saves]);
+  ], [templates, saves, lang]);
   const hits = pool.filter(e => (e.title + ' ' + e.body).toLowerCase().includes(query.trim().toLowerCase()));
   const chosen = pool.find(e => e.id === selected);
   const slots = chosen ? listSlots(chosen.body) : [];

@@ -165,6 +165,58 @@ module.exports = async function(t) {
     await page.getByTestId('ctx-panel').waitFor();
   });
 
+  await check('W9 Back brings the panel back without the Navigation API (Firefox, Safari)', async () => {
+    const ctx = await t.browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: t.storageStateFor(seed()) });
+    // Hide the Chromium-only API before the app loads: the fallback must carry the case.
+    await ctx.addInitScript(() => { Object.defineProperty(window, 'navigation', { value: undefined, configurable: true }); });
+    const pg = await ctx.newPage();
+    try {
+      await pg.goto(t.URL + '#/notes/a', { waitUntil: 'networkidle' });
+      assert(await pg.evaluate(() => window.navigation === undefined), 'Navigation API still visible');
+      await pg.getByTestId('ctx-all-links').click();
+      await pg.getByTestId('ctx-panel').getByRole('button', { name: 'Beta', exact: true }).click();
+      await pg.waitForFunction(() => location.hash === '#/notes/b');
+      assert(await pg.getByTestId('ctx-panel').count() === 0, 'opening a linked note kept the temporary panel');
+      await pg.goBack();
+      await pg.waitForFunction(() => location.hash === '#/notes/a');
+      await pg.getByTestId('ctx-panel').waitFor({ timeout: 5000 }).catch(() => { throw new Error('Back did not bring the panel back'); });
+      await pg.goForward();
+      await pg.waitForFunction(() => location.hash === '#/notes/b');
+      await pg.getByTestId('editor').waitFor();
+      assert(await pg.getByTestId('ctx-panel').count() === 0, 'Forward to a note without a panel opened one');
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  await check('FG on a phone the note text starts in the upper half, links and tools in one row', async () => {
+    const rich = seedProfiles({
+      profiles: [{ id: 'p1', name: 'Основной', created: 1 }], activeId: 'p1',
+      stores: { p1: v5store([
+        seedNote('a', 'Лекция по базам данных: нормализация', { content: '<p>alpha body</p>', text: 'alpha body', linkedIds: ['b', 'c', 'd'], updated: 4 }),
+        seedNote('b', 'Функциональные зависимости', { linkedIds: ['a'], updated: 3 }),
+        seedNote('c', 'Практика SQL JOIN', { updated: 2 }),
+        seedNote('d', 'Очень длинное название заметки для проверки', { updated: 1 }),
+      ], 'a', { graphs: [{ id: 'g1', title: 'БД', noteIds: ['a'] }], tasks: [{ id: 't1', text: 'Повторить', done: false, created: 1, noteId: 'a' }] }) },
+    });
+    const ctx = await t.browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, storageState: t.storageStateFor(rich) });
+    try {
+      const pg = await ctx.newPage();
+      await pg.goto(t.URL + '#/notes/a', { waitUntil: 'networkidle' });
+      const box = await pg.getByTestId('editor').getByRole('textbox').boundingBox();
+      assert(box && box.y <= 422, 'note text starts at ' + (box && Math.round(box.y)) + ' px of 844');
+      for (const id of ['ctx-all-links', 'ctx-open-tasks', 'ctx-open-prompts', 'ctx-show-map']) {
+        assert(await pg.getByTestId(id).isVisible(), id + ' hidden on the phone');
+      }
+      const tops = await pg.getByTestId('ctx-block').evaluate((el) => [...el.querySelectorAll('button')].filter((b) => b.offsetParent).map((b) => Math.round(b.getBoundingClientRect().top)));
+      assert(new Set(tops).size === 1, 'context tools wrap into rows: ' + tops.join(','));
+      const overflow = await pg.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1);
+      assert(!overflow, 'the page scrolls sideways');
+    } finally {
+      await ctx.close();
+    }
+  });
+
   await check('W7 a phone sheet closes by pulling its grip down', async () => {
     const ctx = await t.browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true, storageState: t.storageStateFor(seed()) });
     const pg = await ctx.newPage();
@@ -294,7 +346,7 @@ module.exports = async function(t) {
     try {
       const pg = await phone.newPage();
       await pg.goto(t.URL + '#/plan/week', { waitUntil: 'networkidle' });
-      const strip = pg.getByRole('group', { name: 'days' });
+      const strip = pg.getByRole('group', { name: 'Апта күндері' });
       await strip.waitFor();
       const text = await strip.innerText();
       assert(!/Mon|Tue|Wed|Thu|Fri/.test(text) && text.includes('Дс'), 'weekday names not Kazakh: ' + text.replace(/\s+/g, ' '));

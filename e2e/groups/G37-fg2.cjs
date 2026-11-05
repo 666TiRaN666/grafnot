@@ -150,4 +150,71 @@ module.exports = async function (t) {
     assert(r.name === 'Работа', 'restored profile named ' + r.name);
     assert(r.lang === 'EN', 'restored profile language ' + r.lang);
   });
+
+  await check('FG3 an existing task is not labelled «New task»; map member lists are labelled in the interface language', async () => {
+    await reseed(page, seed({ tasks: [{ id: 't1', text: 'Read chapter', done: false, created: 1 }] }));
+    await page.goto(t.URL + '#/plan/list/t1', { waitUntil: 'networkidle' });
+    const panel = page.getByTestId('task-panel');
+    await panel.waitFor();
+    const txt = await panel.innerText();
+    assert(!txt.includes('Новая задача'), 'existing task panel says «New task»: ' + txt.slice(0, 80));
+    assert(await panel.getByLabel('Название задачи').count() === 1, 'task title field has no Russian name');
+    await page.goto(t.URL + '#/map/g1', { waitUntil: 'networkidle' });
+    await page.getByTestId('map-tools').waitFor();
+    await page.getByTestId('map-tools').getByLabel('Меню').click();
+    await page.getByRole('menuitem', { name: 'Состав', exact: true }).click();
+    // The 5/10/25/50 buttons say what they count.
+    await page.getByRole('group', { name: 'Показывать по' }).waitFor({ timeout: 5000 }).catch(() => { throw new Error('limit buttons unlabelled'); });
+    // Edges never strike through a name: every label carries a halo in the canvas colour.
+    const halo = await page.locator('.g-vlabel').first().evaluate((el) => { const cs = getComputedStyle(el); return cs.paintOrder + '|' + cs.strokeWidth + '|' + cs.stroke; });
+    assert(/stroke/.test(halo.split('|')[0]) && parseFloat(halo.split('|')[1]) >= 3 && !/none/.test(halo.split('|')[2]), 'map labels without a halo: ' + halo);
+    const english = await page.evaluate(() => [...document.querySelectorAll('[aria-label]')].map((e) => e.getAttribute('aria-label')).filter((l) => /^(find |graph title|membership|limit)/.test(l)));
+    assert(english.length === 0, 'English aria labels on the map: ' + english.join(', '));
+  });
+
+  await check('FG3 tablet: the image result stays on screen while tags are edited, the form stays reachable', async () => {
+    const tab = await t.browser.newContext({ viewport: { width: 820, height: 1180 }, isMobile: true, hasTouch: true, storageState: t.storageStateFor(seed()) });
+    try {
+      const pg = await tab.newPage();
+      await pg.goto(t.URL + '#/prompts/art', { waitUntil: 'networkidle' });
+      await pg.getByTestId('tag-input').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+      const res = await pg.getByTestId('prompt-result').boundingBox();
+      assert(res && res.y >= 0 && res.y + 24 <= 1180, 'result off screen while editing tags: top ' + (res && Math.round(res.y)));
+      const aside = await pg.locator('aside.w-result').boundingBox();
+      assert(aside && aside.height <= 1180 * 0.4, 'result covers ' + Math.round(aside.height) + ' px');
+      // Scrolled to the end, the result sits after the form: its last control is clear.
+      await pg.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+      await pg.waitForTimeout(100);
+      const neg = await pg.getByTestId('neg-preset').boundingBox();
+      const cover = await pg.locator('aside.w-result').boundingBox();
+      assert(neg && cover && neg.y + neg.height <= cover.y + 1, 'the result covers the negative prompt controls');
+    } finally { await tab.close(); }
+  });
+
+  await check('FG3 built-in template names follow the interface language', async () => {
+    const en = await t.browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: t.storageStateFor(Object.assign({}, seed(), { 'grafnot-lang:p1': 'EN' })) });
+    try {
+      const pg = await en.newPage();
+      await pg.goto(t.URL + '#/prompts', { waitUntil: 'networkidle' });
+      const lib = pg.getByTestId('prompt-library');
+      await lib.waitFor();
+      const names = await pg.getByTestId('prompt-item').allInnerTexts();
+      assert(names.some((x) => x.includes('Art: character')) && names.some((x) => x.includes('Skill: code review')), 'English names missing: ' + names.map((x) => x.split('\n')[0]).join(' | '));
+      assert(!names.some((x) => /Арт: персонаж|Навык: ревью кода|Структурный промпт/.test(x)), 'Russian built-in names in English');
+    } finally { await en.close(); }
+  });
+
+  await check('FG3 a long word in a narrow week column wraps instead of being cut', async () => {
+    await reseed(page, seed({ tasks: [{ id: 'tw', text: 'Электроэнцефалографический отчёт', done: false, created: 1, due: '@mon+0' }] }));
+    await page.setViewportSize({ width: 1280, height: 800 });
+    try {
+      await page.goto(t.URL + '#/plan/week', { waitUntil: 'networkidle' });
+      const txt = page.locator('.w-chiptext', { hasText: 'Электро' }).first();
+      await txt.waitFor();
+      const cut = await txt.evaluate((el) => el.scrollWidth > el.clientWidth + 1);
+      assert(!cut, 'the long word is cut sideways');
+    } finally {
+      await page.setViewportSize({ width: 1440, height: 900 });
+    }
+  });
 };

@@ -6,7 +6,7 @@ import { NEGATIVE_PRESET, TAG_DATA } from "./promptData";
 import type { Note } from "./store";
 import { Hi, copyText } from "./widgets";
 import { prefKeyFor } from "./prefs";
-import { filterTags, formatWeight, hasWeights, moveTag, parseTagInput, stripWeight, tagWeight } from "./imageTags";
+import { filterTags, formatWeight, hasWeights, moveTag, parseTagInput, stepWeight, stripWeight, tagWeight, weightValue } from "./imageTags";
 import { ASPECT_IDS, CAT_ORDER, catOf, moveInLane, orderTokens, renderImage } from "./imageModel";
 import { estimateTokens } from "./skillModel";
 import { useListNav } from "./useListNav";
@@ -383,7 +383,7 @@ export function PromptImageWb({
                   }
                 }}
                 placeholder={tr("typeToFilter", lang)}
-                aria-label="tag input"
+                aria-label={tr("tagInputA", lang)}
               />
               {input.trim() && sugg.length > 0 && (
                 <div className="t-suggest" role="listbox" data-testid="tag-suggest">
@@ -478,6 +478,19 @@ export function PromptImageWb({
                                   {w === "low" ? tr("tagWLow", lang) : w === "high" ? tr("tagWHigh", lang) : tr("tagWNrm", lang)}
                                 </button>
                               ))}
+                            {hasWeights(model) && (
+                              // Fine steps beside the presets (focus group: three steps were too coarse).
+                              <div className="t-menuitem t-wstep" role="group" aria-label={tr("tagWeightL", lang)}>
+                                <span>{tr("tagWeightL", lang)}</span>
+                                <button type="button" className="g-btn sm" data-testid="tag-w-down" aria-label={tr("tagWDown", lang)} onClick={() => setTokens((p) => p.map((x, j) => (j === i ? stepWeight(x, -1) : x)))}>
+                                  −
+                                </button>
+                                <output data-testid="tag-w-value">{weightValue(t).toFixed(1)}</output>
+                                <button type="button" className="g-btn sm" data-testid="tag-w-up" aria-label={tr("tagWUp", lang)} onClick={() => setTokens((p) => p.map((x, j) => (j === i ? stepWeight(x, 1) : x)))}>
+                                  +
+                                </button>
+                              </div>
+                            )}
                             <label className="t-menuitem i-catpick">
                               {tr("catL", lang)}
                               <select data-testid="tag-cat" value={catOf(t, tagCats)} onChange={(e) => setCat(i, e.target.value as TagCat)}>

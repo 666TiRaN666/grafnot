@@ -175,7 +175,8 @@ export type IconName =
   | 'menu'
   | 'panel'
   | 'search'
-  | 'prompt';
+  | 'prompt'
+  | 'user';
 
 const PATHS: Record<IconName, ReactNode> = {
   plus: (
@@ -254,6 +255,12 @@ const PATHS: Record<IconName, ReactNode> = {
     <>
       <circle cx="11" cy="11" r="6.5" />
       <line x1="16" y1="16" x2="20.5" y2="20.5" />
+    </>
+  ),
+  user: (
+    <>
+      <circle cx="12" cy="8.5" r="3.5" />
+      <path d="M5 19.5c1.2-3.4 3.8-5 7-5s5.8 1.6 7 5" />
     </>
   ),
 };

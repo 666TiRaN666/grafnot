@@ -61,7 +61,9 @@ module.exports = async function (t) {
             const expectedStores = Object.entries(seed).filter(([key]) => key.startsWith('grafnot-store-'));
             assert(Object.keys(snapshot.stores).length === expectedStores.length && expectedStores.every(([key, value]) => snapshot.stores[key] === value), 'copies or modified stores appeared while registry unreadable');
             assert(snapshot.pending === null, 'migration started without reading the registry');
-            await probe.getByTestId('registry-retry').click();
+            // Retry reloads the page: wait for the new document, or the flag below could
+            // land before this reload and the reloaded app would no longer be blocked.
+            await Promise.all([probe.waitForEvent('load'), probe.getByTestId('registry-retry').click()]);
           }
           await probe.evaluate(() => sessionStorage.setItem('allow-registry-read', '1'));
           await probe.getByTestId('registry-retry').click();

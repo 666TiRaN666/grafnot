@@ -41,11 +41,19 @@ describe('renderImage', () => {
     expect(r.size).toEqual(ASPECTS['2:3']);
     expect(r.negativeSupported).toBe(true);
   });
-  it('Flux: natural list, no negative prompt', () => {
+  it('Flux: a sentence, no negative prompt (focus group: a tag list is not natural language)', () => {
     const r = renderImage({ ...base, model: 'Flux' });
-    expect(r.positive).toBe('1girl and blue eyes');
+    expect(r.positive).toBe('A girl with blue eyes.');
     expect(r.negative).toBe('');
     expect(r.negativeSupported).toBe(false);
+  });
+  it('Flux: lanes become phrases, quality tags and weights drop out', () => {
+    const r = renderImage({
+      ...base, model: 'Flux',
+      tokens: ['masterpiece', '1girl', '(blue eyes:1.3)', 'school uniform', 'sitting', 'classroom', 'soft lighting', 'watercolor', 'close-up'],
+      tagCats: { watercolor: 'style', classroom: 'scene' },
+    });
+    expect(r.positive).toBe('A girl with blue eyes, wearing school uniform, sitting. Setting: classroom. Lighting: soft lighting. Style: watercolor. Shot: close-up.');
   });
   it('Midjourney: parameters live in the prompt, weights stripped', () => {
     const r = renderImage({ ...base, tokens: ['((1girl))', 'blue eyes'], model: 'Midjourney' });

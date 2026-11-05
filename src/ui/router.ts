@@ -47,14 +47,30 @@ export function navigate(route: Route, opts?: { replace?: boolean }): void {
 }
 
 // Back/Forward vs a new navigation (§7.12: a traversal restores the note's
-// temporary panel). Only the Navigation API tells them apart (Chromium);
-// elsewhere every change counts as a new navigation.
+// temporary panel). The Navigation API tells them apart (Chromium); without
+// it every history entry the app has seen carries a mark in history.state,
+// and arriving at a marked entry is Back/Forward (Firefox, Safari).
 let traversing = false;
+const ENTRY_MARK = 'grafnotEntry';
 if (typeof window !== 'undefined') {
   const nav: unknown = Reflect.get(window, 'navigation');
   if (nav instanceof EventTarget) {
     nav.addEventListener('navigate', (e) => {
       traversing = Reflect.get(e, 'navigationType') === 'traverse';
+    });
+  } else {
+    let seq = 0;
+    const mark = () => {
+      const st: unknown = window.history.state;
+      window.history.replaceState({ ...(st && typeof st === 'object' ? st : {}), [ENTRY_MARK]: ++seq }, '');
+    };
+    mark();
+    // Registered at module load, before useRoute subscribes: the flag is set
+    // before the route change renders.
+    window.addEventListener('hashchange', () => {
+      const st: unknown = window.history.state;
+      traversing = !!st && typeof st === 'object' && ENTRY_MARK in st;
+      if (!traversing) mark();
     });
   }
 }

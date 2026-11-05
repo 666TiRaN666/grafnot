@@ -89,6 +89,36 @@ export interface ImageRender {
   size: [number, number] | null;
 }
 
+/** Danbooru counts read as words by a natural-language model. */
+const SUBJECT_WORDS: Record<string, string> = {
+  '1girl': 'a girl', '1boy': 'a boy', '2girls': 'two girls', '2boys': 'two boys', '3girls': 'three girls', '1other': 'a person',
+};
+
+const listOf = (xs: string[]): string => (xs.length < 2 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+
+/** Flux reads prose (focus group: a tag list is not natural language):
+ * subject, look, outfit and pose form the first sentence, the other lanes
+ * become labelled phrases. Quality tags and weights mean nothing to Flux. */
+export function fluxSentence(tokens: string[], overrides: Record<string, TagCat> = {}): string {
+  const lane = new Map<TagCat, string[]>();
+  for (const t of tokens) {
+    const tag = stripWeight(t);
+    if (!tag) continue;
+    const c = catOf(t, overrides);
+    lane.set(c, [...(lane.get(c) ?? []), tag]);
+  }
+  const of = (c: TagCat) => lane.get(c) ?? [];
+  const subject = listOf(of('subject').filter((x) => x.toLowerCase() !== 'solo').map((x) => SUBJECT_WORDS[x.toLowerCase()] ?? x));
+  let first = subject;
+  if (of('look').length) first += (first ? ' with ' : '') + listOf(of('look'));
+  if (of('outfit').length) first += (first ? ', wearing ' : 'Wearing ') + listOf(of('outfit'));
+  if (of('pose').length) first += (first ? ', ' : '') + of('pose').join(', ');
+  const parts = first ? [first.charAt(0).toUpperCase() + first.slice(1) + '.'] : [];
+  const labelled: [TagCat, string][] = [['scene', 'Setting'], ['light', 'Lighting'], ['style', 'Style'], ['camera', 'Shot'], ['other', 'Details']];
+  for (const [c, label] of labelled) if (of(c).length) parts.push(`${label}: ${of(c).join(', ')}.`);
+  return parts.join(' ');
+}
+
 export function renderImage(spec: ImageSpecLike): ImageRender {
   const tokens = orderTokens(spec.tokens, spec.tagCats);
   const neg = spec.negative.map((t) => stripWeight(t)).filter(Boolean);
@@ -97,7 +127,7 @@ export function renderImage(spec: ImageSpecLike): ImageRender {
     const params = [` --ar ${spec.aspect}`, neg.length ? ` --no ${neg.join(', ')}` : ''].join('');
     return { positive: body ? body + params : '', negative: '', negativeSupported: true, size: null };
   }
-  const body = renderPrompt(spec.model, tokens);
+  const body = spec.model === 'Flux' ? fluxSentence(tokens, spec.tagCats) : renderPrompt(spec.model, tokens);
   const positive = spec.model === 'Pony' && spec.ponyScore && body ? `${PONY_SCORE}, ${body}` : body;
   const supported = spec.model !== 'Flux';
   return { positive, negative: supported ? neg.join(', ') : '', negativeSupported: supported, size: ASPECTS[spec.aspect] };

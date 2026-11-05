@@ -104,7 +104,7 @@ export function PlanWeek({
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
         setOffset((o) => o + 1);
-      } else if (e.key === "t" || e.key === "T") {
+      } else if (e.key === "t" || e.key === "T" || e.code === "KeyT") {
         e.preventDefault();
         setOffset(0);
       }
@@ -246,7 +246,7 @@ export function PlanWeek({
       </div>
       ) : (
       <div className="w-mobile">
-        <div className="g-seg" role="group" aria-label="week view">
+        <div className="g-seg" role="group" aria-label={tr("weekViewA", lang)}>
           {(["day", "inbox"] as const).map((v) => (
             <button
               key={v}
@@ -260,7 +260,7 @@ export function PlanWeek({
         </div>
         {mTab === "day" ? (
           <>
-            <div className="w-mstrip" role="group" aria-label="days">
+            <div className="w-mstrip" role="group" aria-label={tr("weekDaysA", lang)}>
               {days.map((iso) => (
                 <button
                   key={iso}
@@ -398,7 +398,7 @@ function DayPopup({
           }
         }}
         placeholder={tr("addTaskPh", lang)}
-        aria-label="new task"
+        aria-label={tr("addTaskPh", lang)}
       />
       {!showDesc && (
         <button type="button" className="t-adddesc" onClick={() => setShowDesc(true)}>
@@ -411,7 +411,7 @@ function DayPopup({
           value={desc}
           onChange={(e) => setDesc(e.target.value)}
           placeholder={tr("descPh", lang)}
-          aria-label="description"
+          aria-label={tr("descPh", lang)}
           rows={2}
         />
       )}

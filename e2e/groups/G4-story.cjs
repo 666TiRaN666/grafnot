@@ -179,6 +179,14 @@ module.exports = async function (t) {
   });
   await check('P12 zoom+drag', async () => {
     const scaleOf = (tf) => Number((/scale\(([-\d.]+)\)/.exec(tf || '') || [])[1]);
+    // The previous check switched graphs: the camera is still fitting the new
+    // one. Read the start only once the transform holds for 300 ms.
+    await page.waitForFunction(() => {
+      const tf = document.querySelector('g.g-view')?.getAttribute('transform');
+      const w = window;
+      if (w.__tfLast !== tf) { w.__tfLast = tf; w.__tfAt = performance.now(); return false; }
+      return performance.now() - w.__tfAt > 300;
+    }, null, { timeout: 8000, polling: 50 });
     const before = await page.locator('g.g-view').getAttribute('transform');
     await page.getByLabel('Приблизить').click();
     const after = await page.locator('g.g-view').getAttribute('transform');

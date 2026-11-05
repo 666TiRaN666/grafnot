@@ -25,11 +25,11 @@ module.exports = async function (t) {
   }));
   const activeTestid = () => page.evaluate(() => (document.activeElement || {}).getAttribute?.('data-testid'));
 
-  await check('S12 keys page lists the 19 registry rows', async () => {
+  await check('S12 keys page lists the 23 registry rows', async () => {
     await page.getByTestId('nav-settings').click();
     await page.getByTestId('settings-nav-keys').click();
     await page.getByTestId('keys-row').first().waitFor();
-    assert((await page.getByTestId('keys-row').count()) === 19, 'keys rows != registry');
+    assert((await page.getByTestId('keys-row').count()) === 23, 'keys rows != registry');
   });
 
   await check('S12 Ctrl+K opens palette, Esc closes', async () => {
@@ -170,13 +170,75 @@ module.exports = async function (t) {
     await page.locator('.g-toasts', { hasText: 'Скопировано' }).waitFor({ timeout: 8000 });
   });
 
+  await check('S12 [[ links a note, Ctrl+click opens it; Ctrl+S saves a template; Alt+arrows move a tag', async () => {
+    await page.evaluate(() => { window.location.hash = '#/notes/a1'; });
+    await page.waitForFunction(() => document.querySelector('[data-testid="title-in"]')?.value === 'Alpha', null, { timeout: 8000 });
+    await page.getByTestId('editor').getByRole('textbox').click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type(' [[Bet');
+    await page.getByTestId('link-suggest').waitFor();
+    await page.keyboard.press('Enter');
+    await page.locator('[data-wikilink="Beta"]').first().click({ modifiers: ['Control'] });
+    await page.waitForFunction(() => location.hash === '#/notes/b1', null, { timeout: 8000 });
+    await page.evaluate(() => { window.location.hash = '#/prompts/new'; });
+    await page.getByTestId('prompt-builder').waitFor();
+    await page.getByTestId('builder-name').fill('Keys probe');
+    await page.getByTestId('builder-body').fill('Hello {{who}}');
+    await page.keyboard.press('Control+s');
+    await page.waitForFunction(() => (JSON.parse(localStorage.getItem('grafnot-store-p1') || '{}').customTpls || []).some((x) => x.name === 'Keys probe'), null, { timeout: 8000 });
+    await page.getByTestId('nav-prompt').click();
+    await page.locator('[data-testid="prompt-item"]', { hasText: 'Арт: персонаж' }).click();
+    await page.getByTestId('tag-input').fill('green eyes');
+    await page.keyboard.press('Enter');
+    const look = () => page.getByTestId('lane-look').locator('[data-testid="tag-chip"]').allInnerTexts();
+    await page.getByTestId('lane-look').locator('[data-testid="tag-chip"]', { hasText: 'green eyes' }).waitFor();
+    const before = await look();
+    assert(before.length >= 2 && before[before.length - 1].includes('green eyes'), 'look lane: ' + before.join('|'));
+    await page.getByTestId('lane-look').locator('[data-testid="tag-chip"]', { hasText: 'green eyes' }).click();
+    await page.keyboard.press('Alt+ArrowLeft');
+    const after = await look();
+    assert(after[after.length - 2].includes('green eyes'), 'Alt+Left did not move the tag: ' + after.join('|'));
+  });
+
+  await check('S12 shortcuts work in a Russian/Kazakh layout, Ctrl+Alt+N also from the text', async () => {
+    // A Cyrillic layout reports the letter it types (key 'л' for K) and the physical key in code.
+    const press = (key, code, mods = {}) => page.evaluate(([k, c, m]) => {
+      const el = document.activeElement || document.body;
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: k, code: c, bubbles: true, cancelable: true, ...m }));
+    }, [key, code, mods]);
+    await page.getByTestId('nav-notes').click();
+    await page.getByTestId('note-item').first().waitFor();
+    await press('л', 'KeyK', { ctrlKey: true });
+    await page.getByTestId('palette').waitFor({ timeout: 5000 }).catch(() => { throw new Error('Ctrl+K (л) did not open the palette'); });
+    await page.keyboard.press('Escape');
+    await page.getByTestId('nav-plan').click();
+    await page.getByTestId('task-search').waitFor();
+    await press('т', 'KeyN');
+    assert((await activeTestid()) === 'task-composer-title', 'N (т) did not focus the task composer');
+    await page.getByTestId('plan-view-week').click();
+    const first = () => page.locator('[data-testid^="day-cell-"]').first().getAttribute('data-testid');
+    const was = await first();
+    await page.keyboard.press('ArrowRight');
+    await page.waitForFunction((w) => document.querySelectorAll('[data-testid^="day-cell-"]')[0]?.getAttribute('data-testid') !== w, was, { timeout: 8000 });
+    await press('е', 'KeyT');
+    await page.waitForFunction((w) => document.querySelectorAll('[data-testid^="day-cell-"]')[0]?.getAttribute('data-testid') === w, was, { timeout: 5000 })
+      .catch(() => { throw new Error('T (е) did not return to this week'); });
+    await page.getByTestId('nav-notes').click();
+    await page.getByTestId('note-item').first().click();
+    await page.getByTestId('editor').getByRole('textbox').click();
+    const before = await page.getByTestId('note-item').count();
+    await press('т', 'KeyN', { ctrlKey: true, altKey: true });
+    await page.waitForFunction((n) => document.querySelectorAll('[data-testid="note-item"]').length === n + 1, before, { timeout: 5000 })
+      .catch(() => { throw new Error('Ctrl+Alt+N from the text created no note'); });
+  });
+
   await check('S12 KZ keys layout has no overflow', async () => {
     await page.getByTestId('nav-settings').click();
     await page.getByTestId('settings-nav-appearance').click();
     await page.getByRole('button', { name: 'Қазақша', exact: true }).click();
     await page.getByTestId('settings-nav-keys').click();
     await page.getByTestId('keys-row').first().waitFor();
-    assert((await page.getByTestId('keys-row').count()) === 19, 'keys rows missing in KZ');
+    assert((await page.getByTestId('keys-row').count()) === 23, 'keys rows missing in KZ');
     const bad = await page.evaluate(() => {
       const de = document.documentElement;
       return de.scrollWidth <= window.innerWidth + 1 ? null : `${de.scrollWidth}>${window.innerWidth}`;

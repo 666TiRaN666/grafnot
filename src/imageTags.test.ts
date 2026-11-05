@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyWeight, filterTags, formatWeight, moveTag, parseTagInput, stripWeight, tagWeight } from "./imageTags";
+import { applyWeight, filterTags, formatWeight, moveTag, parseTagInput, stepWeight, stripWeight, tagWeight, weightValue } from "./imageTags";
 
 const DICT = [{ tag: "blue hair" }, { tag: "blue eyes" }, { tag: "sunset" }];
 
@@ -53,5 +53,22 @@ describe("formatWeight per model (P3)", () => {
     expect(formatWeight("Flux", "((tag))", "high")).toBe("tag");
     expect(formatWeight("Flux", "[tag]", "low")).toBe("tag");
     expect(formatWeight("Flux", "tag", "normal")).toBe("tag");
+  });
+});
+
+describe("fine weight steps (focus group: three steps were too coarse)", () => {
+  it("reads the number, legacy brackets and plain tags", () => {
+    expect(weightValue("(tag:1.3)")).toBe(1.3);
+    expect(weightValue("((tag))")).toBe(1.2);
+    expect(weightValue("[tag]")).toBe(0.8);
+    expect(weightValue("tag")).toBe(1);
+  });
+  it("steps by 0.1 within 0.1..2, and 1.0 is the plain tag", () => {
+    expect(stepWeight("tag", 1)).toBe("(tag:1.1)");
+    expect(stepWeight("(tag:1.1)", -1)).toBe("tag");
+    expect(stepWeight("(tag:0.8)", -1)).toBe("(tag:0.7)");
+    expect(stepWeight("(tag:2)", 1)).toBe("(tag:2)");
+    expect(stepWeight("(tag:0.1)", -1)).toBe("(tag:0.1)");
+    expect(tagWeight(stepWeight("tag", 1))).toBe("high");
   });
 });

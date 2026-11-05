@@ -75,6 +75,23 @@ export function applyWeight(tag: string, w: TagWeight): string {
   return base;
 }
 
+/** Exact emphasis of a token: 1 for a plain tag, legacy brackets as high/low. */
+export function weightValue(token: string): number {
+  const m = NUM_WEIGHT.exec(token.trim());
+  if (m) return Number(m[2]);
+  const w = tagWeight(token);
+  return w === "high" ? WEIGHT_HIGH : w === "low" ? WEIGHT_LOW : 1;
+}
+
+/** One 0.1 step up or down within 0.1..2 (focus group: three steps were too
+ * coarse); exactly 1 writes the plain tag. */
+export function stepWeight(token: string, dir: -1 | 1): string {
+  const base = stripWeight(token);
+  if (!base) return base;
+  const v = Math.min(2, Math.max(0.1, Math.round((weightValue(token) + dir * 0.1) * 10) / 10));
+  return v === 1 ? base : `(${base}:${v})`;
+}
+
 export type WeightModel = "Pony" | "SDXL" | "Flux" | "Midjourney";
 
 /** Models that understand bracket emphasis (the chip menu shows weights only for these). */

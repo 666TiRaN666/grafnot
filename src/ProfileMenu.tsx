@@ -4,6 +4,7 @@ import { tr } from './i18n';
 import type { ProfileRegistry } from './profiles';
 import { profileLabel } from './profiles';
 import { useListNav } from './useListNav';
+import { Icon } from './widgets';
 
 export function ProfileMenu({ lang, registry, activeId, collapsed, onSelect, onManage, onTrash, trashCount, onSettings }: {
   lang: Lang; registry: ProfileRegistry; activeId: string; collapsed: boolean;
@@ -31,7 +32,8 @@ export function ProfileMenu({ lang, registry, activeId, collapsed, onSelect, onM
   }, [open]);
   return <div className="profile-menu" ref={root}>
     <button ref={trigger} type="button" data-testid="profile-menu-open" className="s-navbtn" aria-label={tr('profilesT', lang)} aria-description={active ? profileLabel(active.name, lang) : undefined} aria-haspopup="menu" aria-expanded={open} title={active ? profileLabel(active.name, lang) : undefined} onClick={() => setOpen(v => !v)}>
-      <span aria-hidden="true">◔</span>{!collapsed && <span className="profile-label">{active ? profileLabel(active.name, lang) : tr('profilesT', lang)} ▾</span>}
+      {/* An outline icon, not the ◔ glyph: Linux fonts drew it as a dot (stage 6). */}
+      <Icon n="user" />{!collapsed && <span className="profile-label">{active ? profileLabel(active.name, lang) : tr('profilesT', lang)} ▾</span>}
     </button>
     {open && <div role="menu" className="profile-pop" data-testid="profile-menu" onKeyDown={e => {
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setOpen(false); trigger.current?.focus(); return; }

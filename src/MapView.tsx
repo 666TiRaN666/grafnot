@@ -724,7 +724,7 @@ export function MapView({
             }
           }}
           placeholder={tr("linkSearchPh", lang)}
-          aria-label="find node"
+          aria-label={tr("mapFindNodeA", lang)}
         />
         {searchGo && searchPool.length > 0 && (
           <div className="m-searchpop" role="listbox">
@@ -810,7 +810,7 @@ export function MapView({
                   setRenaming(false);
                 }
               }}
-              aria-label="graph title"
+              aria-label={tr("mapGraphNameA", lang)}
             />
           ) : (
             <button
@@ -834,7 +834,7 @@ export function MapView({
                 value={switcherQ}
                 onChange={(e) => setSwitcherQ(e.target.value)}
                 placeholder={tr("linkSearchPh", lang)}
-                aria-label="find graph"
+                aria-label={tr("mapFindGraphA", lang)}
               />
               <button
                 type="button"
@@ -1064,7 +1064,7 @@ export function MapView({
                 value={linkQuery}
                 onChange={(e) => setLinkQuery(e.target.value)}
                 placeholder={tr("linkSearchPh", lang)}
-                aria-label="find note"
+                aria-label={tr("mapFindNoteA", lang)}
               />
               {linkPool.map((n) => (
                   <button
@@ -1108,9 +1108,9 @@ export function MapView({
               onChange={(e) => members.changeQuery(e.target.value)}
               onKeyDown={members.nav.onKeyDown}
               placeholder={tr("linkSearchPh", lang)}
-              aria-label="find member"
+              aria-label={tr("mapFindMemberA", lang)}
             />
-            <div className="g-seg" role="group" aria-label="membership">
+            <div className="g-seg" role="group" aria-label={tr("mapMembershipA", lang)}>
               {(
                 [
                   ["all", tr("tplFAll", lang)],
@@ -1132,7 +1132,8 @@ export function MapView({
                 </button>
               ))}
             </div>
-            <div className="g-seg" role="group" aria-label="limit">
+            <div className="g-seg m-limit" role="group" aria-label={tr("mapLimitL", lang)}>
+              <span className="muted small">{tr("mapLimitL", lang)}</span>
               {TPL_LIMITS.map((n) => (
                 <button
                   key={n}

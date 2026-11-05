@@ -135,7 +135,8 @@ module.exports = async function (t) {
     const got = await chips().allInnerTexts();
     assert(got.length === 2 && got[0].includes('(blue eyes:1.2)') && got[1].includes('watercolor'), 'tags not restored: ' + got.join('|'));
     const res = (await page.getByTestId('prompt-result').innerText()).trim();
-    assert(res === 'blue eyes and watercolor', 'result (and counter) wrong: ' + res);
+    // Flux reads a sentence (focus group); the weight never reaches its text.
+    assert(res === 'Blue eyes. Details: watercolor.', 'result (and counter) wrong: ' + res);
     await page.getByTestId('prompt-workbench').getByRole('button', { name: 'Pony', exact: true }).click();
     await page.waitForFunction(
       () => (document.querySelector('[data-testid="prompt-result"]')?.textContent || '') === '(blue eyes:1.2), watercolor',
@@ -188,6 +189,26 @@ module.exports = async function (t) {
     await page.getByRole('menuitem', { name: /Раньше/ }).click();
     const after = await look();
     assert(after[after.length - 2] === before[before.length - 1] && after[after.length - 1] === before[before.length - 2], 'menu did not move the tag: ' + after.join('|'));
+  });
+
+  await check('Image: weight steps by 0.1 in the chip menu; Flux reads a sentence', async () => {
+    await openImageWb();
+    await page.getByTestId('tag-input').fill('green eyes');
+    await page.keyboard.press('Enter');
+    const chip = page.getByTestId('lane-look').locator('[data-testid="tag-chip"]', { hasText: 'green eyes' });
+    await chip.getByLabel('Меню').click();
+    assert(await page.getByTestId('tag-w-value').innerText() === '1.0', 'weight value missing');
+    await page.getByTestId('tag-w-up').click();
+    await page.getByTestId('tag-w-up').click();
+    await page.getByTestId('tag-w-up').click();
+    await page.getByTestId('lane-look').locator('[data-testid="tag-chip"]', { hasText: '(green eyes:1.3)' }).waitFor({ timeout: 5000 })
+      .catch(() => { throw new Error('three steps did not give 1.3'); });
+    assert(await page.getByTestId('tag-w-value').innerText() === '1.3', 'value not shown after steps');
+    assert((await result()).includes('(green eyes:1.3)'), 'weight missing from the prompt: ' + await result());
+    await page.keyboard.press('Escape');
+    await model('Flux');
+    const flux = await result();
+    assert(/^A girl\b/.test(flux) && flux.includes('green eyes') && !flux.includes('(green eyes') && !flux.includes('masterpiece') && /\.$/.test(flux), 'Flux is not a sentence: ' + flux);
   });
 
   await check('Image: a tag moved to another lane takes the prompt order with it', async () => {

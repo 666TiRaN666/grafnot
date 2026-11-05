@@ -1,4 +1,5 @@
 import { renderSkill } from './skillModel';
+import type { Lang } from './i18n';
 
 export interface SearchItem {
   id: string;
@@ -155,3 +156,28 @@ export const LLM_TEMPLATES: LlmTpl[] = [
   },
   ...BUILTIN_SKILLS.map((s): LlmTpl => ({ id: s.id, name: s.name, body: renderSkill(s.skill, 'RU'), defaults: {}, kind: 'skill', skill: s.skill })),
 ];
+
+/** Built-in names in the interface language (focus group: Russian names in EN/KZ).
+ * Bodies keep their language: saved prompts store values by slot name, and the
+ * prompt language is the owner's call (see docs/actual/Redesign_Status.md). */
+const BUILTIN_NAMES: Record<string, { EN: string; KZ: string }> = {
+  cr: { EN: 'Code review', KZ: 'Код ревьюі' },
+  sql: { EN: 'Explain SQL', KZ: 'SQL түсіндіру' },
+  ent: { EN: 'ENT study plan', KZ: 'ҰБТ дайындық жоспары' },
+  art: { EN: 'Art: character', KZ: 'Арт: кейіпкер' },
+  struct: { EN: 'Structured prompt', KZ: 'Құрылымды промпт' },
+  improve: { EN: 'Improve a prompt', KZ: 'Промптты жақсарту' },
+  fewshot: { EN: 'Classify by examples', KZ: 'Мысалдар бойынша жіктеу' },
+  'sk-review': { EN: 'Skill: code review', KZ: 'Дағды: код ревьюі' },
+  'sk-tutor': { EN: 'System prompt: tutor', KZ: 'Жүйелік промпт: репетитор' },
+  'sk-agents': { EN: 'AGENTS.md: project rules', KZ: 'AGENTS.md: жоба ережелері' },
+};
+
+/** LLM_TEMPLATES with display names for `lang`; ids, bodies and fields unchanged. */
+export function builtinTemplates(lang: Lang): LlmTpl[] {
+  if (lang === 'RU') return LLM_TEMPLATES;
+  return LLM_TEMPLATES.map((t) => {
+    const name = BUILTIN_NAMES[t.id]?.[lang];
+    return name ? { ...t, name } : t;
+  });
+}

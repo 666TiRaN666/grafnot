@@ -15,6 +15,10 @@ module.exports = async function (t) {
       return { schemaVersion: 5, notes, tasks: [], trash: [], trashTasks: [], graphs: [], prompts: [], customTpls: [], activeId: 'sn1' };
     })()));
     await page.getByTestId('nav-notes').click();
+    // Entering the section resets its search: let that navigation land before typing.
+    await page.waitForFunction(() => location.hash === '#/notes', null, { timeout: 8000 });
+    // location.hash changes at once; hashchange and the re-render follow: two frames.
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     // S3/N9: no limit selector; one batch of 50 with an honest counter.
     assert((await page.locator('.g-noterow').count()) === 12, 'N9 batch broken');
     assert((await page.locator('.g-notes-tools').first().locator('..').innerText()).includes('12 из 12'), 'no shown-of counter');

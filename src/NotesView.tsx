@@ -787,7 +787,7 @@ export function NotesView({
         searchRef.current?.focus();
         return;
       }
-      if ((e.key === "n" || e.key === "т") && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && !inField && !(e.target as HTMLElement)?.closest?.(".g-modal")) {
+      if ((e.key === "n" || e.code === "KeyN") && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && !inField && !(e.target as HTMLElement)?.closest?.(".g-modal")) {
         e.preventDefault();
         onNew();
         return;
@@ -906,7 +906,7 @@ export function NotesView({
                 onChange={(e) => list.changeQuery(e.target.value)}
                 onKeyDown={list.nav.onKeyDown}
                 placeholder={tr("linkSearchPh", lang)}
-                aria-label="filter"
+                aria-label={tr("linkSearchPh", lang)}
               />
             </div>
             {list.filtered.length === 0 && (

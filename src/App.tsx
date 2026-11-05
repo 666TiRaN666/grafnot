@@ -80,7 +80,7 @@ import { useMedia } from './ui/useMedia';
 import { useKeyboardOpen } from './ui/useKeyboard';
 import { backupFileName, exportRaw, exportMemory, importedProfileName } from "./exportRaw";
 import { SNIPPET_LEN, buildTplEntries, imageInit, makeSnippet, promptPreview } from "./promptUtils";
-import { LLM_TEMPLATES } from "./data";
+import { LLM_TEMPLATES, builtinTemplates } from "./data";
 import { newId } from "./utils/newId";
 import { consumeActiveIdReset, decideFlush, ensureRegistryCached, freshStore, hasLegacyKey, loadProfileStore, nextSaveState, sameStoreContent, settleStore, shouldPersist, verifyStoredMatches } from "./storage/profileBoot";
 import type { SaveState, StoreBlocked } from "./storage/profileBoot";
@@ -559,15 +559,17 @@ export default function App() {
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (storeBlockedRef.current || e.isComposing || e.keyCode === 229) return;
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      // Letters by physical key too: a Cyrillic layout reports 'л' for K.
+      const letter = (l: string) => e.key.toLowerCase() === l || e.code === 'Key' + l.toUpperCase();
+      if ((e.ctrlKey || e.metaKey) && letter('k')) {
         e.preventDefault();
         setPaletteOpen(true);
       } else if (e.altKey && e.key === '0') {
         e.preventDefault();
         resetPanels();
-      } else if ((e.ctrlKey || e.metaKey) && e.altKey && e.key.toLowerCase() === 'n') {
-        const t = e.target as HTMLElement | null;
-        if (t && t.closest && t.closest('input,textarea,[contenteditable="true"]')) return;
+      } else if ((e.ctrlKey || e.metaKey) && e.altKey && letter('n')) {
+        // Works from the text too; AltGr (reported as Ctrl+Alt on Windows) still types its character.
+        if (e.getModifierState?.('AltGraph')) return;
         e.preventDefault();
         newBlank();
       } else if (e.key === 'Escape') {
@@ -1270,7 +1272,7 @@ export default function App() {
   // S6: the palette searches the unified library (templates + saves).
   const palettePrompts: PaletteEntry[] = useMemo(
     () => [
-      ...buildTplEntries(LLM_TEMPLATES, store.customTpls).map((e): PaletteEntry => ({
+      ...buildTplEntries(builtinTemplates(lang), store.customTpls).map((e): PaletteEntry => ({
         id: `s-${e.tpl.id}`,
         group: 'prompts',
         title: e.tpl.name,
@@ -1424,7 +1426,7 @@ export default function App() {
   }, [openNoteId, activeId]);
   // S9: template routes render the workbench (save mode when the id is a
   // save); builder and unknown ids are resolved separately below.
-  const tplEntries = useMemo(() => buildTplEntries(LLM_TEMPLATES, store.customTpls), [store.customTpls]);
+  const tplEntries = useMemo(() => buildTplEntries(builtinTemplates(lang), store.customTpls), [store.customTpls, lang]);
   const promptParam = section === 'prompts' ? (route.param ?? null) : null;
   const wbSave =
     promptParam && !promptParam.includes('/')
@@ -1578,7 +1580,10 @@ export default function App() {
 
         <div className="s-main">
           <header data-testid="page-header" className="s-header">
-            <h1 className="s-title">{sectionTitle}</h1>
+            {/* Phone: an open note's way back lives in the header, not in a row above the text (focus group). */}
+            <h1 className="s-title">{isPhone && section === 'notes' && openNote
+              ? <button type="button" data-testid="notes-back" className="s-back" onClick={() => go('notes')}>← {tr('goBack', lang)}</button>
+              : sectionTitle}</h1>
             {isPhone && searchBtn}
             {isPhone && <button type="button" className="s-save-details" data-testid="save-details" aria-label={saveText} onClick={showSaveDetails}>{saveStatus}</button>}
             {isPhone && profileMenu}
@@ -1756,7 +1761,7 @@ export default function App() {
           <ErrorBoundary key={section} lang={lang} profileId={profileId} onHome={() => go('notes')}>
           {section === 'notes' && (
             <>
-              {openNote && (
+              {openNote && !isPhone && (
                 <button type="button" data-testid="notes-back" className="g-btn sm ghost" onClick={() => go('notes')}>
                   ← {tr('goBack', lang)}
                 </button>
@@ -1768,7 +1773,7 @@ export default function App() {
           )}
           {section === 'plan' && (
             <>
-              <div className="g-seg" role="group" aria-label="plan view">
+              <div className="g-seg" role="group" aria-label={tr("planViewA", lang)}>
                 <button
                   type="button"
                   data-testid="plan-view-list"
@@ -2022,7 +2027,7 @@ export default function App() {
         </main>
         </div>
 
-      <nav data-testid="tabbar" className="s-tabbar" aria-label="sections">
+      <nav data-testid="tabbar" className="s-tabbar" aria-label={tr("sectionsA", lang)}>
         <button type="button" data-testid="tab-notes" className={`s-tabbtn${section === 'notes' ? ' active' : ''}`} onClick={() => go('notes')}>
           <Icon n="note" />
           <span>{tr('notebooks', lang)}</span>

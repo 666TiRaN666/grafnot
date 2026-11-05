@@ -58,7 +58,7 @@ export function Palette({
           }}
           onKeyDown={nav.onKeyDown}
           placeholder={tr('search_ph', lang)}
-          aria-label="search"
+          aria-label={tr('navSearch', lang)}
         />
         <div className="s-pal-list">
           {rows.length === 0 && <div className="muted">{tr('noResults', lang)}</div>}

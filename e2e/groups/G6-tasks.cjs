@@ -42,7 +42,7 @@ module.exports = async function (t) {
     await check('P17a task to trash and restore', async () => {
     await page.getByTestId('nav-plan').click();
     await page.getByTestId('task-composer').click();
-    await page.locator('.g-page input[aria-label="new task"]').fill('TrashProbe');
+    await page.getByTestId('task-composer-title').fill('TrashProbe');
     await page.getByRole('button', { name: 'Добавить', exact: true }).click();
     await page.locator('.g-taskline', { hasText: 'TrashProbe' }).waitFor();
     // S4: immediate delete with Undo instead of arm-confirm.

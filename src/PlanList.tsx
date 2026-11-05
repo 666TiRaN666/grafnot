@@ -183,7 +183,7 @@ export function PlanList({
         searchRef.current?.focus();
         return;
       }
-      if (e.key === "n" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && !inField && !inModal) {
+      if ((e.key === "n" || e.code === "KeyN") && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && !inField && !inModal) {
         e.preventDefault();
         openComposer();
       }
@@ -384,7 +384,7 @@ export function PlanList({
                   }
                 }}
                 placeholder={tr("addTaskPh", lang)}
-                aria-label="new task"
+                aria-label={tr("addTaskPh", lang)}
               />
               {!cShowDesc && (
                 <button type="button" className="t-adddesc" onClick={() => setCShowDesc(true)}>
@@ -397,7 +397,7 @@ export function PlanList({
                   value={cDesc}
                   onChange={(e) => setCDesc(e.target.value)}
                   placeholder={tr("descPh", lang)}
-                  aria-label="description"
+                  aria-label={tr("descPh", lang)}
                   rows={2}
                 />
               )}
@@ -408,7 +408,7 @@ export function PlanList({
                   className="g-date"
                   value={cDue}
                   onChange={(e) => setCDue(e.target.value)}
-                  aria-label="due date"
+                  aria-label={tr("dueDateA", lang)}
                 />
               )}
               <button type="button" data-testid="task-add" className="g-btn primary t-add" onClick={submitComposer}>
@@ -435,7 +435,7 @@ export function PlanList({
               }
             }}
             placeholder={tr("taskSearchPh", lang)}
-            aria-label="filter tasks"
+            aria-label={tr("taskSearchPh", lang)}
           />
         </div>
 
@@ -566,7 +566,7 @@ export function TaskPanel({
         ×
       </button>
       <label className="t-field">
-        <span className="muted small">{tr("addTaskPh", lang)}</span>
+        <span className="muted small">{tr("taskNameL", lang)}</span>
         <input
           data-testid="task-panel-title"
           autoFocus={focusTitle}
@@ -576,7 +576,7 @@ export function TaskPanel({
             if (title.trim() && title !== task.text) onUpdate(task.id, { text: title.trim() });
             else setTitle(task.text);
           }}
-          aria-label="title"
+          aria-label={tr("taskNameL", lang)}
         />
       </label>
       <label className="t-field">
@@ -590,7 +590,7 @@ export function TaskPanel({
             if (desc !== (task.desc ?? "")) onUpdate(task.id, { desc: desc || undefined });
           }}
           rows={3}
-          aria-label="description"
+          aria-label={tr("descPh", lang)}
         />
       </label>
       <div className="t-field">
@@ -621,7 +621,7 @@ export function TaskPanel({
           className="g-date"
           value={task.due ?? ""}
           onChange={(e) => onUpdate(task.id, { due: e.target.value || undefined })}
-          aria-label="due date"
+          aria-label={tr("dueDateA", lang)}
         />
       </div>
       {task.noteId && (

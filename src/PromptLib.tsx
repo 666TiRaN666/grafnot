@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Lang } from "./i18n";
 import { tr } from "./i18n";
 import type { LlmTpl } from "./data";
-import { LLM_TEMPLATES } from "./data";
+import { builtinTemplates } from "./data";
 import { DATASET_VERSION, TAG_DATA } from "./promptData";
 import type { PromptSave } from "./store";
 import { Hi } from "./widgets";
@@ -51,7 +51,7 @@ export function PromptLib({
   const [renameDraft, setRenameDraft] = useState("");
   const searchRef = useRef<HTMLInputElement | null>(null);
 
-  const entries = useMemo(() => buildLibrary(LLM_TEMPLATES, customTpls, saves), [customTpls, saves]);
+  const entries = useMemo(() => buildLibrary(builtinTemplates(lang), customTpls, saves), [customTpls, saves, lang]);
   const select = useCallback((q: string) => filterLibrary(entries, q, seg), [entries, seg]);
   const list = useListState({ key: "prompts", profileId, select, limit: LIB_PAGE, onPick: (e) => onSelect(e.id) });
   const saveCount = useMemo(() => {
@@ -85,7 +85,7 @@ export function PromptLib({
         return;
       }
       // `N` creates, as in notes and tasks: here it opens the «New» menu.
-      if ((e.key === "n" || e.key === "т") && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && !inField && !(e.target as HTMLElement)?.closest?.(".g-modal")) {
+      if ((e.key === "n" || e.code === "KeyN") && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && !inField && !(e.target as HTMLElement)?.closest?.(".g-modal")) {
         e.preventDefault();
         setNewOpen(true);
         window.requestAnimationFrame(() => newMenuRef.current?.querySelector<HTMLButtonElement>("button")?.focus());
@@ -180,9 +180,9 @@ export function PromptLib({
         onChange={(e) => list.changeQuery(e.target.value)}
         onKeyDown={list.nav.onKeyDown}
         placeholder={tr("tplSearchPh", lang)}
-        aria-label="library search"
+        aria-label={tr("tplSearchPh", lang)}
       />
-      <div className="p-segs" role="group" aria-label="library filter">
+      <div className="p-segs" role="group" aria-label={tr("libFilterA", lang)}>
         {segs.map((s) => (
           <button
             key={s.id}

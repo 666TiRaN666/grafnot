@@ -91,7 +91,7 @@ export function NoteAttach({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={tr("linkSearchPh", lang)}
-            aria-label="find note"
+            aria-label={tr("linkSearchPh", lang)}
           />
           {rows.map((n, ni) => (
             <button

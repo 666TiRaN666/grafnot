@@ -88,7 +88,7 @@ export function SettingsPage({
           ))}
         </div>
       </div>
-      <div className="g-seg" role="group" aria-label="settings sections">
+      <div className="g-seg" role="group" aria-label={tr('settingsSectionsA', lang)}>
         {SETTINGS_SECTIONS.map((s) => (
           <button
             key={s}
@@ -196,7 +196,7 @@ export function SettingsPage({
           <label className="add-mode-field">{tr('addModeTitle', lang)}<select data-testid="add-mode" value={addMode} onChange={e => onAddMode(e.target.value as AddMode)}><option value="section">{tr('addModeSection', lang)}</option><option value="note">{tr('addModeNote', lang)}</option><option value="choose">{tr('addModeChoose', lang)}</option></select></label>
           <div className="g-field">
             <span>{tr('themeL', lang)}</span>
-            <div className="g-seg" role="group" aria-label="theme">
+            <div className="g-seg" role="group" aria-label={tr('themeL', lang)}>
               <button
                 type="button"
                 className={'g-btn sm' + (theme === 'light' ? ' active' : '')}

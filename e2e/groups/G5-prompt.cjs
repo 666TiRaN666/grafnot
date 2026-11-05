@@ -117,13 +117,13 @@ module.exports = async function (t) {
   await check('P14 no cloud sync wording', async () => {
     // The status honestly shows Сохраняется… while a save is armed: let the
     // debounce window settle so the wording assertions read a final state.
+    // Wait for the final wording in one condition: a second read could land on a new save.
     await page.waitForFunction(
-      () => !document.querySelector('[data-testid="save-state"]')?.textContent?.includes('Сохраняется'),
+      () => document.querySelector('[data-testid="save-state"]')?.textContent?.includes('Сохранено локально'),
       null,
       { timeout: 8000 },
-    );
+    ).catch(async () => { throw new Error('save-state: ' + await page.getByTestId('save-state').innerText()); });
     const status = await page.getByTestId('save-state').innerText();
-    assert(status.includes('Сохранено локально'), `save-state: ${status}`);
     assert(!status.includes('синхронизировано'), 'sync illusion in save-state');
     assert((await page.getByRole('button', { name: 'Синхронизировать' }).count()) === 0, 'sync button present');
     const main = await page.locator('.g-main').innerText();

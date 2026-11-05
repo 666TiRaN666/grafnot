@@ -27,6 +27,8 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'notes-search', keys: '/', labelKey: 'scNotesSearch', scope: 'notes' },
   { id: 'notes-new', keys: 'N', labelKey: 'scNew', scope: 'notes' },
   { id: 'note-task', keys: 'Ctrl+Alt+T', labelKey: 'scNoteTask', scope: 'notes' },
+  { id: 'note-link', keys: '[[', labelKey: 'scNoteLink', scope: 'notes' },
+  { id: 'note-link-open', keys: 'Ctrl+Click', labelKey: 'scLinkOpen', scope: 'notes' },
   { id: 'plan-search', keys: '/', labelKey: 'scPlanSearch', scope: 'plan-list' },
   { id: 'plan-new', keys: 'N', labelKey: 'scPlanNew', scope: 'plan-list' },
   { id: 'task-open', keys: 'Enter', labelKey: 'scTaskOpen', scope: 'plan-list' },
@@ -39,4 +41,6 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'trash-search', keys: '/', labelKey: 'scTrashSearch', scope: 'trash' },
   { id: 'builder-field', keys: 'Ctrl+Shift+F', labelKey: 'scBuilderField', scope: 'prompts' },
   { id: 'wb-copy', keys: 'Ctrl+Enter', labelKey: 'scWbCopy', scope: 'prompts' },
+  { id: 'builder-save', keys: 'Ctrl+S', labelKey: 'scBuilderSave', scope: 'prompts' },
+  { id: 'tag-move', keys: 'Alt+← →', labelKey: 'scTagMove', scope: 'prompts' },
 ];

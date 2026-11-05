@@ -379,10 +379,12 @@ async function newViaPalette(pg) {
   const before = await pg.evaluate(() => window.location.hash);
   await pg.getByTestId('quickadd').click();
   await pg.waitForFunction((prev) => window.location.hash !== prev && window.location.hash.indexOf('#/notes/') === 0, before, { timeout: 8000 });
-  // Attached only: the editor remounts on navigation, and Playwright fills
-  // re-resolve the selector, so typing below always lands in the new note
-  // (its title may carry a uniqueness suffix, never assume the default).
+  // The title row of the previous note is still mounted when the hash moves:
+  // wait for the new note itself — an empty title (W6) and the caret in its
+  // text (the late body focus has landed and cannot steal a title fill).
   await pg.locator('.g-title-in').waitFor();
+  await pg.waitForFunction(() => (document.querySelector('.g-title-in') || {}).value === ''
+    && !!document.activeElement?.closest('[data-testid="editor"]'), null, { timeout: 8000 });
 }
 async function pickViaPalette(pg, text, expectTitle) {
   await closeContext(pg);

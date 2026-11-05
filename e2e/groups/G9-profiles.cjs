@@ -21,7 +21,7 @@ module.exports = async function (t) {
     await check('P25 toast manual close', async () => {
     await page.getByTestId('nav-plan').click();
     await page.getByTestId('task-composer').click();
-    const box = page.locator('.g-page input[aria-label="new task"]');
+    const box = page.getByTestId('task-composer-title');
     await box.fill('First toast probe');
     await page.getByRole('button', { name: 'Добавить', exact: true }).click();
     await page.locator('.g-toast').first().locator('.g-toast-x').click();
