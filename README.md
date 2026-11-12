@@ -12,16 +12,18 @@ npm run build      # tsc + сборка в dist/
 npm test           # unit-тесты (vitest)
 npm run check:weight  # отчёт веса JS-бандла + предохранитель от baseline (лимитов нет)
 npm run preview    # раздача собранного (для ручной проверки и e2e)
-npm run e2e        # 251 e2e-проверка (Playwright, нужен preview :5199)
+npm run e2e        # 259 e2e-проверок (Playwright, нужен preview :5199)
 npm run e2e:matrix   # S5 + список задач под 12 фиксированными датами: сам собирает dist и поднимает свой preview :5199 (не в CI)
 npm run check:i18n  # missing/parity/dead-гейт i18n-ключей (RU/EN/KZ)
 npm run check:i18n:selftest  # мутационный самотест гейта (4 фикстуры)
+npm run check:arch  # архитектурные правила (хранилище, страничные клавиши, поиск, слои, граница ui/, мёртвый CSS и экспорты) — ARCHITECTURE.md
+npm run check:arch:selftest  # мутационный самотест правил (9 фикстур)
 npm run gates      # все быстрые гейты одной командой (+ самотест раннеров): таблица итогов, подробности только по упавшим
 npm run gates -- --e2e                     # + сборка, вес, свой preview :5199, полный e2e, аудит N1
 npm run gates -- --groups=G20-plan,G21-week  # + сборка, вес, preview, только эти e2e-группы
 ```
 
-E2E: 251 e2e-проверка на Playwright поверх `vite preview` (вход `e2e/check6.cjs`, обвязка `e2e/harness.cjs`, группы `e2e/groups/<имя>.cjs`; часть групп: `GROUPS=G20-plan,G21-week npm run e2e`)
+E2E: 259 e2e-проверок на Playwright поверх `vite preview` (вход `e2e/check6.cjs`, обвязка `e2e/harness.cjs`, группы `e2e/groups/<имя>.cjs`; часть групп: `GROUPS=G20-plan,G21-week npm run e2e`)
 (пустой старт, редактор, задачи, неделя, связи, вычисления, карта, переименование, панели, промпты, корзина/undo, мобильная навигация, тосты, профили,
 блокировки битого стора, ErrorBoundary, честные статусы сохранения, две вкладки, восстановление реестра, адопция legacy).
 Сьют не зависит от дня недели и часового пояса: даты сидов вида `@today+N`/`@mon+N` раскрываются внутри страницы (зона Asia/Almaty, T2); `npm run e2e:matrix` гоняет S5 и список задач по 12 датам (Пн…Вс, границы месяца/года).
@@ -37,7 +39,7 @@ Linux и Windows. Скрипты кроссплатформенные (толь�
 
 ## CI (`.github/workflows/ci.yml`, P5')
 
-- job `unit` (блокирующий): `npm ci`, `npm test`, `npx tsc -b`, `npx oxlint`, `check:i18n` + selftest, самотест раннеров, `sync-readme --check`.
+- job `unit` (блокирующий): `npm ci`, `npm test`, `npx tsc -b`, `npx oxlint`, `check:i18n` + selftest, `check:arch` + selftest, самотест раннеров, `sync-readme --check`.
 - job `e2e` (timeout 30 мин): build → preview :5199 → `npm run e2e` → `check:weight` (блокирующий, предохранитель +50% от baseline) → `check:contrast` и `audit-targets enforce` (временно неблокирующие: `continue-on-error`, числа зависят от шрифтов раннера; станут блокирующими после первого зелёного прогона на Actions) → upload-artifact с трассой при падении → остановка preview всегда.
 - Реальный прогон Actions с dev-машины невозможен; YAML проверен локально теми же командами и распарсен (node-структурно + PyYAML).
 
@@ -55,6 +57,9 @@ Linux и Windows. Скрипты кроссплатформенные (толь�
 - **Редактор: форматирование (`editorExtensions.ts`, `EditorToolbar.tsx`)** — панель над текстом (липкая на desktop; на телефоне видна во время правки и прокручивается в своей строке), одна позиция Tab, стрелки внутри (шаблон ARIA toolbar), кнопки не забирают выделение, `aria-pressed` с состоянием `mixed` для частично оформленного выделения. Группы: отмена/повтор · стиль абзаца (обычный, заголовки 1–3, цитата, код) · шрифт (без засечек/с засечками/моноширинный) и размер (4 ступени) · Ж/К/Ч/З · цвет текста (6 + авто) и выделение цветом (5 + нет) · «⋯» (надстрочный Ctrl+., подстрочный Ctrl+,, код в строке, очистить форматирование) · маркированный, нумерованный список, чек-лист · абзац (выравнивание ×4, межстрочный интервал, интервал между абзацами, отступ) · ссылка (адрес, проверка: только http/https/mailto, Ctrl/⌘+клик открывает) · таблица (строки и столбцы, строка заголовков, удаление) · найти и заменить (Ctrl+F/Ctrl+H из текста, счётчик, регистр, «Заменить все» одним Undo). Меню `/` и «Вставить»: нумерованный список, чек-лист, цитата, блок кода, разделитель, таблица. Вставка с форматированием — по умолчанию, без форматирования — Ctrl+Shift+V (ProseMirror). Имена узлов и меток совпадают с официальными пакетами Tiptap (`textStyle`, `highlight`, `textAlign`, `superscript`, `subscript`, `table…`), которые не установлены (правило «без новых зависимостей»). `@tiptap/extension-list` (TaskList/TaskItem) объявлен явно: тот же 3.31.3, что уже ставил StarterKit, новых пакетов в `node_modules` нет.
 - **Совместимость заметок** — схема только расширена: старые документы читаются без изменений (`editorExtensions.test.ts` сверяет JSON старой и новой схем). Документ, который схема не может прочитать (файл из более новой версии), не открывается пустым и не перезаписывается: заметка показывается только для чтения с баннером и кнопкой «Скачать данные заметки» (`note-unsupported`).
 - **Меню (`ui/useMenu.ts`)** — одна модель для всех выпадающих меню: «⋯» и «Вставить» заметки, меню промптов, «⋯» и переключатель графов на карте, меню чипа тега, «⋯» задачи, профиль. Закрытие кликом снаружи (фаза перехвата), Esc с возвратом фокуса на кнопку, уход фокуса по Tab, выбор обычного пункта; флажки в меню не закрывают его; стрелки, Home, End; `aria-expanded`.
+- **Попапы (`ui/dismiss.ts`)** — закрытие одно на меню и якорные попапы (`bindDismiss`: клик снаружи в фазе перехвата, Esc, если его не использовал внутренний обработчик). `usePopover` — для попапов, которые не меню: попап дня недели, «В заметку ▾», редактор ссылки, «+ Связать» на карте. Кнопка-открыватель считается «внутри»; Esc, «Отмена» и выбор возвращают фокус на неё (редактор ссылки — в текст), клик снаружи оставляет фокус там, куда нажали. В экране попап держит `ui/useFitInViewport.ts` (позиция — у якоря, сдвиг на величину выхода за край, заново при смене размера экрана, например при открытии клавиатуры); нижняя граница — верх видимых панелей с `data-viewport-edge="bottom"` (панель вкладок на телефоне), так что попап не уходит под неё. Меню у каретки (`[[`, `/`, выделение) — отдельный паттерн: фокус остаётся в тексте.
+- **Поиск (`textMatch.ts`)** — одно правило для списков заметок и задач, корзины, карты (поиск узла, связь, состав, переключатель графов), `[[`, «В заметку», вставки промпта, библиотеки и палитры: без учёта регистра, каждое слово запроса где угодно в названии или тексте, в любом порядке. Подсветка отмечает те же слова. Шаблоны ищутся по всему телу, а не по сниппету карточки. Автодополнение тегов в конструкторе изображений — не поиск записей и сохраняет свой префиксный отбор.
+- **Страничные клавиши (`ui/pageKeys.ts`)** — одно правило допуска для `/`, `N`, стрелок и `T` недели, Ctrl/⌘+A карты: клавиша действует, только когда фокус не в поле или тексте и не внутри открытого слоя (меню, попап, диалог, список подсказок, модалка). Решает фокус, а не то, что открыто на экране: закреплённая панель или панель задачи страничные клавиши не выключают, фокус внутри них — выключает. Обработчики остаются в своих разделах; общие сочетания (Ctrl+K, Ctrl+Alt+N, Alt+0) работают везде, Ctrl+Alt+T — и из текста заметки.
 - **Оболочка «Лист» (W5, уровни уточнены 2026-11)** — навигация на своей нейтральной поверхности `--u-side` с границей `--u-border`, контент на `--u-card`; «Новая заметка» — приподнятая кнопка, а не второй выбранный пункт; меню профиля содержит только профили (`menuitemradio`) и «Управление профилями», «Корзина» и «Настройки» в нём есть только на телефоне (там нет навигации); всплывающие слои — `--u-shadow-pop`; «Сохраняется…» нейтральное, красный только для ошибок. Навигация 224/64 px, иконки 18 px, поиск и статус сохранения в навигации на desktop; на mobile поиск и статус остаются в шапке. На странице по одному `palette-open` и `save-state`. Кнопка «Новая заметка» содержит один «+». Неделя прокручивается внутри своей области, не расширяя страницу.
 - Навигация автоматически свёрнута при ширине <1200 px; явный выбор сохраняется в `grafnot-side-mode:<id>`. Старый `grafnot-side:<id>` не определяет режим. `Alt+0` возвращает автоматическую навигацию и закрывает контекст, `Ctrl+Alt+N` создаёт заметку (и из текста; AltGr печатает символ). Буквенные сочетания сверяются и по физической клавише — работают в русской и казахской раскладке. Во всех списках `/` — поиск (и в корзине), `N` — создать (в промптах открывает меню «Новый»), Esc выводит из поля поиска. Одинаковые тосты не складываются. Настройки → Клавиши: 30 строк реестра (`src/shortcuts.ts`, включая Tab/Esc в тексте и клавиши выделения), включая `[[`, Ctrl+клик по ссылке, Ctrl+S в конструкторах и Alt+←/→ для тегов; каждая проверяется в G28. Все `aria-label` переведены (RU/EN/KZ). Светлая/тёмная темы, RU/EN/KZ.
 
@@ -99,9 +104,11 @@ Store { notes, tasks, trash, trashTasks, graphs, prompts, customTpls, activeId, 
 
 ## Структура
 
+Слои, владельцы данных, общие механизмы и правила расширения — `ARCHITECTURE.md`; их проверка — `npm run check:arch`.
+
 ```
 src/
-  App.tsx         — стор, действия, каркас (rail/tabbar/шапка), палитра (Ctrl+K), роутер хешей, хоткеи
+  App.tsx         — загрузка профиля и конвейер сохранения, связка действий (id, время, тосты, Undo, маршрут), каркас (rail/tabbar/шапка), палитра (Ctrl+K), роутер хешей, хоткеи
   NoteContext.tsx — три вкладки контекста, временная/закреплённая панель
   PromptInsert.tsx — заполнение и вставка шаблона рядом с заметкой
   ProfileMenu.tsx — меню профиля через существующий enterProfile (fixed у кнопки, не обрезается навигацией)
@@ -110,6 +117,9 @@ src/
   editorExtensions.ts — схема текста: формат абзаца, стили, выделение, индексы, таблицы, поиск, проверка содержимого + тесты
   EditorToolbar.tsx — панель форматирования, редактор ссылки, строка поиска и замены
   ui/useMenu.ts — общая модель выпадающих меню
+  ui/primitives.tsx — ConfirmDialog (только необратимое: очистка корзины, удаление профиля); прочие S1-примитивы не прижились и удалены (2026-11)
+  ui/dismiss.ts — закрытие слоёв (клик снаружи, Esc) для меню и попапов + usePopover (возврат фокуса) + тесты
+  ui/pageKeys.ts — когда страничная клавиша (`/`, `N`, стрелки недели, `T`, Ctrl+A карты) действует: не в поле и не в открытом слое (меню, попап, диалог) + тесты
   rolloutModel.ts — правила ширины, mobile-действий и цели вставки + тесты
   ui/useKeyboard.ts — реакция на экранную клавиатуру через visualViewport
   noteName.ts     — вычисляемые/доступные имена заметок, время изменения и безопасное имя экспорта (чистые) + тесты
@@ -117,6 +127,8 @@ src/
   ui/useMedia.ts  — общий хук медиазапросов для оболочки и недели
   Palette.tsx     — поиск и команды Ctrl+K, группы по четыре + раскрытие порциями по 50
   paletteModel.ts — filterPalette, firstMatchPos (чистые) + тесты
+  textMatch.ts    — одно правило поиска записей (все слова в любом порядке, без регистра) и подсветка тех же слов (чистые) + тесты
+  calcModel.ts    — формулы заметки: разбор выражения, ссылки между блоками по имени, круговые ссылки (чистые) + тесты
   importStore.ts  — W14: строгая проверка файла данных и отпечаток для чтения назад (чистые) + тесты
   ui/useSheetSwipe.ts — W7: закрытие нижнего листа свайпом за ручку
   SettingsPage.tsx — настройки страницей #/settings/<section> (профили, вид, клавиши, данные)
@@ -125,12 +137,14 @@ src/
    shortcuts.ts    — единый реестр шорткатов S12 (16 записей с P2; из него Клавиши + G28-матрица)
   store.ts        — типы, migrate() до v7, localStorage, хелперы (сироты, битые, вставка, filterTasks)
   trashRestore.ts — корзина заметок с точным восстановлением связей и членства (чистые) + тесты
+  storeOps.ts     — все пользовательские изменения стора: заметки, задачи, промпты, шаблоны, графы, формулы; общие uniqueName и reinsertAt (Undo на старое место) (чистые) + тесты
+  toastQueue.ts   — очередь тостов и действий (Undo, Открыть): одна копия сообщения, пауза при наведении, действие только в своей сессии стора; useToasts (без React — тесты на ручных часах)
   useListNav.ts   — общая клавиатурная навигация списков (стрелки + Enter)
   useListState.ts — общее состояние списков (запрос, лимит, показ, навигация)
   useArmConfirm.ts — общий arm-confirm необратимых удалений
    listPrefs.ts    — лимиты списков (один JSON-map + legacy-миграция; ключи per-profile)
    profiles.ts     — реестр профилей (CRUD, activeId, состав ключей, очистка данных)
-   prefs.ts        — шелл-префы per-profile (prefKeyFor, migrateLegacyPrefs)
+   prefs.ts        — шелл-префы per-profile (prefKeyFor, migrateLegacyPrefs) и единый доступ к ним (readPref, writePref, readPrefJSON: сбой хранилища читается как значение по умолчанию, запись молча пропускается)
    ProfilePicker.tsx — экран выбора/создания/переименования/удаления профилей
   NotesView.tsx   — заметки master-detail (список 300px + редактор + [[ / sel-меню + контекстные вкладки)
   PlanList.tsx    — планировщик-список (композер, группы, строки, панель) + общая TaskPanel
@@ -144,25 +158,28 @@ src/
   PromptImageWb.tsx — конструктор картинки: дорожки тегов, негатив, кадр, синтаксис моделей + imageModel.ts, imageTags.ts (чистые) + тесты; NoteAttach.tsx — общая «В заметку ▾»
   SkillBuilder.tsx — конструктор навыка: SKILL.md / системный промпт / AGENTS.md + skillModel.ts (чистые) + тесты
   promptData.ts   — статический словарь тегов v1.0.0-sample (57 тегов)
-  promptUtils.ts  — риск, синтаксис, слоты, превью сейвов, сниппеты/подсветка (чистые)
+  promptUtils.ts  — синтаксис, слоты, превью сейвов, сниппеты (чистые)
   linkSuggest.ts  — matchLinkCandidate (title+text) + parseBracketQuery + rankLinkSuggest (recent-first; чистые) + тесты
-  widgets.tsx     — тосты (×, dismissToast), модалка, иконки, Hi, fmtDue, copyText
+  widgets.tsx     — только компоненты: стопка тостов (ToastStack), модалка, иконки, Hi, меню-кнопки, SelectionBar, баннер, ErrorBoundary
+  clipboard.ts    — copyText (буфер обмена с запасным путём)
+  isoDate.ts      — локальный день yyyy-mm-dd (toISODate, todayISO, addDaysISO) и показ срока fmtDue: срок задач, неделя, имя файла заметки
   i18n.ts         — словарь RU/EN/KZ
-  data.ts         — шаблоны {name, body, defaults} + 4 встроенных; SearchItem (+kind=prompt)
+  data.ts         — шаблоны {name, body, defaults} + 4 встроенных
    index.css       — обе темы, rail-режимы, адаптив, подсветка совпадений, coarse-цели 44px (S11)
+   ui/tokens.css   — дизайн-токены `--u-*` (цвета обеих тем, отступы, радиусы, цели) и шкала слоёв `--u-z-*` (sticky 20 → bar 30 → pop 40 → menu 45 → drawer 50 → panel 55 → float 60 → sheet 80 → shell-menu 90 → palette 100); в index.css z-index выше 10 — только через неё
    JourneyMap.md — персона, эмоциональная кривая, этапы и точки роста
-   promptUtils.test.ts, tplFilter.test.ts, store.test.ts, trashRestore.test.ts, graphLayout.test.ts, promptData.test.ts, placement/router/useUndo.test.ts, weight-guard.test.js, paletteModel.test.ts, linkSuggest.test.ts, taskGroups.test.ts, weekCal.test.ts, promptLibrary.test.ts, workbenchModel.test.ts, imageTags.test.ts, builderModel.test.ts, mapCamera.test.ts, navMode.test.ts, noteName.test.ts, rolloutModel.test.ts, importStore.test.ts, mapDraw.test.ts, imageModel.test.ts, skillModel.test.ts, wikiText.test.ts, dateNames.test.ts, exportRaw.test.ts, editorIndent.test.ts, editorExtensions.test.ts, selectionModel.test.ts — 262 теста ядра
-   syncWording/settings/snippetTerms/promptSearch/listPrefs/mobileNav/shortcuts/toast/useListState/useArmConfirm/profiles/prefs/activeId/clipboard/newId/profileBoot.test.ts — 151 тест UX-проходов и профилей
+   promptUtils.test.ts, tplFilter.test.ts, store.test.ts, trashRestore.test.ts, graphLayout.test.ts, promptData.test.ts, router.test.ts, weight-guard.test.js, paletteModel.test.ts, linkSuggest.test.ts, taskGroups.test.ts, weekCal.test.ts, promptLibrary.test.ts, workbenchModel.test.ts, imageTags.test.ts, builderModel.test.ts, mapCamera.test.ts, navMode.test.ts, noteName.test.ts, rolloutModel.test.ts, importStore.test.ts, mapDraw.test.ts, imageModel.test.ts, skillModel.test.ts, wikiText.test.ts, dateNames.test.ts, exportRaw.test.ts, editorIndent.test.ts, editorExtensions.test.ts, selectionModel.test.ts, pageKeys.test.ts, textMatch.test.ts, dismiss.test.ts, useFitInViewport.test.ts, calcModel.test.ts, storeOps.test.ts, toastQueue.test.ts — 297 тестов ядра
+   syncWording/settings/snippetTerms/promptSearch/listPrefs/mobileNav/shortcuts/toast/useListState/useArmConfirm/profiles/prefs/activeId/clipboard/newId/profileBoot.test.ts — 154 теста UX-проходов и профилей
 scripts/check-weight.js (+ weight-guard.js) — отчёт веса бандла + предохранитель
 scripts/check-i18n.js — missing/parity/dead-гейт i18n-ключей (+ scripts/check-i18n.selftest.js — мутационный самотест гейта)
 scripts/audit-targets.cjs — аудит целей N1 (report/enforce, desktop+mobile)
-scripts/check-css-unused.cjs — поиск мёртвых .g-классов
+scripts/check-arch.cjs — архитектурные правила (+ scripts/check-arch.selftest.cjs); мёртвые CSS-классы и экспорты — его правила dead-css и dead-export
 scripts/d10-stress.cjs — стресс-диагностика записи D10 (две вкладки, уход со страницы, удаление профиля, квота; не гейт — [отчёт](docs/actual/D10_Storage_Stress.md))
 scripts/native-dual.cjs — нативные модули второй ОС в общий node_modules (`npm run deps:dual`)
 scripts/chrome-exe.cjs — поиск Chrome/Chromium для e2e (CHROME_PATH → системный → Chromium Playwright)
 scripts/gates.cjs, scripts/e2e-weekday-matrix.cjs — раннеры; scripts/runner-lib.cjs — общий вердикт, окружение e2e и свой preview (+ scripts/runner.selftest.cjs)
 e2e/check6.cjs — вход e2e и порядок групп; e2e/harness.cjs — сиды, хелперы, раннер; e2e/manifest.cjs — EXPECTED_CHECKS/GROUP_SIZES
-e2e/groups/*.cjs — 251 e2e-проверка в 38 группах (G0–G37; редактор, задачи, карта, промпты, профили, защита данных, оболочка и идентичность заметки; G36 — конструктор навыков; G35 — контракты W7–W13: первый проход и доводка поиска, возврата, вставки промпта и тоста на телефоне, первая партия фокус-группы; G37 — вторая партия фокус-группы)
+e2e/groups/*.cjs — 259 e2e-проверок в 38 группах (G0–G37; редактор, задачи, карта, промпты, профили, защита данных, оболочка и идентичность заметки; G36 — конструктор навыков; G35 — контракты W7–W13: первый проход и доводка поиска, возврата, вставки промпта и тоста на телефоне, первая партия фокус-группы; G37 — вторая партия фокус-группы)
 docs/ux-baseline.md — база S0 «до» (аудит 375 элементов, 5 сценариев; сырой json аудита — локальный артефакт прогона, не в git)
 docs/fitts-report.md — S13 «до/после» по 5 сценариям (D, W, ID) + бюджеты G29
 start.bat         — быстрый запуск dev-сервера на Windows
@@ -225,6 +242,8 @@ start.sh          — то же для Linux (`./start.sh`; при общем с
 
 ## Долги (осознанно не сделано)
 
+- Архитектура (аудит 2026-11, `docs/Architecture_Audit_2026-11-12.md`): охват карты хранится и в маршруте, и в состоянии раздела; `App.tsx` ≈ 2000 строк — загрузка профилей и конвейер сохранения неприкосновенны и остаются там; меню у каретки (`[[`, `/`, выделение) держат последнюю копию `clampXY` (у них своя вертикальная логика); попап, которому не хватает места снизу, сдвигается вверх и может перекрыть свою кнопку (переворота над якорем нет); ссылка из панели контекста меняет `updated` заметки, а ссылка, протянутая на карте, — нет; формулы форматируют число по `ru-RU` при любом языке.
+- 2026-11-12: из 10 полных прогонов e2e один раз упал G4-story «P7 rename propagation» (клик по пункту палитры по тайм-ауту, дальше каскад внутри истории); стор в диагностике корректен, G4 отдельно 2/2 зелёные — та же нестабильность истории, что в T2b ниже.
 - Корзина без 30-дневной очистки (политика заявлена, enforcement нет).
 - Нет истории версий заметок.
 - Нет экспорта/импорта всей рабочей области одним файлом (только per-store raw и `.md`-экспорт заметок).

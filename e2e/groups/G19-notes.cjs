@@ -259,4 +259,27 @@ module.exports = async function (t) {
     const after = await page.evaluate(() => JSON.stringify(JSON.parse(localStorage.getItem('grafnot-store-p1')).notes.find((x) => x.id === 'a1').content));
     assert(after === before, 'unsupported content was rewritten');
   });
+
+  await check('Search: every word in any order, across title and text; the words are marked', async () => {
+    await page.evaluate((doc) => {
+      const st = JSON.parse(localStorage.getItem('grafnot-store-p1'));
+      st.notes.push({ id: 's1', title: 'Отчёт за март', content: doc, text: 'итоги квартала', linkedIds: [], calcs: [], updated: 3 });
+      localStorage.setItem('grafnot-store-p1', JSON.stringify(st));
+    }, docPara('итоги квартала'));
+    await page.evaluate(() => { location.hash = '#/notes'; });
+    await page.reload({ waitUntil: 'networkidle' });
+    const search = page.getByTestId('notes-search');
+    await search.waitFor();
+    const rows = () => page.evaluate(() => [...document.querySelectorAll('[data-testid="note-item"]')].map((r) => r.textContent || ''));
+    await search.fill('март отчёт');
+    await page.waitForFunction(() => document.querySelectorAll('[data-testid="note-item"]').length === 1, null, { timeout: 5000 });
+    assert((await rows())[0].includes('Отчёт за март'), 'reordered words did not find the note');
+    const marks = await page.getByTestId('note-item').first().locator('mark').allTextContents();
+    assert(marks.includes('Отчёт') && marks.includes('март'), 'words not marked: ' + marks.join('|'));
+    await search.fill('отчёт итоги');
+    await page.waitForFunction(() => document.querySelectorAll('[data-testid="note-item"]').length === 1, null, { timeout: 5000 });
+    await search.fill('отчёт апрель');
+    await page.waitForFunction(() => document.querySelectorAll('[data-testid="note-item"]').length === 0, null, { timeout: 5000 });
+    await search.fill('');
+  });
 };

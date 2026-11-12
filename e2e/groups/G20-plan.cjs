@@ -130,6 +130,21 @@ module.exports = async function (t) {
     await page.waitForFunction(() => !document.querySelector('[data-testid="task-menu-del"]') && document.activeElement?.getAttribute('data-testid') === 'task-row-menu', null, { timeout: 5000 });
   });
 
+  await check('Plan: search needs every word in any order and marks them', async () => {
+    await page.getByTestId('nav-plan').click();
+    const search = page.getByTestId('task-search');
+    await search.fill('dream later');
+    await page.waitForFunction(() => {
+      const rows = [...document.querySelectorAll('[data-testid="task-row"]')];
+      return rows.length === 1 && (rows[0].textContent || '').includes('Later dream');
+    }, null, { timeout: 5000 });
+    const marks = await page.getByTestId('task-row').first().locator('mark').allTextContents();
+    assert(marks.includes('Later') && marks.includes('dream'), 'words not marked: ' + marks.join('|'));
+    await search.fill('thought later');
+    await page.waitForFunction(() => document.querySelectorAll('[data-testid="task-row"]').length === 0, null, { timeout: 5000 });
+    await search.fill('');
+  });
+
   await check('Plan: quick add names its purpose, a blank Enter adds nothing, a collapsed Done is not offered as «show more»', async () => {
     const box = page.getByTestId('task-composer-title');
     assert(/задач/i.test((await box.getAttribute('placeholder')) || ''), 'placeholder does not say it adds a task');

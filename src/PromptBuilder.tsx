@@ -5,6 +5,7 @@ import type { LlmTpl } from "./data";
 import { fillBody, listSlots } from "./promptUtils";
 import { requiredSlots } from "./workbenchModel";
 import { lintTemplate, nextFieldName } from "./builderModel";
+import { isInLayer } from "./ui/pageKeys";
 
 export interface BuilderDraft {
   name: string;
@@ -64,10 +65,10 @@ export function PromptBuilder({
   // Ctrl+Shift+F inserts a field wherever the caret is not in a dialog.
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
       if (!(e.ctrlKey || e.metaKey) || !e.shiftKey || e.altKey) return;
       if (e.code !== "KeyF") return;
-      if (t && t.closest && t.closest(".g-modal")) return;
+      // Works from the builder fields too; an open layer keeps its keys.
+      if (isInLayer(e.target)) return;
       e.preventDefault();
       insertField();
     };

@@ -1,6 +1,5 @@
 export type Lang = 'RU' | 'EN' | 'KZ';
 export type Theme = 'light' | 'dark';
-export type Page = 'home' | 'notes' | 'tasks' | 'cal' | 'map' | 'prompt';
 
 export const STR: Record<string, Record<Lang, string>> = {
   calcDeleted: { RU: "Вычисление удалено", EN: "Calculation deleted", KZ: "Есептеу жойылды" },

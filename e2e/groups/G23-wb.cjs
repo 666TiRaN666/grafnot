@@ -101,6 +101,18 @@ module.exports = async function (t) {
     await page.locator('.w-notechip', { hasText: 'Note-A' }).waitFor();
   });
 
+  await check('«To note» closes on an outside click; Esc returns the focus to its button', async () => {
+    const btn = page.getByRole('button', { name: /В заметку/ });
+    await btn.click();
+    await page.getByRole('listbox').waitFor();
+    await page.getByTestId('page-header').locator('h1').click();
+    await page.waitForFunction(() => !document.querySelector('[role="listbox"]'), null, { timeout: 5000 });
+    await btn.click();
+    await page.getByRole('listbox').waitFor();
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('[role="listbox"]') && /В заметку/.test(document.activeElement?.textContent || ''), null, { timeout: 5000 });
+  });
+
   await check('S7 more duplicates deletes with undo', async () => {
     const exactTitle = (t) => page.locator('.pl-title', { hasText: new RegExp(`^${t}$`) });
     await openWorkbench('My SQL');

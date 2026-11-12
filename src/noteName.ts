@@ -1,6 +1,7 @@
 import type { Lang } from './i18n';
 import { tr } from './i18n';
 import type { Note } from './store';
+import { toISODate } from './isoDate';
 
 type NamedNote = Pick<Note, 'title' | 'text'>;
 export const NOTE_NAME_MAX = 80;
@@ -29,6 +30,6 @@ export function noteFileName(note: NamedNote & Pick<Note, 'updated'>, lang: Lang
   const raw = note.title.trim() || note.text.trim() ? noteDisplayName(note, lang) : '';
   const clean = Array.from(raw).filter(char => char.charCodeAt(0) >= 32 && !/[<>:"/\\|?*]/.test(char)).join('').replace(/\s+/g, ' ').replace(/[. ]+$/, '').trim();
   const reserved = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(clean);
-  const date = new Date(Number.isFinite(note.updated) ? note.updated : 0).toISOString().slice(0, 10);
+  const date = toISODate(new Date(Number.isFinite(note.updated) ? note.updated : 0));
   return (clean && !reserved ? clean : 'note-' + date) + '.md';
 }

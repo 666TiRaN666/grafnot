@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { copyText } from "./widgets";
+import { copyText } from "./clipboard";
 import { exportMemory } from "./exportRaw";
 import { freshStore } from "./storage/profileBoot";
 import { SCHEMA_VERSION } from "./store";

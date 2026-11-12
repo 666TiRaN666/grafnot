@@ -1,4 +1,5 @@
 import type { TaskItem } from "./store";
+import { addDaysISO } from "./isoDate";
 
 export type TaskGroupKey = "overdue" | "today" | "tomorrow" | "week" | "later" | "undated";
 
@@ -9,22 +10,6 @@ export interface TaskGroup {
 
 export const TASK_GROUP_ORDER: TaskGroupKey[] = ["overdue", "today", "tomorrow", "week", "later", "undated"];
 
-/** Local yyyy-mm-dd (date inputs and TaskItem.due use this shape). */
-export function toISODate(d: Date): string {
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
-
-export function todayISO(now: Date = new Date()): string {
-  return toISODate(now);
-}
-
-export function addDaysISO(iso: string, n: number): string {
-  const [y, m, d] = iso.split("-").map(Number);
-  const dt = new Date(y, (m || 1) - 1, d || 1);
-  dt.setDate(dt.getDate() + n);
-  return toISODate(dt);
-}
 
 /** Offset of the coming Sunday (0 when today is Sunday). */
 function sundayOffset(today: string): number {

@@ -1,8 +1,9 @@
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { TOAST_VISIBLE_MAX, ToastStack, dismissToast } from "./widgets";
-import type { ToastMsg } from "./widgets";
+import { TOAST_VISIBLE_MAX, ToastStack } from "./widgets";
+import { dismissToast } from "./toastQueue";
+import type { ToastMsg } from "./toastQueue";
 
 const A: ToastMsg = { id: 1, text: "one" };
 const B: ToastMsg = { id: 2, text: "two" };

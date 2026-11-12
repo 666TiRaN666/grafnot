@@ -1,6 +1,9 @@
 /** Palette/Quick Add result model (S2). Pure: grouping, capping and ranking
  * live here so unit tests cover them without a DOM. Rendering is Palette.tsx.
+ * The match rule itself is the shared one (textMatch).
  */
+import { matchesQuery, queryWords } from './textMatch';
+
 export type PaletteGroup = 'notes' | 'tasks' | 'prompts' | 'commands';
 
 export interface PaletteEntry {
@@ -20,8 +23,6 @@ export const PALETTE_GROUP_CAP = 4;
 
 const GROUP_ORDER: PaletteGroup[] = ['notes', 'tasks', 'prompts', 'commands'];
 
-/** AND words of a query; lower-cased only, so Kazakh letters stay distinct. */
-const queryWords = (query: string): string[] => query.trim().toLowerCase().split(/\s+/).filter((w) => w.length > 0);
 
 /** Where a palette pick puts the caret (Stage2 §7.5): the earliest word in the
  * first text block holding every query word, else in the first block holding
@@ -54,10 +55,7 @@ export function filterPalette(
   for (const g of GROUP_ORDER) {
     const hits = words.length === 0 && g === 'commands'
       ? byGroup[g]
-      : byGroup[g].filter((e) => {
-          const s = `${e.title} ${e.sub} ${e.searchText ?? ""}`.toLowerCase();
-          return words.every((w) => s.includes(w));
-        });
+      : byGroup[g].filter((e) => matchesQuery([e.title, e.sub, e.searchText], query));
     // Empty query shows commands only: the palette opens as Quick Add.
     if (words.length === 0 && g !== 'commands') continue;
     out.push(...hits.slice(0, limits[g] ?? PALETTE_GROUP_CAP));

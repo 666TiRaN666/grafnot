@@ -11,6 +11,9 @@ describe("matchLinkCandidate", () => {
     expect(matchLinkCandidate({ id: "a", title: "Alpha", text: "beta body words" }, "z", "BODY")).toBe(true);
     expect(matchLinkCandidate({ id: "a", title: "Alpha", text: "beta body words" }, "z", "gamma")).toBe(false);
   });
+  it("matches every word in any order, like the lists", () => {
+    expect(matchLinkCandidate({ id: "a", title: "Alpha", text: "beta body words" }, "z", "words alpha")).toBe(true);
+  });
   it("excludes the source note", () => {
     expect(matchLinkCandidate({ id: "a", title: "Alpha" }, "a", "alp")).toBe(false);
   });

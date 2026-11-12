@@ -293,6 +293,43 @@ module.exports = async function (t) {
     await page.keyboard.press('Escape');
   });
 
+  await check('2026-11 page keys stay idle while a menu or a popup has the focus', async () => {
+    // Notes «⋯»: N and / belong to the open menu, not to the page.
+    await page.getByTestId('nav-notes').click();
+    await page.getByTestId('note-item').first().click();
+    await page.getByTestId('notes-more').waitFor();
+    const notesBefore = await page.getByTestId('note-item').count();
+    await page.getByTestId('notes-more').click();
+    await page.waitForFunction(() => !!document.activeElement?.closest('[data-testid="notes-menu"]'), null, { timeout: 5000 });
+    await page.keyboard.press('n');
+    await page.keyboard.press('/');
+    await page.waitForTimeout(300);
+    assert((await page.getByTestId('note-item').count()) === notesBefore, 'N in an open menu created a note');
+    assert(await page.evaluate(() => !!document.activeElement?.closest('[data-testid="notes-menu"]')), 'a page key took the focus out of the open menu');
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('[data-testid="notes-menu"]'), null, { timeout: 5000 });
+    // Week: arrows inside the day popup do not move the week under it.
+    await page.getByTestId('nav-plan').click();
+    await page.getByTestId('plan-view-week').click();
+    const first = () => page.locator('[data-testid^="day-cell-"]').first().getAttribute('data-testid');
+    const was = await first();
+    await page.locator('[data-testid^="day-add-"]').first().click();
+    await page.getByTestId('day-popup').waitFor();
+    await page.getByTestId('day-popup').locator('button').last().focus();
+    await page.keyboard.press('ArrowRight');
+    await page.waitForTimeout(300);
+    assert((await first()) === was, 'ArrowRight in the day popup moved the week');
+    assert(await page.getByTestId('day-popup').isVisible(), 'the day popup closed on ArrowRight');
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('[data-testid="day-popup"]'), null, { timeout: 5000 });
+    // Outside the layer the same key still travels the weeks.
+    await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
+    await page.keyboard.press('ArrowRight');
+    await page.waitForFunction((w) => document.querySelectorAll('[data-testid^="day-cell-"]')[0]?.getAttribute('data-testid') !== w, was, { timeout: 5000 });
+    await page.keyboard.press('t');
+    await page.waitForFunction((w) => document.querySelectorAll('[data-testid^="day-cell-"]')[0]?.getAttribute('data-testid') === w, was, { timeout: 5000 });
+  });
+
   await check('S12 KZ keys layout has no overflow', async () => {
     await page.getByTestId('nav-settings').click();
     await page.getByTestId('settings-nav-appearance').click();

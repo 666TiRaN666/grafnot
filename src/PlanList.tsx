@@ -3,10 +3,13 @@ import type { ReactNode } from "react";
 import type { Lang } from "./i18n";
 import { tr } from "./i18n";
 import type { Note, TaskItem } from "./store";
-import { Hi, Icon, MenuButton, fmtDue } from "./widgets";
+import { Hi, Icon, MenuButton } from "./widgets";
 import { noteAccessibleName, noteDisplayName } from "./noteName";
-import { addDaysISO, groupTasks, pageTaskGroups, todayISO } from "./taskGroups";
+import { groupTasks, pageTaskGroups } from "./taskGroups";
+import { addDaysISO, fmtDue, todayISO } from "./isoDate";
 import type { TaskGroupKey } from "./taskGroups";
+import { pageShortcutAllowed } from "./ui/pageKeys";
+import { matchesQuery } from "./textMatch";
 
 /** N9 batch for long task lists (no limit selector). */
 const TASKS_PAGE = 50;
@@ -72,11 +75,9 @@ export function PlanList({
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
   const touchX = useRef<number | null>(null);
 
-  const needle = query.trim().toLowerCase();
-  const filtered = useMemo(
-    () => (needle ? tasks.filter((t) => `${t.text} ${t.desc ?? ""}`.toLowerCase().includes(needle)) : tasks),
-    [tasks, needle],
-  );
+  /** Non-empty search: groups open and paging spans the matches. */
+  const needle = query.trim();
+  const filtered = useMemo(() => (needle ? tasks.filter((t) => matchesQuery([t.text, t.desc], needle)) : tasks), [tasks, needle]);
   const { active, done } = useMemo(() => groupTasks(filtered, today), [filtered, today]);
   // One budget across the expanded groups (Done included); collapsed groups
   // keep their headers and counts and are not paged (taskGroups.ts).
@@ -99,7 +100,7 @@ export function PlanList({
     setSeenOpenId(openId);
     const target = openId ? tasks.find((t) => t.id === openId) : undefined;
     if (target) {
-      const keepQuery = !needle || `${target.text} ${target.desc ?? ""}`.toLowerCase().includes(needle);
+      const keepQuery = !needle || matchesQuery([target.text, target.desc], needle);
       if (!keepQuery) setQuery("");
       const g = groupTasks(keepQuery ? filtered : tasks, today);
       const key = target.done ? "done" : (g.active.find((x) => x.items.includes(target))?.key ?? "done");
@@ -168,15 +169,13 @@ export function PlanList({
   // `/` searches, `N` composes (guarded: never inside a field or dialog).
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      const inField = !!t && !!t.closest && !!t.closest("input, textarea, select, [contenteditable]");
-      const inModal = !!t && !!t.closest && !!t.closest(".g-modal");
-      if (e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey && !inField && !inModal) {
+      if (!pageShortcutAllowed(e)) return;
+      if (e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         searchRef.current?.focus();
         return;
       }
-      if ((e.key === "n" || e.code === "KeyN") && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && !inField && !inModal) {
+      if ((e.key === "n" || e.code === "KeyN") && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
         e.preventDefault();
         openComposer();
       }

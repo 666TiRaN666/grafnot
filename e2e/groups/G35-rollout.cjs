@@ -326,6 +326,22 @@ module.exports = async function(t) {
     } finally { await tab.close(); }
   });
 
+  await check('FG phone popups end above the tab bar: «To note» opened at the bottom is fully visible', async () => {
+    const phone = await t.browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, storageState: t.storageStateFor(seed()) });
+    try {
+      const pg = await phone.newPage();
+      await pg.goto(t.URL + '#/prompts/sql', { waitUntil: 'networkidle' });
+      const btn = pg.getByRole('button', { name: /В заметку/ });
+      await btn.scrollIntoViewIfNeeded();
+      await btn.click();
+      const list = pg.getByRole('listbox');
+      await list.waitFor();
+      const bar = await pg.getByTestId('tabbar').boundingBox();
+      const box = await list.boundingBox();
+      assert(bar && box && box.y >= 0 && box.y + box.height <= bar.y + 0.5, '«To note» list goes under the tab bar: ' + JSON.stringify({ box, bar }));
+    } finally { await phone.close(); }
+  });
+
   await check('FG the whole week fits 1366 px, phone days show their tasks, KZ names are Kazakh', async () => {
     const weekSeed = seed(), st = JSON.parse(weekSeed['grafnot-store-p1']);
     // storageState seeds skip the @today marker expansion: put today's date in directly.

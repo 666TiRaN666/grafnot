@@ -4,17 +4,6 @@ import type { PromptSave } from "./store";
 import { stripWeight } from "./imageTags";
 
 /**
- * Risk boundary: a tag with model-knowledge rate below this is flagged.
- * A plain named constant on purpose — with a sample dictionary there is no
- * distribution to derive it from, so a computed threshold would be fiction.
- */
-export const RISK_THRESHOLD = 50;
-
-export function isRisky(rate: number): boolean {
-  return rate < RISK_THRESHOLD;
-}
-
-/**
  * Model-specific prompt syntax (presentational only, no data behind it):
  * Pony — comma tags (danbooru style), SDXL — parenthesized tags,
  * Flux — natural-language list.
@@ -193,17 +182,6 @@ export function promptPreview(p: PromptSave, custom: LlmTpl[]): string {
   return renderSavedTpl(t, p.params ?? {});
 }
 
-/**
- * User-editable template sanity check. Returns failing rule ids
- * ('name' | 'body'); empty means the template is usable.
- */
-export function validateTemplate(d: { name: string; body: string }): string[] {
-  const bad: string[] = [];
-  if (!d.name.trim()) bad.push('name');
-  if (!d.body.trim()) bad.push('body');
-  return bad;
-}
-
 /** Display kind for thumbnail. Built-in art is inferred by id; custom image templates store an explicit kind. */
 export type TplKind = "llm" | "image" | "skill";
 
@@ -229,16 +207,6 @@ export function makeSnippet(body: string, n: number = TPL_SNIPPET_LEN): string {
   return `${one.slice(0, n).trimEnd()}...`;
 }
 
-/** Case insensitive live filter over title plus body plus slot names. */
-export function matchesTpl(t: Pick<LlmTpl, "name" | "body">, q: string): boolean {
-  const needle = q.trim().toLowerCase();
-  if (!needle) return true;
-  const slots = listSlots(t.body).join(" ").toLowerCase();
-  return `${t.name} ${t.body} ${slots}`.toLowerCase().includes(needle);
-}
-
-export type TplFilter = "all" | "mine" | "llm" | "image";
-
 export interface TplEntry {
   tpl: LlmTpl;
   /** True for user templates from customTpls, false for builtins. */
@@ -252,71 +220,6 @@ export function buildTplEntries(builtin: LlmTpl[], custom: LlmTpl[]): TplEntry[]
     ...builtin.map((tpl) => ({ tpl, mine: false as const, kind: getTplKind(tpl) })),
     ...custom.map((tpl) => ({ tpl, mine: true as const, kind: getTplKind(tpl) })),
   ];
-}
-
-/** Apply ownership and kind chip plus search query. Pure, unit tested. */
-export function filterTplEntries(entries: TplEntry[], q: string, f: TplFilter): TplEntry[] {
-  const needle = q.trim().toLowerCase();
-  return entries.filter((e) => {
-    if (f === "mine" && !e.mine) return false;
-    if (f === "llm" && e.kind !== "llm") return false;
-    if (f === "image" && e.kind !== "image") return false;
-    if (needle && !matchesTpl(e.tpl, needle)) return false;
-    return true;
-  });
-}
-
-export interface HiPart {
-  text: string;
-  hit: boolean;
-}
-
-/** Split text for mark highlighting of q. Case insensitive, no regex. */
-export function splitHighlight(text: string, q: string): HiPart[] {
-  const needle = q.trim().toLowerCase();
-  if (!needle) return [{ text, hit: false }];
-  const out: HiPart[] = [];
-  const low = text.toLowerCase();
-  let i = 0;
-  for (;;) {
-    const j = low.indexOf(needle, i);
-    if (j < 0) {
-      out.push({ text: text.slice(i), hit: false });
-      break;
-    }
-    if (j > i) out.push({ text: text.slice(i, j), hit: false });
-    out.push({ text: text.slice(j, j + needle.length), hit: true });
-    i = j + needle.length;
-  }
-  return out.filter((p) => p.text);
-}
-
-/**
- * Cut AFTER highlighting: walk highlighted parts and stop at max chars, but
- * never split a matched fragment — a hit always survives whole (the margin).
- */
-export function cutHiParts(parts: HiPart[], max: number): HiPart[] {
-  const out: HiPart[] = [];
-  let n = 0;
-  let extended = false;
-  for (const p of parts) {
-    if (n >= max) {
-      if (p.hit && !extended) {
-        out.push(p);
-        n += p.text.length;
-        extended = true;
-        continue;
-      }
-      break;
-    }
-    if (!p.hit && n + p.text.length > max) {
-      if (n === 0) out.push({ text: p.text.slice(0, max), hit: false });
-      break;
-    }
-    out.push(p);
-    n += p.text.length;
-  }
-  return out;
 }
 
 /** Limit domain lives in listPrefs; re-exported here so existing prompt imports keep working. */

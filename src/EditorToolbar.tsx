@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type React from "react";
+import type { RefObject } from "react";
 import type { Editor } from "@tiptap/react";
 import type { Lang } from "./i18n";
 import { tr } from "./i18n";
@@ -7,6 +8,7 @@ import { Icon, MenuButton, MenuPopup } from "./widgets";
 import type { MenuItem } from "./widgets";
 import { FONT_FAMILIES, FONT_SIZES, LINE_HEIGHTS, MARK_COLORS, TEXT_COLORS, findKey } from "./editorExtensions";
 import type { Align, FontKey, SizeKey, Spacing } from "./editorExtensions";
+import { usePopover } from "./ui/dismiss";
 
 type Tri = boolean | "mixed";
 
@@ -35,6 +37,7 @@ const colorLabel = (c: string, lang: Lang) =>
 export function EditorToolbar({ editor, lang, findOpen, onFind }: { editor: Editor; lang: Lang; findOpen: boolean; onFind: () => void }) {
   const bar = useRef<HTMLDivElement>(null);
   const [linkOpen, setLinkOpen] = useState(false);
+  const linkBtn = useRef<HTMLButtonElement>(null);
   // Commands run on the editor's own selection; focus returns at once.
   // Not chain().focus(): it focuses again a frame later and writes the old
   // selection back over a caret the user has already moved (End right after
@@ -207,10 +210,10 @@ export function EditorToolbar({ editor, lang, findOpen, onFind }: { editor: Edit
       </div>
       <div className="n-tbgroup">
         <span className="g-menuwrap">
-          <button type="button" className="n-tb" {...TB} data-testid="tb-link" aria-pressed={editor.isActive("link")} aria-expanded={linkOpen} title={tr("tbLink", lang)} aria-label={tr("tbLink", lang)} onClick={() => setLinkOpen((v) => !v)}>
+          <button ref={linkBtn} type="button" className="n-tb" {...TB} data-testid="tb-link" aria-pressed={editor.isActive("link")} aria-expanded={linkOpen} title={tr("tbLink", lang)} aria-label={tr("tbLink", lang)} onClick={() => setLinkOpen((v) => !v)}>
             <Icon n="link" />
           </button>
-          {linkOpen && <LinkEditor editor={editor} lang={lang} onClose={() => setLinkOpen(false)} />}
+          {linkOpen && <LinkEditor editor={editor} lang={lang} trigger={linkBtn} onClose={() => setLinkOpen(false)} />}
         </span>
         {inTable && (
           <MenuButton testid="tb-table" className="n-tb" ariaLabel={tr("tbTable", lang)} triggerExtra={TB} items={tableItems}>
@@ -226,17 +229,15 @@ export function EditorToolbar({ editor, lang, findOpen, onFind }: { editor: Edit
 }
 
 /** Link address of the selection: edit, remove, open. Empty selection inserts the address as linked text. */
-function LinkEditor({ editor, lang, onClose }: { editor: Editor; lang: Lang; onClose: () => void }) {
+function LinkEditor({ editor, lang, trigger, onClose }: { editor: Editor; lang: Lang; trigger: RefObject<HTMLButtonElement | null>; onClose: () => void }) {
   const current = (editor.getAttributes("link").href as string | undefined) ?? "";
   const [href, setHref] = useState(current);
   const [bad, setBad] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
+  // Outside press and Esc close (ui/dismiss); Esc puts the caret back in the text.
+  const { ref: root } = usePopover<HTMLDivElement>(true, onClose, { trigger, returnFocus: () => editor.view.focus() });
   useEffect(() => {
     root.current?.querySelector("input")?.select();
-    const outside = (e: PointerEvent) => { if (e.target instanceof Node && !root.current?.parentElement?.contains(e.target)) onClose(); };
-    document.addEventListener("pointerdown", outside, true);
-    return () => document.removeEventListener("pointerdown", outside, true);
-  }, [onClose]);
+  }, [root]);
   const apply = () => {
     const raw = href.trim();
     if (!raw) return;
@@ -251,8 +252,7 @@ function LinkEditor({ editor, lang, onClose }: { editor: Editor; lang: Lang; onC
     editor.view.focus();
   };
   return (
-    <div ref={root} className="n-linkpop" role="dialog" aria-label={tr("tbLink", lang)} data-testid="link-editor"
-      onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); editor.view.focus(); } }}>
+    <div ref={root} className="n-linkpop" role="dialog" aria-label={tr("tbLink", lang)} data-testid="link-editor">
       <label className="n-linkfield">
         <span className="muted small">{tr("linkUrl", lang)}</span>
         <input data-testid="link-url" type="url" inputMode="url" autoComplete="off" value={href} aria-invalid={bad} placeholder="https://"

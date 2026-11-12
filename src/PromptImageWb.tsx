@@ -4,8 +4,9 @@ import { tr } from "./i18n";
 import type { AIModel, AspectId, TagCat } from "./data";
 import { NEGATIVE_PRESET, TAG_DATA } from "./promptData";
 import type { Note } from "./store";
-import { Hi, MenuPopup, copyText } from "./widgets";
-import { prefKeyFor } from "./prefs";
+import { Hi, MenuPopup } from "./widgets";
+import { copyText } from "./clipboard";
+import { prefKeyFor, readPrefJSON, writePref } from "./prefs";
 import { filterTags, formatWeight, hasWeights, moveTag, parseTagInput, stepWeight, stripWeight, tagWeight, weightValue } from "./imageTags";
 import { ASPECT_IDS, CAT_ORDER, catOf, moveInLane, orderTokens, renderImage } from "./imageModel";
 import { estimateTokens } from "./skillModel";
@@ -41,13 +42,8 @@ function recentKey(profileId: string): string {
 }
 
 function loadRecent(profileId: string): string[] {
-  try {
-    const raw = window.localStorage.getItem(recentKey(profileId));
-    const arr: unknown = raw ? JSON.parse(raw) : [];
-    return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === "string").slice(0, RECENT_CAP) : [];
-  } catch {
-    return [];
-  }
+  const arr = readPrefJSON(recentKey(profileId));
+  return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === "string").slice(0, RECENT_CAP) : [];
 }
 
 const sameTag = (a: string, b: string) => stripWeight(a).toLowerCase() === stripWeight(b).toLowerCase();
@@ -134,11 +130,7 @@ export function PromptImageWb({
     if (!clean) return;
     setRecent((cur) => {
       const next = [clean, ...cur.filter((x) => x !== clean)].slice(0, RECENT_CAP);
-      try {
-        window.localStorage.setItem(recentKey(profileId), JSON.stringify(next));
-      } catch {
-        /* ignore */
-      }
+      writePref(recentKey(profileId), JSON.stringify(next));
       return next;
     });
   };

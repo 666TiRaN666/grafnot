@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { LIST_PREFS_KEY, TPL_LIMIT_KEY } from "./listPrefs";
-import { PREF_KEYS, migrateLegacyPrefs, prefKeyFor } from "./prefs";
+import { PREF_KEYS, migrateLegacyPrefs, prefKeyFor, readPref, readPrefJSON, writePref } from "./prefs";
 
 function mem(backing?: Record<string, string>) {
   const m = new Map<string, string>(Object.entries(backing ?? {}));
@@ -67,5 +67,31 @@ describe("legacy prefs migration", () => {
     const migrated = migrateLegacyPrefs("pf2", s);
     expect(migrated).not.toContain("grafnot-lang");
     expect(s.raw("grafnot-lang:pf2")).toBe("KZ");
+  });
+});
+
+describe("pref access: a convenience never breaks the UI", () => {
+  const broken = {
+    getItem: (): string | null => { throw new Error("blocked"); },
+    setItem: (): void => { throw new Error("quota"); },
+    removeItem: (): void => {},
+  };
+  it("reads the stored value or the fallback; a failing storage reads as the fallback", () => {
+    const s = mem({ "grafnot-theme:p1": "dark" });
+    expect(readPref("grafnot-theme:p1", "light", s)).toBe("dark");
+    expect(readPref("grafnot-lang:p1", "RU", s)).toBe("RU");
+    expect(readPref("grafnot-theme:p1", "light", broken)).toBe("light");
+  });
+  it("writes, and a failed write is swallowed", () => {
+    const s = mem();
+    writePref("grafnot-section:p1", "plan", s);
+    expect(s.raw("grafnot-section:p1")).toBe("plan");
+    expect(() => writePref("grafnot-section:p1", "plan", broken)).not.toThrow();
+  });
+  it("JSON prefs: missing or unparsable read as undefined", () => {
+    expect(readPrefJSON("k", mem({ k: '{"a":1}' }))).toEqual({ a: 1 });
+    expect(readPrefJSON("k", mem())).toBeUndefined();
+    expect(readPrefJSON("k", mem({ k: "{oops" }))).toBeUndefined();
+    expect(readPrefJSON("k", broken)).toBeUndefined();
   });
 });

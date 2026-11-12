@@ -200,4 +200,23 @@ module.exports = async function (t) {
     await page.keyboard.press('Escape');
     assert((await page.getByTestId('map-box').getAttribute('aria-pressed')) === 'false', 'Esc did not leave box mode');
   });
+
+  await check('Map: Esc closes only the «Link» search and returns the focus to its button; an outside click closes it, the peek stays', async () => {
+    // The store here is the reseed above: notes a (long title), Beta, Gamma.
+    await page.getByTestId('map-search').fill('Beta');
+    await page.keyboard.press('Enter');
+    const peek = page.getByTestId('map-peek');
+    await peek.waitFor();
+    const linkBtn = peek.getByRole('button', { name: '+ Связать' });
+    await linkBtn.click();
+    await peek.getByRole('listbox').waitFor();
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('[data-testid="map-peek"] [role="listbox"]') && document.activeElement?.textContent === '+ Связать', null, { timeout: 5000 });
+    assert(await peek.isVisible(), 'Esc closed the peek too');
+    await linkBtn.click();
+    await peek.getByRole('listbox').waitFor();
+    await page.getByTestId('page-header').locator('h1').click();
+    await page.waitForFunction(() => !document.querySelector('[data-testid="map-peek"] [role="listbox"]'), null, { timeout: 5000 });
+    assert(await peek.isVisible(), 'an outside click closed the peek');
+  });
 };

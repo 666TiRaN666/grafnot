@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { Note } from './store';
 import { NOTE_NAME_MAX, noteAccessibleName, noteDisplayName, noteFileName } from './noteName';
 
-const note = (title = '', text = ''): Note => ({ id: 'n', title, text, content: '', linkedIds: [], calcs: [], updated: Date.UTC(2026, 9, 29) });
+// Local noon: the same calendar day in every time zone.
+const note = (title = '', text = ''): Note => ({ id: 'n', title, text, content: '', linkedIds: [], calcs: [], updated: new Date(2026, 9, 29, 12).getTime() });
 
 describe('W6 unnamed note presentation', () => {
   it('uses the first nonempty line without changing the stored note', () => {
@@ -42,5 +43,9 @@ describe('W6 unnamed note presentation', () => {
   });
   it('uses a dated filename for empty, illegal or reserved names', () => {
     for (const n of [note(), note('CON'), note('NUL.txt'), note('', ' / : * ? ')]) expect(noteFileName(n, 'RU')).toBe('note-2026-10-29.md');
+  });
+  it('dates the file by the local day the note changed, not the UTC one', () => {
+    const justAfterMidnight: Note = { ...note(), updated: new Date(2026, 10, 12, 0, 30).getTime() };
+    expect(noteFileName(justAfterMidnight, 'RU')).toBe('note-2026-11-12.md');
   });
 });

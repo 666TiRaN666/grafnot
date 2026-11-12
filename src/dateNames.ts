@@ -12,13 +12,6 @@ export function weekdayShort(date: Date, lang: Lang): string {
   return new Intl.DateTimeFormat(locOf(lang), { weekday: 'short' }).format(date);
 }
 
-/** "Октябрь 2026" / "October 2026" / "Қазан 2026": first letter only raised. */
-export function monthYear(date: Date, lang: Lang): string {
-  if (lang === 'KZ') return `${KZ_MONTHS[date.getMonth()] ?? ''} ${date.getFullYear()}`;
-  const t = new Intl.DateTimeFormat(locOf(lang), { month: 'long', year: 'numeric' }).format(date);
-  return t.charAt(0).toLocaleUpperCase(locOf(lang)) + t.slice(1);
-}
-
 /** "9–15 ноября 2026" / "Nov 30 – Dec 6, 2026" / "9–15 Қараша 2026": the shown week. */
 export function weekRangeLabel(from: Date, to: Date, lang: Lang): string {
   if (lang === 'KZ') {

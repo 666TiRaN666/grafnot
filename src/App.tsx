@@ -2,12 +2,11 @@ import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import type { Lang, Theme } from './i18n';
 import { tr } from './i18n';
 import type { LlmTpl } from './data';
-import { LEGACY_STORE_KEY, SCHEMA_VERSION, appendPromptText, loadStoreResult, saveStore, storeKeyFor } from './store';
+import { LEGACY_STORE_KEY, SCHEMA_VERSION, loadStoreResult, saveStore, storeKeyFor } from './store';
 import type { CalcBlock, Graph, Note, PromptSave, Store } from './store';
 import { parseImport, storeDigest } from './importStore';
-import { renameWikiLinks } from './wikiText';
 import type { ImportReason } from './importStore';
-import { expireTrash, purgeNote, restoreNote, trashNote } from './trashRestore';
+import { expireTrash, purgeNote, restoreNote } from './trashRestore';
 import { ProfilePicker } from "./ProfilePicker";
 import type { ProfileRegistry } from "./profiles";
 import {
@@ -20,10 +19,11 @@ import {
   updateProfiles,
   setActiveProfile,
 } from "./profiles";
-import { parseTrashDays, prefKeyFor } from "./prefs";
+import { parseTrashDays, prefKeyFor, readPref, writePref } from "./prefs";
 import type { TrashDays } from "./prefs";
-import { ErrorBoundary, Icon, Modal, StatusBanner, ToastStack, dismissToast, fmtDue } from './widgets';
-import type { ToastMsg } from './widgets';
+import { ErrorBoundary, Icon, Modal, StatusBanner, ToastStack } from './widgets';
+import { fmtDue } from './isoDate';
+import { useToasts } from './toastQueue';
 import type { NotesActions } from './NotesView';
 // The editors load on demand: Tiptap travels with NotesView, d3-force with
 // MapView. Named re-exports keep one network chunk per page module.
@@ -78,30 +78,17 @@ import type { AddMode, NoteSession } from './rolloutModel';
 import { ProfileMenu } from './ProfileMenu';
 import { useMedia } from './ui/useMedia';
 import { useKeyboardOpen } from './ui/useKeyboard';
+import { isInLayer } from './ui/pageKeys';
 import { backupFileName, exportRaw, exportMemory, importedProfileName } from "./exportRaw";
 import { SNIPPET_LEN, buildTplEntries, imageInit, makeSnippet, promptPreview } from "./promptUtils";
 import { LLM_TEMPLATES, builtinTemplates } from "./data";
 import { newId } from "./utils/newId";
+import * as ops from './storeOps';
 import { consumeActiveIdReset, decideFlush, ensureRegistryCached, freshStore, hasLegacyKey, loadProfileStore, nextSaveState, sameStoreContent, settleStore, shouldPersist, verifyStoredMatches } from "./storage/profileBoot";
 import type { SaveState, StoreBlocked } from "./storage/profileBoot";
 
 import { useArmConfirm } from "./useArmConfirm";
 
-function load(key: string, fallback: string): string {
-  try {
-    return window.localStorage.getItem(key) ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function save(key: string, value: string): void {
-  try {
-    window.localStorage.setItem(key, value);
-  } catch {
-    /* ignore */
-  }
-}
 
   const MAP_UNLOCK = 0;
 
@@ -142,22 +129,22 @@ export default function App() {
     if (boot.lastProfileKnown && registry.profiles.some((p) => p.id === registry.activeId)) return registry.activeId;
     return registry.profiles.length === 1 ? (registry.profiles[0]?.id ?? null) : null;
   });
-  const [theme, setTheme] = useState<Theme>(() => (load(prefKeyFor('theme', profileId ?? undefined), 'light') === 'dark' ? 'dark' : 'light'));
+  const [theme, setTheme] = useState<Theme>(() => (readPref(prefKeyFor('theme', profileId ?? undefined), 'light') === 'dark' ? 'dark' : 'light'));
   const [lang, setLang] = useState<Lang>(() => {
-    const v = load(prefKeyFor('lang', profileId ?? undefined), 'RU');
+    const v = readPref(prefKeyFor('lang', profileId ?? undefined), 'RU');
     return v === 'EN' || v === 'KZ' || v === 'RU' ? v : 'RU';
   });
   // W5: rail mode = explicit choice (grafnot-side-mode) or auto by window
   // width. The legacy grafnot-side pref is not read: it was rewritten on
   // every mount and cannot tell a user choice from the default.
-  const [sideMode, setSideMode] = useState<NavMode>(() => parseNavMode(load(prefKeyFor('sideMode', profileId ?? undefined), 'auto')));
+  const [sideMode, setSideMode] = useState<NavMode>(() => parseNavMode(readPref(prefKeyFor('sideMode', profileId ?? undefined), 'auto')));
   const wideEnough = useMedia(`(min-width: ${NAV_AUTO_MIN}px)`);
   const sideOpen = navOpen(sideMode, wideEnough);
   // Search and save status live in the rail on desktop, in the header on
   // phones (the rail is hidden there): one element each, testids stay unique.
   const isPhone = useMedia('(max-width: 760px)');
   const keyboardOpen = useKeyboardOpen(isPhone);
-  const [rightOpen, setRightOpen] = useState(() => load(prefKeyFor('ctx', profileId ?? undefined), 'closed') === 'pinned');
+  const [rightOpen, setRightOpen] = useState(() => readPref(prefKeyFor('ctx', profileId ?? undefined), 'closed') === 'pinned');
   const [bootStore] = useState(() => {
     if (!profileId)
       return { store: freshStore(), rest: {} as Record<string, unknown>, blocked: null as StoreBlocked | null, dropped: boot.dropped, lastSeen: null as string | null };
@@ -194,7 +181,6 @@ export default function App() {
   // per edit (that getItem rode the hot path before).
   const lastSeenRawRef = useRef<string | null>(bootStore.lastSeen);
   const emptyConfirm = useArmConfirm();
-  const [toasts, setToasts] = useState<ToastMsg[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [profileConfirmOpen, setProfileConfirmOpen] = useState(false);
 
@@ -203,9 +189,7 @@ export default function App() {
   const switchConfirm = useArmConfirm();
   const forceSwitchRef = useRef(false);
 
-  const idRef = useRef(1);
   const saveFailedRef = useRef(false);
-  const toastTimersRef = useRef(new Map<number, number>());
   const pendingSaveRef = useRef<{ store: Store; rest: Record<string, unknown>; profileId: string; lang: Lang } | null>(null);
   const saveTimerRef = useRef<number | undefined>(undefined);
   // Trailing debounce alone starves under continuous edits (the timer keeps
@@ -230,55 +214,6 @@ export default function App() {
   const openCount = useMemo(() => tasks.filter((t) => !t.done).length, [tasks]);
 
 
-  // Toast queue: at most TOAST_VISIBLE on screen, the rest collapse into a
-  // "+N" badge (ToastStack); auto-hide pauses while hovered so long texts
-  // stay readable. Manual × and unmount cleanup unchanged.
-  const TOAST_MS = 2600;
-  const TOAST_QUEUED = 6;
-  const toastEndsRef = useRef(new Map<number, number>());
-  const armToast = (id: number, delay: number) => {
-    toastEndsRef.current.set(id, Date.now() + delay);
-    toastTimersRef.current.set(
-      id,
-      window.setTimeout(() => {
-        toastTimersRef.current.delete(id);
-        toastEndsRef.current.delete(id);
-        setToasts((p) => dismissToast(p, id));
-      }, delay),
-    );
-  };
-
-  const notify = (text: string) => {
-    const id = idRef.current++;
-    // One message per event: the same plain text already on screen is not stacked again.
-    setToasts((p) => (p.some((x) => x.text === text && !x.actionLabel) ? p : [...p, { id, text }].slice(-TOAST_QUEUED)));
-    armToast(id, TOAST_MS);
-  };
-
-  const pauseToast = (id: number, hovering: boolean) => {
-    if (hovering) {
-      const t = toastTimersRef.current.get(id);
-      if (t !== undefined) {
-        window.clearTimeout(t);
-        toastTimersRef.current.delete(id);
-        const ends = toastEndsRef.current.get(id);
-        if (ends !== undefined) toastEndsRef.current.set(id, Math.max(0, ends - Date.now()));
-      }
-    } else if (!toastTimersRef.current.has(id) && toastEndsRef.current.has(id)) {
-      armToast(id, toastEndsRef.current.get(id) ?? TOAST_MS);
-    }
-  };
-
-  const closeToast = (id: number) => {
-    const t = toastTimersRef.current.get(id);
-    if (t !== undefined) {
-      window.clearTimeout(t);
-      toastTimersRef.current.delete(id);
-    }
-    toastEndsRef.current.delete(id);
-    setToasts((p) => dismissToast(p, id));
-  };
-
   // D2 (W3): a store session ends whenever the whole store is swapped
   // (profile switch or creation, back to the picker, cross-tab reload,
   // conflict resolution — all via resetSession). Deferred actions carry the
@@ -288,35 +223,15 @@ export default function App() {
   const sessionProfileRef = useRef(profileId);
   sessionProfileRef.current = profileId;
 
-  // Action toasts (S3: Undo for delete/unlink, Open for note tasks). The
-  // callback map lives in a ref so firing never re-renders; action toasts
-  // stay the full N4 window (8s), plain toasts keep their short TTL.
-  const toastActionsRef = useRef(new Map<number, { fn: () => void; epoch: number; profileId: string | null }>());
-  const TOAST_UNDO_MS = 8000;
-  const notifyAction = (text: string, actionLabel: string, fn: () => void) => {
-    const id = idRef.current++;
-    toastActionsRef.current.set(id, { fn, epoch: sessionEpochRef.current, profileId: sessionProfileRef.current });
-    setToasts((p) => [...p, { id, text, actionLabel }].slice(-TOAST_QUEUED));
-    armToast(id, TOAST_UNDO_MS);
-  };
-  const fireToastAction = (id: number) => {
-    const entry = toastActionsRef.current.get(id);
-    toastActionsRef.current.delete(id);
-    closeToast(id);
-    if (!entry) return;
-    if (entry.epoch !== sessionEpochRef.current || entry.profileId !== sessionProfileRef.current) {
-      notify(tr('toastUndoGone', lang));
-      return;
-    }
-    entry.fn();
-  };
+  // Toasts and their actions (Undo, Open): queue, timers and the session
+  // guard live in toastQueue.ts; App only says what happened.
+  const { items: toasts, queue: toastQueue } = useToasts(() => ({ epoch: sessionEpochRef.current, profileId: sessionProfileRef.current }));
+  const { notify, notifyAction } = toastQueue;
+  const fireToastAction = (id: number) => toastQueue.fire(id, tr('toastUndoGone', lang));
   /** End the store session: pending toast actions are dropped, visibly. */
   const dropSessionActions = () => {
     sessionEpochRef.current += 1;
-    const ids = [...toastActionsRef.current.keys()];
-    toastActionsRef.current.clear();
-    for (const id of ids) closeToast(id);
-    if (ids.length > 0) notify(tr('toastUndoGone', lang));
+    toastQueue.dropActions(tr('toastUndoGone', lang));
   };
 
   // One-shot focus request, cancelled on departure even while the editor loads.
@@ -332,23 +247,11 @@ export default function App() {
     return () => window.removeEventListener('hashchange', cancel);
   }, []);
 
-  /** Explicit nonempty titles remain unique; empty titles need no suffix. */
-  const uniqueTitle = (base: string, ignoreId?: string) => {
-    const taken = new Set(notes.filter((n) => n.id !== ignoreId).map((n) => n.title));
-    const clean = base.trim();
-    if (!clean) return '';
-    if (!taken.has(clean)) return clean;
-    let i = 2;
-    while (taken.has(`${clean} ${i}`)) i++;
-    return `${clean} ${i}`;
-  };
-
-  // ----- store actions -----
-  const createNote = (title: string, content: Note['content'] = '', text = '', linkedIds: string[] = []): string => {
-    const id = newId("n");
-    const note: Note = { id, title: uniqueTitle(title), content, text, linkedIds, calcs: [], updated: Date.now() };
-    setStore((s) => ({ ...s, notes: [note, ...s.notes], activeId: id }));
-    return id;
+  // ----- store actions: the rules live in storeOps.ts; here ids, time, toasts, Undo and the route -----
+  const createNote = (title: string): string => {
+    const note = ops.newNote(newId("n"), ops.uniqueNoteTitle(notes, title), Date.now());
+    setStore((s) => ops.addNote(s, note, true));
+    return note.id;
   };
 
   const go = (section: RouteSection, param?: string) => {
@@ -378,21 +281,21 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (profileId) save(prefKeyFor('theme', profileId), theme);
+    if (profileId) writePref(prefKeyFor('theme', profileId), theme);
     // Viewport scrollbar + any root-level native UI follow the app theme.
     document.documentElement.style.colorScheme = theme;
   }, [theme, profileId]);
 
   useEffect(() => {
-    if (profileId) save(prefKeyFor('lang', profileId), lang);
+    if (profileId) writePref(prefKeyFor('lang', profileId), lang);
   }, [lang, profileId]);
 
   useEffect(() => {
-    if (profileId) save(prefKeyFor('sideMode', profileId), sideMode);
+    if (profileId) writePref(prefKeyFor('sideMode', profileId), sideMode);
   }, [sideMode, profileId]);
 
   useEffect(() => {
-    if (profileId) save(prefKeyFor('ctx', profileId), rightOpen ? 'pinned' : 'closed');
+    if (profileId) writePref(prefKeyFor('ctx', profileId), rightOpen ? 'pinned' : 'closed');
   }, [rightOpen, profileId]);
 
   // Synchronous write of the latest debounced snapshot. True when written or
@@ -480,7 +383,6 @@ export default function App() {
   // cancel the unload so the browser asks (beforeunload only; pagehide and
   // visibility flush silently). No dialog when everything is written.
   useEffect(() => {
-    const timers = toastTimersRef.current;
     const onUnload = (e: BeforeUnloadEvent) => {
       const ok = flushSave();
       if (!ok && pendingSaveRef.current) {
@@ -501,9 +403,9 @@ export default function App() {
       window.removeEventListener("beforeunload", onUnload);
       document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener("pagehide", onHide);
-      for (const t of timers.values()) window.clearTimeout(t);
-      timers.clear();
     };
+    // flushSave reads refs only (see above): binding it once is intended.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Cross-tab updates for the current profile key. Quiet reload when idle
@@ -577,7 +479,7 @@ export default function App() {
         // Esc leaves a list search field (one rule for every section); a field
         // that used Esc itself (clearing, closing a list) has prevented it.
         const t = e.target as HTMLElement | null;
-        if (!e.defaultPrevented && t instanceof HTMLInputElement && SEARCH_FIELDS.has(t.dataset.testid ?? '') && !t.closest('.g-modal,[role="dialog"]')) t.blur();
+        if (!e.defaultPrevented && t instanceof HTMLInputElement && SEARCH_FIELDS.has(t.dataset.testid ?? '') && !isInLayer(t)) t.blur();
       }
     };
     window.addEventListener('keydown', h);
@@ -593,12 +495,12 @@ export default function App() {
 
   /** Note commands always name their note: the one the user acted on. */
   const updateNote = (id: string, fn: (n: Note) => Note) => {
-    setStore((s) => ({ ...s, notes: s.notes.map((n) => (n.id === id ? { ...fn(n), updated: Date.now() } : n)) }));
+    setStore((s) => ops.editNote(s, id, fn, Date.now()));
   };
 
   /** With id-links rename touches only the note itself. */
   const renameNote = (id: string, v: string) => {
-    const title = uniqueTitle(v, id);
+    const title = ops.uniqueNoteTitle(notes, v, id);
     const cur = storeRef.current.notes.find((n) => n.id === id);
     updateNote(id, (n) => ({ ...n, title }));
     if (!cur) return;
@@ -606,20 +508,13 @@ export default function App() {
     // lists stays: a rename elsewhere is not an edit of these notes).
     const old = noteDisplayName(cur, lang), next = noteDisplayName({ ...cur, title }, lang);
     if (old === next) return;
-    setStore((s) => ({
-      ...s,
-      notes: s.notes.map((n) => {
-        if (n.id === id) return n;
-        const r = renameWikiLinks(n.content, n.text, old, next);
-        return r ? { ...n, content: r.content, text: r.text } : n;
-      }),
-    }));
+    setStore((s) => ops.renameWikiMarkers(s, id, old, next));
   };
 
   const toggleTask = (id: string) => {
     const t = tasks.find((x) => x.id === id);
     if (!t) return;
-    setStore((s) => ({ ...s, tasks: s.tasks.map((x) => (x.id === id ? { ...x, done: !x.done } : x)) }));
+    setStore((s) => ops.toggleTaskDone(s, id));
     notify(tr(t.done ? 'toastTaskBack' : 'toastTaskDone', lang));
   };
 
@@ -628,16 +523,13 @@ export default function App() {
     const v = text.trim();
     if (!v) return undefined;
     const id = newId("t");
-    setStore((s) => ({
-      ...s,
-      tasks: [{ id, text: v, desc: opts?.desc || undefined, done: false, due: opts?.due, noteId: opts?.noteId }, ...s.tasks],
-    }));
+    setStore((s) => ops.addTask(s, { id, text: v, desc: opts?.desc || undefined, done: false, due: opts?.due, noteId: opts?.noteId }));
     if (!opts?.quiet) notify(tr('toastTaskAdded', lang));
     return id;
   };
 
   const setTaskDue = (id: string, due?: string) => {
-    setStore((s) => ({ ...s, tasks: s.tasks.map((x) => (x.id === id ? { ...x, due } : x)) }));
+    setStore((s) => ops.patchTask(s, id, { due }));
   };
 
   /** Week drags (and inbox drops) are reversible like every other move. */
@@ -652,13 +544,14 @@ export default function App() {
   const deleteTask = (id: string) => {
     const victim = tasks.find((x) => x.id === id);
     if (!victim) return;
-    setStore((s) => ({ ...s, tasks: s.tasks.filter((x) => x.id !== id), trashTasks: [{ ...victim, trashedAt: Date.now() }, ...s.trashTasks] }));
+    const now = Date.now();
+    setStore((s) => ops.trashTask(s, id, now));
     notifyAction(tr("toastTaskDeleted", lang), tr("undoToast", lang), () => restoreTrashTask(victim.id));
   };
 
   const savePrompt = (d: Omit<PromptSave, 'id' | 'created'>) => {
-    const id = newId("p");
-    setStore((s) => ({ ...s, prompts: [{ ...d, id, created: Date.now() }, ...s.prompts] }));
+    const p: PromptSave = { ...d, id: newId("p"), created: Date.now() };
+    setStore((s) => ops.addPrompt(s, p));
     notify(tr('toastSavedTpl', lang));
   };
 
@@ -666,42 +559,30 @@ export default function App() {
     const idx = store.prompts.findIndex((x) => x.id === id);
     const victim = idx >= 0 ? store.prompts[idx] : undefined;
     if (!victim) return;
-    setStore((s) => ({ ...s, prompts: s.prompts.filter((x) => x.id !== id) }));
-    notifyAction(tr('promptDeleted', lang), tr('undoToast', lang), () =>
-      setStore((s) => {
-        const next = [...s.prompts];
-        next.splice(Math.min(idx, next.length), 0, victim);
-        return { ...s, prompts: next };
-      }),
-    );
+    setStore((s) => ops.removePrompt(s, id));
+    notifyAction(tr('promptDeleted', lang), tr('undoToast', lang), () => setStore((s) => ops.restorePromptAt(s, idx, victim)));
   };
 
   const renamePrompt = (id: string, title: string) => {
-    setStore((s) => ({ ...s, prompts: s.prompts.map((x) => (x.id === id ? { ...x, title } : x)) }));
+    setStore((s) => ops.patchPrompt(s, id, { title }));
   };
 
   /** Template-level insert (no save binding): the workbench «В заметку». */
   const appendToNote = (noteId: string, text: string) => {
-    setStore((s) => ({
-      ...s,
-      notes: s.notes.map((n) => {
-        if (n.id !== noteId) return n;
-        const next = appendPromptText(n.content, n.text, text);
-        return { ...n, ...next, updated: Date.now() };
-      }),
-    }));
+    const now = Date.now();
+    setStore((s) => ops.appendToNoteIn(s, noteId, text, now));
     notify(tr('toastToNote', lang));
   };
 
   const saveCustomTpl = (d: Omit<LlmTpl, 'id'>): string => {
     const id = newId("ct");
-    setStore((s) => ({ ...s, customTpls: [...s.customTpls, { ...d, id }] }));
+    setStore((s) => ops.addTemplate(s, { ...d, id }));
     notify(tr('toastSavedTpl', lang));
     return id;
   };
 
   const updateCustomTpl = (id: string, d: Omit<LlmTpl, 'id'>) => {
-    setStore((s) => ({ ...s, customTpls: s.customTpls.map((x) => (x.id === id ? { ...d, id } : x)) }));
+    setStore((s) => ops.replaceTemplate(s, id, d));
     notify(tr('tplUpdated', lang));
   };
 
@@ -709,14 +590,8 @@ export default function App() {
     const idx = store.customTpls.findIndex((x) => x.id === id);
     const victim = idx >= 0 ? store.customTpls[idx] : undefined;
     if (!victim) return;
-    setStore((s) => ({ ...s, customTpls: s.customTpls.filter((x) => x.id !== id) }));
-    notifyAction(tr('promptDeleted', lang), tr('undoToast', lang), () =>
-      setStore((s) => {
-        const next = [...s.customTpls];
-        next.splice(Math.min(idx, next.length), 0, victim);
-        return { ...s, customTpls: next };
-      }),
-    );
+    setStore((s) => ops.removeTemplate(s, id));
+    notifyAction(tr('promptDeleted', lang), tr('undoToast', lang), () => setStore((s) => ops.restoreTemplateAt(s, idx, victim)));
   };
 
 
@@ -777,16 +652,16 @@ export default function App() {
       if (dropped > 0) notify(`${tr('brokenCleaned', lang)}: ${dropped}`);
       if (consumeActiveIdReset()) notify(tr("toastBadActiveId", lang));
     }
-    setTheme(load(prefKeyFor('theme', id), 'light') === 'dark' ? 'dark' : 'light');
-    const v = load(prefKeyFor('lang', id), 'RU');
+    setTheme(readPref(prefKeyFor('theme', id), 'light') === 'dark' ? 'dark' : 'light');
+    const v = readPref(prefKeyFor('lang', id), 'RU');
     setLang(v === 'EN' || v === 'KZ' || v === 'RU' ? v : 'RU');
-    setSideMode(parseNavMode(load(prefKeyFor('sideMode', id), 'auto')));
-    setRightOpen(load(prefKeyFor('ctx', id), 'closed') === 'pinned');
-    const add = load(prefKeyFor('addMode', id), 'section');
+    setSideMode(parseNavMode(readPref(prefKeyFor('sideMode', id), 'auto')));
+    setRightOpen(readPref(prefKeyFor('ctx', id), 'closed') === 'pinned');
+    const add = readPref(prefKeyFor('addMode', id), 'section');
     setAddMode(add === 'note' || add === 'choose' ? add : 'section');
     resetSession();
     setProfileId(id);
-    navigate(parseRoute(`#/${load(prefKeyFor('section', id), 'notes')}`));
+    navigate(parseRoute(`#/${readPref(prefKeyFor('section', id), 'notes')}`));
   };
 
   const createNewProfile = async (name: string) => {
@@ -800,7 +675,7 @@ export default function App() {
     if (!next) return;
     if (!flushSave()) { notify(tr('toastSwitchBlocked', lang)); return; }
     const profile = { id: next.activeId };
-    save(prefKeyFor('lang', profile.id), lang);
+    writePref(prefKeyFor('lang', profile.id), lang);
     const fresh = freshStore();
     storeRestRef.current = {};
     dirtyRef.current = false;
@@ -930,7 +805,7 @@ export default function App() {
       return 'write';
     }
     // The restored profile opens in the language in use now, not the default.
-    save(prefKeyFor('lang', next.activeId), lang);
+    writePref(prefKeyFor('lang', next.activeId), lang);
     await enterProfile(next.activeId);
     notify(tr('toastImported', lang).replace('{n}', String(parsed.report.notes)).replace('{t}', String(parsed.report.tasks)));
     if (parsed.report.dropped > 0) notify(`${tr('brokenCleaned', lang)}: ${parsed.report.dropped}`);
@@ -1014,12 +889,12 @@ export default function App() {
   };
 
   const unbindPrompt = (id: string) => {
-    setStore((s) => ({ ...s, prompts: s.prompts.map((x) => (x.id === id ? { ...x, noteId: undefined } : x)) }));
+    setStore((s) => ops.patchPrompt(s, id, { noteId: undefined }));
     notify(tr('promptUnbound', lang));
   };
 
   const updateTask = (id: string, patch: { text?: string; desc?: string; due?: string }) => {
-    setStore((s) => ({ ...s, tasks: s.tasks.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
+    setStore((s) => ops.patchTask(s, id, patch));
     notify(tr('taskUpdated', lang));
   };
 
@@ -1027,11 +902,9 @@ export default function App() {
     const victim = notes.find((n) => n.id === id);
     if (!victim) return;
     const next = notes.filter((n) => n.id !== victim.id);
-    // D3: trashNote records incoming links and graph membership for restore.
-    setStore((s) => {
-      const t = trashNote(s, victim.id, Date.now());
-      return { ...t, activeId: t.notes[0]?.id ?? '' };
-    });
+    // D3: the trash records incoming links and graph membership for restore.
+    const now = Date.now();
+    setStore((s) => ops.deleteNoteIn(s, victim.id, now));
     // The route pins the open note: follow the store's new active note so
     // the editor does not linger on the deleted id (old 'home' behavior).
     if (next.length > 0 && next[0]) go('notes', next[0].id);
@@ -1045,18 +918,15 @@ export default function App() {
     if (victims.length === 0) return;
     if (victims.length === 1 && victims[0]) { deleteNote(victims[0].id); return; }
     const gone = new Set(victims.map((v) => v.id));
-    setStore((s) => {
-      const now = Date.now();
-      const t = victims.reduce((acc, v) => trashNote(acc, v.id, now), s);
-      return { ...t, activeId: t.notes.some((n) => n.id === t.activeId) ? t.activeId : (t.notes[0]?.id ?? '') };
-    });
+    const now = Date.now();
+    setStore((s) => ops.trashNotesIn(s, [...gone], now));
     // The route pins the open note: leave it when it went to the trash.
     if (route.section === 'notes' && route.param && gone.has(route.param)) {
       const next = notes.find((n) => !gone.has(n.id));
       if (next) go('notes', next.id); else go('notes');
     }
     notifyAction(tr('toastNotesTrashed', lang).replace('{n}', String(victims.length)), tr('undoToast', lang), () => {
-      setStore((s) => victims.reduce((acc, v) => (acc.trash.some((x) => x.id === v.id) ? restoreNote(acc, v.id) : acc), s));
+      setStore((s) => ops.restoreNotesIn(s, [...gone]));
       notify(tr('toastNotesRestored', lang).replace('{n}', String(victims.length)));
     });
   };
@@ -1065,11 +935,8 @@ export default function App() {
   const setMembers = (ids: string[], graphId: string, member: boolean) => {
     const g = graphs.find((x) => x.id === graphId);
     if (!g) return;
-    const changed = ids.filter((id) => g.noteIds.includes(id) !== member);
-    const apply = (list: string[], on: boolean) => setStore((s) => ({
-      ...s,
-      graphs: s.graphs.map((x) => (x.id !== graphId ? x : { ...x, noteIds: on ? [...x.noteIds, ...list.filter((id) => !x.noteIds.includes(id))] : x.noteIds.filter((id) => !list.includes(id)) })),
-    }));
+    const changed = ops.changedMembers(g, ids, member);
+    const apply = (list: string[], on: boolean) => setStore((s) => ops.setGraphMembers(s, graphId, list, on));
     if (changed.length > 0) apply(changed, member);
     const msg = tr(member ? 'toastAddedToGraph' : 'toastRemovedFromGraph', lang).replace('{g}', g.title).replace('{n}', String(changed.length));
     if (changed.length > 0) notifyAction(msg, tr('undoToast', lang), () => apply(changed, !member));
@@ -1078,10 +945,9 @@ export default function App() {
 
   /** Sister of createNote that leaves activeId alone (for `[[` create-row). */
   const createLinkedNote = (title: string): string => {
-    const id = newId("n");
-    const note: Note = { id, title: uniqueTitle(title), content: "", text: "", linkedIds: [], calcs: [], updated: Date.now() };
-    setStore((s) => ({ ...s, notes: [note, ...s.notes] }));
-    return id;
+    const note = ops.newNote(newId("n"), ops.uniqueNoteTitle(notes, title), Date.now());
+    setStore((s) => ops.addNote(s, note, false));
+    return note.id;
   };
 
   /** Undo of a delete reopens the note; the trash page keeps you there to
@@ -1108,26 +974,18 @@ export default function App() {
     // Fresh store like restoreTrash: Undo callbacks fire long after arming.
     const found = storeRef.current.trashTasks.find((x) => x.id === id);
     if (!found) return;
-    const { trashedAt: _gone, ...t } = found;
-    setStore((s) => ({ ...s, trashTasks: s.trashTasks.filter((x) => x.id !== id), tasks: [t, ...s.tasks] }));
+    setStore((s) => ops.restoreTask(s, found.id));
     notify(tr("toastTaskRestored", lang));
   };
   const purgeTrashTask = (id: string) => {
-    setStore((s) => ({ ...s, trashTasks: s.trashTasks.filter((x) => x.id !== id) }));
-
+    setStore((s) => ops.purgeTask(s, id));
   };
   const duplicateNote = (id: string) => {
     const src = notes.find((n) => n.id === id);
     if (!src) return;
-    const copy: Note = {
-      ...src,
-      id: newId("n"),
-      title: src.title.trim() ? uniqueTitle(`${src.title} (${tr('duplicate', lang)})`) : '',
-      linkedIds: [...src.linkedIds],
-      calcs: src.calcs.map((c) => ({ ...c })),
-      updated: Date.now(),
-    };
-    setStore((s) => ({ ...s, notes: [copy, ...s.notes], activeId: copy.id }));
+    const title = src.title.trim() ? ops.uniqueNoteTitle(notes, `${src.title} (${tr('duplicate', lang)})`) : '';
+    const copy = ops.duplicateOf(src, newId("n"), title, Date.now());
+    setStore((s) => ops.addNote(s, copy, true));
     // The route pins the open note: open the copy (old 'home' behavior).
     go('notes', copy.id);
   };
@@ -1156,50 +1014,26 @@ export default function App() {
 
   /** Drop a dangling reference from every note at once. */
   const purgeLink = (id: string) => {
-    setStore((s) => ({
-      ...s,
-      notes: s.notes.map((n) =>
-        n.linkedIds.includes(id) ? { ...n, linkedIds: n.linkedIds.filter((x) => x !== id) } : n,
-      ),
-    }));
-  };
-
-  const uniqueGraphTitle = (base: string, ignoreId?: string) => {
-    const taken = new Set(graphs.filter((g) => g.id !== ignoreId).map((g) => g.title));
-    const clean = base.trim() || tr('newGraphName', lang);
-    if (!taken.has(clean)) return clean;
-    let i = 2;
-    while (taken.has(`${clean} ${i}`)) i++;
-    return `${clean} ${i}`;
+    setStore((s) => ops.purgeLinkTo(s, id));
   };
 
   const createGraph = (title: string): string => {
-    const id = newId("g");
-    const g: Graph = { id, title: uniqueGraphTitle(title), noteIds: [] };
-    setStore((s) => ({ ...s, graphs: [...s.graphs, g] }));
-    return id;
+    const g: Graph = { id: newId("g"), title: ops.uniqueGraphTitle(graphs, title, tr('newGraphName', lang)), noteIds: [] };
+    setStore((s) => ops.addGraph(s, g));
+    return g.id;
   };
 
   const renameGraph = (id: string, title: string) => {
-    setStore((s) => ({
-      ...s,
-      graphs: s.graphs.map((g) => (g.id === id ? { ...g, title: uniqueGraphTitle(title, id) } : g)),
-    }));
+    const next = ops.uniqueGraphTitle(graphs, title, tr('newGraphName', lang), id);
+    setStore((s) => ops.renameGraphIn(s, id, next));
   };
 
   const deleteGraph = (id: string) => {
     const idx = graphs.findIndex((g) => g.id === id);
     const victim = idx >= 0 ? graphs[idx] : undefined;
     if (!victim) return;
-    setStore((s) => ({ ...s, graphs: s.graphs.filter((g) => g.id !== id) }));
-    notifyAction(tr('graphDeleted', lang), tr('undoToast', lang), () =>
-      setStore((s) => {
-        if (s.graphs.some((g) => g.id === victim.id)) return s;
-        const next = [...s.graphs];
-        next.splice(Math.min(idx, next.length), 0, victim);
-        return { ...s, graphs: next };
-      }),
-    );
+    setStore((s) => ops.removeGraph(s, id));
+    notifyAction(tr('graphDeleted', lang), tr('undoToast', lang), () => setStore((s) => ops.restoreGraphAt(s, idx, victim)));
   };
 
   /** Map drag-a-link: one direction (LinkDialog-era semantics), reversible. */
@@ -1207,48 +1041,28 @@ export default function App() {
     if (fromId === toId) return;
     const src = notes.find((n) => n.id === fromId);
     if (!src || src.linkedIds.includes(toId)) return;
-    setStore((s) => ({
-      ...s,
-      notes: s.notes.map((n) => (n.id === fromId && !n.linkedIds.includes(toId) ? { ...n, linkedIds: [...n.linkedIds, toId] } : n)),
-    }));
-    notifyAction(tr('toastLinked', lang), tr('undoToast', lang), () =>
-      setStore((s) => ({
-        ...s,
-        notes: s.notes.map((n) => (n.id === fromId ? { ...n, linkedIds: n.linkedIds.filter((x) => x !== toId) } : n)),
-      })),
-    );
+    setStore((s) => ops.linkNotes(s, fromId, toId));
+    notifyAction(tr('toastLinked', lang), tr('undoToast', lang), () => setStore((s) => ops.unlinkNotes(s, fromId, toId)));
   };
 
   const toggleMember = (noteId: string, graphId: string) => {
-    setStore((s) => ({
-      ...s,
-      graphs: s.graphs.map((g) =>
-        g.id !== graphId
-          ? g
-          : { ...g, noteIds: g.noteIds.includes(noteId) ? g.noteIds.filter((x) => x !== noteId) : [...g.noteIds, noteId] },
-      ),
-    }));
+    setStore((s) => ops.toggleGraphMember(s, graphId, noteId));
   };
 
   const addCalc = (noteId: string) => {
-    updateNote(noteId, (n) => ({ ...n, calcs: [...n.calcs, { id: newId("c"), name: '', expr: '' }] }));
+    updateNote(noteId, (n) => ops.withCalc(n, { id: newId("c"), name: '', expr: '' }));
   };
 
   const updateCalc = (noteId: string, id: string, patch: Partial<CalcBlock>) => {
-    updateNote(noteId, (n) => ({ ...n, calcs: n.calcs.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
+    updateNote(noteId, (n) => ops.patchCalc(n, id, patch));
   };
 
   const deleteCalc = (noteId: string, id: string) => {
     const blocks = storeRef.current.notes.find(n => n.id === noteId)?.calcs ?? [];
     const index = blocks.findIndex(c => c.id === id), old = blocks[index];
     if (!old) return;
-    updateNote(noteId, n => ({ ...n, calcs: n.calcs.filter(c => c.id !== id) }));
-    notifyAction(tr('calcDeleted', lang), tr('undoToast', lang), () => updateNote(noteId, n => {
-      if (n.calcs.some(c => c.id === id)) return n;
-      const calcs = [...n.calcs];
-      calcs.splice(Math.min(index, calcs.length), 0, old);
-      return { ...n, calcs };
-    }));
+    updateNote(noteId, (n) => ops.withoutCalc(n, id));
+    notifyAction(tr('calcDeleted', lang), tr('undoToast', lang), () => updateNote(noteId, (n) => ({ ...n, calcs: ops.reinsertAt(n.calcs, index, old) })));
   };
 
 
@@ -1389,7 +1203,7 @@ export default function App() {
   const section: RouteSection = route.section;
   const restoredRef = useRef(false);
   useEffect(() => {
-    if (profileId) save(prefKeyFor('section', profileId), section);
+    if (profileId) writePref(prefKeyFor('section', profileId), section);
   }, [section, profileId]);
   useEffect(() => {
     if (!profileId || restoredRef.current) return;
@@ -1398,7 +1212,7 @@ export default function App() {
       // No deep link: reopen the active note (old 'home' landing) or fall
       // back to the last visited section of this profile.
       if (activeNote) navigate({ section: 'notes', param: activeNote.id });
-      else navigate(parseRoute(`#/${load(prefKeyFor('section', profileId), 'notes')}`));
+      else navigate(parseRoute(`#/${readPref(prefKeyFor('section', profileId), 'notes')}`));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileId]);
@@ -1487,33 +1301,33 @@ export default function App() {
         : null;
 
   const [addMode, setAddMode] = useState<AddMode>(() => {
-    const v = load(prefKeyFor('addMode', profileId ?? undefined), 'section');
+    const v = readPref(prefKeyFor('addMode', profileId ?? undefined), 'section');
     return v === 'note' || v === 'choose' ? v : 'section';
   });
   const [createRequest, setCreateRequest] = useState(0);
   const [chooseCreateOpen, setChooseCreateOpen] = useState(false);
   useEffect(() => {
-    if (profileId) save(prefKeyFor('addMode', profileId), addMode);
+    if (profileId) writePref(prefKeyFor('addMode', profileId), addMode);
   }, [addMode, profileId]);
 
   // Trash auto-cleanup (per profile, off by default): runs when a profile
   // opens and when the period changes; entries without a time are kept.
-  const [trashDays, setTrashDays] = useState<TrashDays>(() => parseTrashDays(load(prefKeyFor('trashDays', profileId ?? undefined), '0')));
+  const [trashDays, setTrashDays] = useState<TrashDays>(() => parseTrashDays(readPref(prefKeyFor('trashDays', profileId ?? undefined), '0')));
   const trashDaysProfile = useRef(profileId);
   useEffect(() => {
     // A profile switch loads its own period before anything is written.
     if (trashDaysProfile.current !== profileId) {
       trashDaysProfile.current = profileId;
-      setTrashDays(parseTrashDays(load(prefKeyFor('trashDays', profileId ?? undefined), '0')));
+      setTrashDays(parseTrashDays(readPref(prefKeyFor('trashDays', profileId ?? undefined), '0')));
       return;
     }
-    if (profileId) save(prefKeyFor('trashDays', profileId), String(trashDays));
+    if (profileId) writePref(prefKeyFor('trashDays', profileId), String(trashDays));
   }, [trashDays, profileId]);
   useEffect(() => {
     if (!profileId || storeBlocked || boot.registryFailed) return;
     // Read the period of THIS profile: right after a switch the state may
     // still hold the previous profile's value (the effect above reloads it).
-    const days = parseTrashDays(load(prefKeyFor('trashDays', profileId), '0'));
+    const days = parseTrashDays(readPref(prefKeyFor('trashDays', profileId), '0'));
     const now = Date.now();
     const count = expireTrash(storeRef.current, days, now).removed;
     if (count === 0) return;
@@ -2060,7 +1874,8 @@ export default function App() {
         </main>
         </div>
 
-      <nav data-testid="tabbar" className="s-tabbar" aria-label={tr("sectionsA", lang)}>
+      {/* data-viewport-edge: popups end above the bar (ui/useFitInViewport). */}
+      <nav data-testid="tabbar" data-viewport-edge="bottom" className="s-tabbar" aria-label={tr("sectionsA", lang)}>
         <button type="button" data-testid="tab-notes" className={`s-tabbtn${section === 'notes' ? ' active' : ''}`} onClick={() => go('notes')}>
           <Icon n="note" />
           <span>{tr('notebooks', lang)}</span>
@@ -2146,7 +1961,7 @@ export default function App() {
         </Suspense>
       )}
 
-      <ToastStack items={toasts} lang={lang} onClose={closeToast} onHover={pauseToast} onAction={fireToastAction} />
+      <ToastStack items={toasts} lang={lang} onClose={toastQueue.close} onHover={toastQueue.hover} onAction={fireToastAction} />
     </div>
     </ErrorBoundary>
   );

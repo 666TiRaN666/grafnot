@@ -1,14 +1,6 @@
 import { renderSkill } from './skillModel';
 import type { Lang } from './i18n';
 
-export interface SearchItem {
-  id: string;
-  kind: 'note' | 'task' | 'date' | 'prompt';
-  title: string;
-  sub: string;
-  refId: string;
-}
-
 export type AIModel = 'Pony' | 'SDXL' | 'Flux' | 'Midjourney';
 
 /** Lanes of the image constructor, in the order a model reads a prompt. */

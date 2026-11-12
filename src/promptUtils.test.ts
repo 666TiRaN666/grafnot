@@ -1,13 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   PREVIEW_LEN,
-  RISK_THRESHOLD,
   SNIPPET_LEN,
-  cutHiParts,
   fillBody,
   imageInit,
   isBlockSlot,
-  isRisky,
   listSlots,
   migrateImageSavesToTemplates,
   missingSlots,
@@ -15,9 +12,7 @@ import {
   renderPrompt,
   renderSavedTpl,
   resolveParams,
-  splitHighlight,
   splitSlots,
-  validateTemplate,
 } from './promptUtils';
 import { LLM_TEMPLATES } from './data';
 
@@ -82,14 +77,6 @@ describe('prompt utils', () => {
     expect(art.model).toBe('Pony');
     expect(art.tokens).toEqual(['masterpiece', 'best quality', '1girl', 'long black hair', 'blue eyes', 'school uniform', 'sunset', 'soft lighting']);
   });
-
-  it('flags risk below the named threshold', () => {
-    expect(RISK_THRESHOLD).toBe(50);
-    expect(isRisky(12)).toBe(true);
-    expect(isRisky(49)).toBe(true);
-    expect(isRisky(50)).toBe(false);
-    expect(isRisky(95)).toBe(false);
-  });
 });
 
 describe('template slots', () => {
@@ -140,28 +127,8 @@ describe('template slots', () => {
     expect(resolveParams(tpl, {})).toEqual({ a: 'A', b: 'B' });
   });
 
-  it('validates editable templates', () => {
-    expect(validateTemplate({ name: 'T', body: 'B {{x}}' })).toEqual([]);
-    expect(validateTemplate({ name: '  ', body: 'B' })).toEqual(['name']);
-    expect(validateTemplate({ name: 'T', body: '   ' })).toEqual(['body']);
-  });
-
   it('fixes preview lengths in one place', () => {
     expect(PREVIEW_LEN).toBe(140);
     expect(SNIPPET_LEN).toBe(40);
-  });
-
-  it('cuts after highlighting, never inside a hit', () => {
-    const parts = splitHighlight('a'.repeat(130) + 'MATCH' + 'b'.repeat(100), 'match');
-    const cut = cutHiParts(parts, 140);
-    const text = cut.map((p) => p.text).join('');
-    expect(text.length).toBeGreaterThan(130);
-    expect(text).toContain('MATCH');
-    expect(cut.some((p) => p.hit && p.text === 'MATCH')).toBe(true);
-  });
-
-  it('falls back to a plain slice without matches', () => {
-    const cut = cutHiParts(splitHighlight('x'.repeat(200), 'zzz'), 140);
-    expect(cut.map((p) => p.text).join('')).toBe('x'.repeat(140));
   });
 });

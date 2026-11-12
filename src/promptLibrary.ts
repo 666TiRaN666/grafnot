@@ -1,10 +1,13 @@
 import type { LlmTpl } from "./data";
 import type { PromptSave } from "./store";
 import { getTplKind, makeSnippet, promptPreview } from "./promptUtils";
+import { matchesQuery } from "./textMatch";
 
 /** Library type of a template; a skill shows its description, not its markdown. */
 const typeOf = (t: LlmTpl): LibType => { const k = getTplKind(t); return k === "image" ? "image" : k === "skill" ? "skill" : "text"; };
 const snippetOf = (t: LlmTpl): string => makeSnippet(t.skill ? t.skill.description || t.body : t.body);
+/** What search reads: the whole body (and a skill's description), not the card snippet. */
+const searchOf = (t: LlmTpl): string => (t.skill?.description ? `${t.skill.description} ${t.body}` : t.body);
 
 export type LibOrigin = "builtin" | "custom" | "save";
 export type LibType = "image" | "text" | "skill";
@@ -13,6 +16,8 @@ export interface LibEntry {
   id: string;
   title: string;
   snippet: string;
+  /** Full searchable text; the snippet is only what the card shows. */
+  searchText: string;
   type: LibType;
   origin: LibOrigin;
   /** Saves carry created; templates have no timestamps (0). */
@@ -28,6 +33,7 @@ export function buildLibrary(builtin: LlmTpl[], custom: LlmTpl[], saves: PromptS
       id: t.id,
       title: t.name,
       snippet: snippetOf(t),
+      searchText: searchOf(t),
       type: typeOf(t),
       origin: "builtin",
       ts: 0,
@@ -36,32 +42,36 @@ export function buildLibrary(builtin: LlmTpl[], custom: LlmTpl[], saves: PromptS
       id: t.id,
       title: t.name,
       snippet: snippetOf(t),
+      searchText: searchOf(t),
       type: typeOf(t),
       origin: "custom",
       ts: 0,
     })),
-    ...saves.map((p): LibEntry => ({
-      id: p.id,
-      title: p.title,
-      snippet: promptPreview(p, custom),
-      type: p.kind === "image" ? "image" : "text",
-      origin: "save",
-      ts: p.created,
-    })),
+    ...saves.map((p): LibEntry => {
+      const preview = promptPreview(p, custom);
+      return {
+        id: p.id,
+        title: p.title,
+        snippet: preview,
+        searchText: preview,
+        type: p.kind === "image" ? "image" : "text",
+        origin: "save",
+        ts: p.created,
+      };
+    }),
   ];
 }
 
 /** Segment + query over the unified list. Recent = saves newest-first,
  * customs after (no timestamps), builtins never. Pure, unit tested. */
 export function filterLibrary(entries: LibEntry[], q: string, seg: LibSeg): LibEntry[] {
-  const needle = q.trim().toLowerCase();
   const kept = entries.filter((e) => {
     if (seg === "image" && e.type !== "image") return false;
     if (seg === "text" && e.type !== "text") return false;
     if (seg === "skill" && e.type !== "skill") return false;
     if (seg === "mine" && e.origin === "builtin") return false;
     if (seg === "recent" && e.origin === "builtin") return false;
-    if (needle && !`${e.title} ${e.snippet}`.toLowerCase().includes(needle)) return false;
+    if (!matchesQuery([e.title, e.searchText], q)) return false;
     return true;
   });
   if (seg !== "recent") return kept;

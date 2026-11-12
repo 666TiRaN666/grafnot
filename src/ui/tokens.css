@@ -12,9 +12,19 @@
   --u-r-md: 12px;
   --u-r-lg: 16px;
   --u-hit-min: 32px;
-  --u-z-pop: 40;
-  --u-z-drawer: 50;
+  /* Layer order (2026-11): one scale for every overlay. Values under 10 stay
+   * literal: they order things inside one component (toolbar over find bar). */
+  --u-z-sticky: 20; /* sticky phone header, phone result bar */
+  --u-z-bar: 30; /* fixed tab bar, map tools, in-flow tag suggestions */
+  --u-z-pop: 40; /* anchored menus and search popups of a section */
+  --u-z-menu: 45; /* shared menus (MenuButton/MenuPopup); the link editor sits one above */
+  --u-z-drawer: 50; /* modal backdrop, task panel on narrow screens, confirm dialog */
+  --u-z-panel: 55; /* side panels: week task panel, map peek, map members */
+  --u-z-float: 60; /* caret menus, day popup, temporary context panel */
   --u-z-toast: 60;
+  --u-z-sheet: 80; /* prompt insert sheet */
+  --u-z-shell-menu: 90; /* profile menu (above sheets) */
+  --u-z-palette: 100; /* Ctrl+K palette */
   --u-d1: 120ms;
   --u-d2: 180ms;
   --u-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif;

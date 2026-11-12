@@ -3,7 +3,7 @@ import type { Lang } from "./i18n";
 import { tr } from "./i18n";
 import type { LlmTpl } from "./data";
 import type { Note } from "./store";
-import { copyText } from "./widgets";
+import { copyText } from "./clipboard";
 import { useMenu } from "./ui/useMenu";
 import { fillBody, isBlockSlot, listSlots, missingSlots, resolveParams, splitSlots } from "./promptUtils";
 import { buildSaveTitle, requiredSlots } from "./workbenchModel";

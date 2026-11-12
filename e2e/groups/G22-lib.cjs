@@ -8,7 +8,10 @@ module.exports = async function (t) {
     activeId: 'p1',
     stores: {
       p1: v5store([], 'p1', {
-        customTpls: [{ id: 'ct1', name: 'My SQL', body: 'SELECT {{what}}', defaults: {} }],
+        customTpls: [
+          { id: 'ct1', name: 'My SQL', body: 'SELECT {{what}}', defaults: {} },
+          { id: 'ct2', name: 'Long brief', body: 'Начало длинного шаблона, первые семьдесят символов без искомого слова, дальше: зебраслово {{тема}}', defaults: {} },
+        ],
         prompts: [{ id: 'p1', kind: 'llm', title: 'My save', templateId: 'sql', params: {}, created: 1 }],
       }),
     },
@@ -45,5 +48,24 @@ module.exports = async function (t) {
     const t = await page.getByTestId('prompt-library').innerText();
     assert(t.includes('Картинка') && t.includes('Встроенный'), 'no type/origin badges: ' + t.slice(0, 160));
     assert(t.includes('Мой') && t.includes('Сохранённый'), 'no mine/saved badges: ' + t.slice(0, 160));
+  });
+
+  await check('Library search reads the whole template body and every word, like Ctrl+K', async () => {
+    await page.getByTestId('nav-prompt').click();
+    const search = page.getByTestId('prompt-search');
+    await search.waitFor();
+    const only = (title) => page.waitForFunction((t) => {
+      const rows = [...document.querySelectorAll('[data-testid="prompt-item"]')];
+      return rows.length === 1 && (rows[0].textContent || '').includes(t);
+    }, title, { timeout: 5000 });
+    await search.fill('зебраслово');
+    await only('Long brief');
+    await search.fill('brief long');
+    await only('Long brief');
+    await search.fill('');
+    await page.keyboard.press('Control+k');
+    await page.getByTestId('palette-input').fill('зебраслово');
+    await page.locator('[data-testid^="palette-item-"]', { hasText: 'Long brief' }).first().waitFor();
+    await page.keyboard.press('Escape');
   });
 };

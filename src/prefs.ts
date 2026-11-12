@@ -37,6 +37,46 @@ export interface PrefStorage {
   removeItem(key: string): void;
 }
 
+/** The browser storage, or null where it cannot even be reached (blocked, sandboxed). */
+function browserStorage(): PrefStorage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+/** One pref by its key (see prefKeyFor). A pref is a convenience, never data:
+ * a storage that fails (private mode, blocked, quota) reads as the fallback. */
+export function readPref(key: string, fallback: string, storage: Pick<PrefStorage, 'getItem'> | null = browserStorage()): string {
+  try {
+    return storage?.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/** Write one pref; a failed write is ignored (the choice holds for this session). */
+export function writePref(key: string, value: string, storage: Pick<PrefStorage, 'setItem'> | null = browserStorage()): void {
+  try {
+    storage?.setItem(key, value);
+  } catch {
+    /* a pref is a convenience */
+  }
+}
+
+/** A JSON pref; missing or unparsable reads as undefined (callers check the shape). */
+export function readPrefJSON(key: string, storage: Pick<PrefStorage, 'getItem'> | null = browserStorage()): unknown {
+  try {
+    const raw = storage?.getItem(key);
+    if (!raw) return undefined;
+    const value: unknown = JSON.parse(raw);
+    return value;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Storage key for one pref: bare without profile (legacy path), suffixed with profile. */
 export function prefKeyFor(name: PrefName, profileId?: string): string {
   const base = PREF_KEYS[name];

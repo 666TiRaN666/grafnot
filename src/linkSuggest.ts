@@ -1,11 +1,11 @@
 import type { Note } from "./store";
+import { matchesQuery } from "./textMatch";
 
 export type LinkCandidate = Pick<Note, "id" | "title" | "updated"> & { text?: string };
 
-/** Filter kept from the old link dialog: title+body match, source excluded. */
+/** Title or body match (the shared search rule), source excluded. */
 export function matchLinkCandidate(n: Pick<Note, "id" | "title"> & { text?: string }, excludeId: string, q: string): boolean {
-  const needle = q.trim().toLowerCase();
-  return n.id !== excludeId && `${n.title} ${n.text ?? ""}`.toLowerCase().includes(needle);
+  return n.id !== excludeId && matchesQuery([n.title, n.text], q);
 }
 
 /**

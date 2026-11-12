@@ -124,4 +124,19 @@ module.exports = async function (t) {
     assert(n >= 1 && n <= 2, 'Today on this week gave no cue, or stacked cues: ' + n);
     assert((await geo()) === g0, 'the cue moved the day columns');
   });
+
+  await check('Week: the day popup closes on an outside click; Esc returns the focus to its button', async () => {
+    const iso = await pageDayISO(2);
+    const open = async () => {
+      await page.getByTestId(`day-cell-${iso}`).hover();
+      await page.getByTestId(`day-add-${iso}`).click();
+      await page.getByTestId('day-popup').waitFor();
+    };
+    await open();
+    await page.getByTestId('page-header').locator('h1').click();
+    await page.waitForFunction(() => !document.querySelector('[data-testid="day-popup"]'), null, { timeout: 5000 });
+    await open();
+    await page.keyboard.press('Escape');
+    await page.waitForFunction((id) => !document.querySelector('[data-testid="day-popup"]') && document.activeElement?.getAttribute('data-testid') === id, `day-add-${iso}`, { timeout: 5000 });
+  });
 };

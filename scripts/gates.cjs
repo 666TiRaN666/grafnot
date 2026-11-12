@@ -1,5 +1,5 @@
 // All gates in one command with a short summary; full output only for failures.
-// Usage: npm run gates                      — unit, tsc, oxlint, i18n (+selftest), runner selftest, contrast, README sync
+// Usage: npm run gates                      — unit, tsc, oxlint, i18n (+selftest), architecture rules (+selftest), runner selftest, contrast, README sync
 //        npm run gates -- --e2e             — + build, weight, preview :5199, full e2e, N1 audit enforce
 //        npm run gates -- --groups=G20-plan,G21-week — + build, weight, preview, these e2e groups only
 // The preview server is started and stopped here (by its own PID); a busy :5199
@@ -35,6 +35,8 @@ function buildGates(args, env) {
     { name: 'oxlint', cmd: [bin('oxlint', 'bin', 'oxlint')], sum: (o) => `${count(o, / error /g)} errors, ${count(o, / warning /g)} warnings` },
     { name: 'i18n', cmd: [script('check-i18n.js')], sum: lastLine },
     { name: 'i18n-selftest', cmd: [script('check-i18n.selftest.js')], sum: lastLine },
+    { name: 'arch', cmd: [script('check-arch.cjs')], sum: lastLine },
+    { name: 'arch-selftest', cmd: [script('check-arch.selftest.cjs')], sum: lastLine },
     { name: 'runner', cmd: [script('runner.selftest.cjs')], sum: lastLine },
     { name: 'contrast', cmd: [script('check-contrast.cjs')], sum: lastLine },
     { name: 'readme', cmd: [script('sync-readme.js')], sum: lastLine },

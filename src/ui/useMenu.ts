@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type React from 'react';
+import { bindDismiss } from './dismiss';
 
 const ITEMS = ['menuitem', 'menuitemcheckbox', 'menuitemradio'].map((r) => `[role="${r}"]:not(:disabled)`).join(', ');
 
@@ -9,9 +10,8 @@ const ITEMS = ['menuitem', 'menuitemcheckbox', 'menuitemradio'].map((r) => `[rol
  * had its own handlers and several never closed on an outside click.
  *
  * - opening focuses the chosen radio item or the first one (WAI-ARIA menu button);
- * - a pointer down outside closes (capture phase: a child that stops
- *   propagation cannot keep a menu open), so does focus leaving by Tab;
- * - Esc closes and returns focus to the button;
+ * - a pointer down outside and Esc close (shared with popups: ui/dismiss),
+ *   so does focus leaving by Tab; Esc returns focus to the button;
  * - choosing a plain item closes; checkbox/radio items keep the menu open;
  * - arrows, Home and End move between items; ArrowDown on the button opens.
  *
@@ -39,24 +39,20 @@ export function useMenu<R extends HTMLElement = HTMLElement>(options?: {
     if (!open) return;
     const r = root.current;
     if (focusItem) (r?.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]:not(:disabled)') ?? r?.querySelector<HTMLElement>(ITEMS))?.focus();
-    const outside = (e: PointerEvent) => {
-      if (e.target instanceof Node && r && !r.contains(e.target)) setOpen(false);
-    };
+    // Menu-only on top of the shared dismissal: focus leaving by Tab closes too.
     const leave = (e: FocusEvent) => {
       if (e.relatedTarget instanceof Node && r && !r.contains(e.relatedTarget)) setOpen(false);
     };
-    const esc = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.isComposing || e.defaultPrevented) return;
-      e.preventDefault();
-      setOpen(false);
-      trigger.current?.focus();
-    };
-    document.addEventListener('pointerdown', outside, true);
-    document.addEventListener('keydown', esc);
+    const unbind = bindDismiss(document, (t) => !!r && t instanceof Node && r.contains(t), {
+      outside: () => setOpen(false),
+      escape: () => {
+        setOpen(false);
+        trigger.current?.focus();
+      },
+    });
     r?.addEventListener('focusout', leave);
     return () => {
-      document.removeEventListener('pointerdown', outside, true);
-      document.removeEventListener('keydown', esc);
+      unbind();
       r?.removeEventListener('focusout', leave);
     };
   }, [open, focusItem]);

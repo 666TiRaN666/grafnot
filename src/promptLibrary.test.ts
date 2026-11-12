@@ -39,4 +39,12 @@ describe("filterLibrary", () => {
     expect(filterLibrary(lib, "BLUE", "all").map((e) => e.id)).toEqual(["p2"]);
     expect(filterLibrary(lib, "zzz", "all")).toEqual([]);
   });
+  it("searches the whole template body, not the 70-character card snippet (as Ctrl+K does)", () => {
+    const long: LlmTpl = { id: "long", name: "Long", body: "x".repeat(80) + " zebraword {{slot}}", defaults: {} };
+    const withLong = buildLibrary([...BUILTIN, long], CUSTOM, SAVES);
+    expect(filterLibrary(withLong, "zebraword", "all").map((e) => e.id)).toEqual(["long"]);
+  });
+  it("needs every word of the query, in any order", () => {
+    expect(filterLibrary(lib, "sql my", "all").map((e) => e.id)).toEqual(["ct1"]);
+  });
 });

@@ -13,6 +13,8 @@
     "check:i18n": "node scripts/check-i18n.js",
     "check:i18n:selftest": "node scripts/check-i18n.selftest.js",
     "check:contrast": "node scripts/check-contrast.cjs",
+    "check:arch": "node scripts/check-arch.cjs",
+    "check:arch:selftest": "node scripts/check-arch.selftest.cjs",
     "e2e": "node e2e/check6.cjs",
     "e2e:matrix": "node scripts/e2e-weekday-matrix.cjs",
     "gates": "node scripts/gates.cjs",

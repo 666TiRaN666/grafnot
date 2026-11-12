@@ -1,12 +1,11 @@
-import { addDaysISO } from "./taskGroups";
+import { addDaysISO, toISODate } from "./isoDate";
 
 /** ISO Monday of the week containing `iso` (yyyy-mm-dd). */
 export function mondayISO(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number);
   const dt = new Date(y, (m || 1) - 1, d || 1);
   dt.setDate(dt.getDate() - ((dt.getDay() + 6) % 7));
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}`;
+  return toISODate(dt);
 }
 
 /** Seven day ISOs, Mon..Sun, of the week `offset` weeks from `today`. */

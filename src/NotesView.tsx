@@ -12,7 +12,8 @@ const NoteContext = lazy(() => import("./NoteContext").then(m => ({ default: m.N
 const PromptInsert = lazy(() => import("./PromptInsert").then(m => ({ default: m.PromptInsert })));
 import type { Graph, Note, PromptSave, TaskItem } from "./store";
 import { linkedNoteIds } from "./store";
-import { copyText, Hi, Icon, MenuButton, SelectionBar } from "./widgets";
+import { Hi, Icon, MenuButton, SelectionBar } from "./widgets";
+import { copyText } from "./clipboard";
 import type { MenuItem } from "./widgets";
 import { NO_SELECTION, clickSelect, pruneSelection, selectAll, selectMods } from "./selectionModel";
 import type { Selection } from "./selectionModel";
@@ -24,6 +25,10 @@ import { checkContent, openLinkOnModClick, richTextExtensions } from "./editorEx
 import { EditorToolbar, FindBar } from "./EditorToolbar";
 import { useFitInViewport } from "./ui/useFitInViewport";
 import { useMenu } from "./ui/useMenu";
+import { isInLayer, pageShortcutAllowed } from "./ui/pageKeys";
+import { matchesQuery } from "./textMatch";
+import { calcDisplay } from "./calcModel";
+import { readPref, writePref } from "./prefs";
 import { noteAccessibleName, noteDisplayName, noteUpdatedLabel } from "./noteName";
 import { PREVIEW_LEN } from "./promptUtils";
 import { useListState } from "./useListState";
@@ -64,122 +69,12 @@ const TPL_HTML: Record<string, string> = {
   proj: "<h3>Проект</h3><ul><li>Задача</li><li>Шаги</li><li>Дедлайн</li></ul>",
 };
 
-const normName = (n: string) => n.trim().replace(/\s+/g, "");
-
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
 /** First focusable element after `el` in document order (outside it); else the first one on the page (browser wrap). */
 function focusableAfter(el: HTMLElement): HTMLElement | null {
   const all = [...document.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((x) => x.getClientRects().length > 0);
   return all.find((x) => !el.contains(x) && (el.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING)) ?? all.find((x) => !el.contains(x)) ?? null;
 }
-
-/** Safe arithmetic with named variables, no eval. Throws on cycle / unknown names. */
-function evalExpr(src: string, blocks: { name: string }[], lookup: (name: string) => number): number {
-  const s = src.replace(/\s+/g, "").replace(/,/g, ".");
-  const names = blocks
-    .map((b) => normName(b.name))
-    .filter((n) => n.length > 0)
-    .sort((a, b) => b.length - a.length);
-  let i = 0;
-  function parseExpr(): number {
-    let v = parseTerm();
-    while (s[i] === "+" || s[i] === "-") {
-      const op = s[i++];
-      const r = parseTerm();
-      v = op === "+" ? v + r : v - r;
-    }
-    return v;
-  }
-  function parseTerm(): number {
-    let v = parseFactor();
-    while (s[i] === "*" || s[i] === "/" || s[i] === "%") {
-      const op = s[i++];
-      const r = parseFactor();
-      if (op === "*") v *= r;
-      else if (op === "/") {
-        if (!r) throw new Error("div0");
-        v /= r;
-      } else v %= r;
-    }
-    return v;
-  }
-  function parseFactor(): number {
-    const c = s[i];
-    if (c === "(") {
-      i++;
-      const v = parseExpr();
-      if (s[i] !== ")") throw new Error("paren");
-      i++;
-      return v;
-    }
-    if (c === "-") {
-      i++;
-      return -parseFactor();
-    }
-    if (c === "+") {
-      i++;
-      return parseFactor();
-    }
-    for (const n of names) {
-      if (s.startsWith(n, i)) {
-        i += n.length;
-        return lookup(n);
-      }
-    }
-    const m = /^[0-9]*\.?[0-9]+/.exec(s.slice(i));
-    if (m) {
-      i += m[0].length;
-      return parseFloat(m[0]);
-    }
-    const idm = /^[A-Za-zА-Яа-яЁё_]+[A-Za-zА-Яа-яЁё_0-9]*/.exec(s.slice(i));
-    throw new Error("unknown:" + (idm ? idm[0] : (c ?? "")));
-  }
-  if (!s) throw new Error("empty");
-  const v = parseExpr();
-  if (i !== s.length) throw new Error("end");
-  return v;
-}
-
-interface CalcLike {
-  id: string;
-  name: string;
-  expr: string;
-}
-
-function resolveBlock(id: string, blocks: CalcLike[], memo: Map<string, number>, visiting: Set<string>): number {
-  const hit = memo.get(id);
-  if (hit !== undefined) return hit;
-  if (visiting.has(id)) throw new Error("cycle");
-  const b = blocks.find((x) => x.id === id);
-  if (!b) throw new Error("unknown:");
-  visiting.add(id);
-  try {
-    const v = evalExpr(b.expr, blocks, (name) => {
-      const t = blocks.find((x) => normName(x.name) === name);
-      if (!t) throw new Error("unknown:" + name);
-      return resolveBlock(t.id, blocks, memo, visiting);
-    });
-    memo.set(id, v);
-    return v;
-  } finally {
-    visiting.delete(id);
-  }
-}
-
-function calcDisplay(c: CalcLike, blocks: CalcLike[], lang: Lang): { text: string; title: string } {
-  if (!c.expr.trim()) return { text: "", title: "" };
-  try {
-    const v = resolveBlock(c.id, blocks, new Map(), new Set());
-    if (!Number.isFinite(v)) return { text: "—", title: "" };
-    return { text: "= " + (Math.round(v * 100) / 100).toLocaleString("ru-RU"), title: "" };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "";
-    if (msg === "cycle") return { text: "—", title: tr("calcCycle", lang) };
-    if (msg.startsWith("unknown:")) return { text: "—", title: tr("calcUnknown", lang) + msg.slice(8) };
-    return { text: "—", title: "" };
-  }
-}
-
 
 interface SuggestState {
   query: string;
@@ -264,8 +159,7 @@ export function NotesView({
   const sorted = useMemo(() => [...notes].sort((a, b) => b.updated - a.updated), [notes]);
   const select = useCallback(
     (q: string) => {
-      const needle = q.trim().toLowerCase();
-      return needle ? sorted.filter((n) => `${n.title} ${n.text}`.toLowerCase().includes(needle)) : sorted;
+      return q.trim() ? sorted.filter((n) => matchesQuery([n.title, n.text], q)) : sorted;
     },
     [sorted],
   );
@@ -301,7 +195,7 @@ export function NotesView({
     const h = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
       const t = e.target as HTMLElement | null;
-      if (t?.closest?.('.tiptap, .g-modal, [role="dialog"], [role="menu"]')) return;
+      if (t?.closest?.('.tiptap') || isInLayer(t)) return;
       clearSel();
     };
     window.addEventListener("keydown", h);
@@ -316,13 +210,7 @@ export function NotesView({
   const [words, setWords] = useState(note?.text ?? "");
   const [, setTick] = useState(0);
   const [focusCalc, setFocusCalc] = useState<string | null>(null);
-  const [hint, setHint] = useState(() => {
-    try {
-      return window.localStorage.getItem(hintKey) !== "1";
-    } catch {
-      return true;
-    }
-  });
+  const [hint, setHint] = useState(() => readPref(hintKey, "") !== "1");
   const [draft, setDraft] = useState(note?.title ?? "");
   const titleRef = useRef<HTMLInputElement | null>(null);
   const [tab, setTab] = useState<ContextTab>(() => sessions.get(noteId ?? '')?.tab ?? 'links');
@@ -543,11 +431,7 @@ export function NotesView({
 
   const dismissHint = () => {
     setHint(false);
-    try {
-      window.localStorage.setItem(hintKey, "1");
-    } catch {
-      /* ignore */
-    }
+    writePref(hintKey, "1");
   };
 
   /** Detect `[[` mentions and a lone `/` at the caret; positions popups at the caret. */
@@ -881,21 +765,21 @@ export function NotesView({
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (e.isComposing || e.keyCode === 229) return;
-      const t = e.target as HTMLElement | null;
-      const inField = !!t && !!t.closest && !!t.closest("input, textarea, select, [contenteditable]");
-      if (e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey && !inField && !(e.target as HTMLElement)?.closest?.(".g-modal")) {
+      const page = pageShortcutAllowed(e);
+      if (e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey && page) {
         e.preventDefault();
         searchRef.current?.focus();
         return;
       }
-      if ((e.key === "n" || e.code === "KeyN") && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && !inField && !(e.target as HTMLElement)?.closest?.(".g-modal")) {
+      if ((e.key === "n" || e.code === "KeyN") && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && page) {
         e.preventDefault();
         onNew();
         return;
       }
       if ((e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && e.code === "KeyT") {
-        const blocked = !!t && !!t.closest && !!t.closest("input, textarea, select, .g-modal");
-        if (blocked) return;
+        // Works from the note text (its selection is the task), not from fields or layers.
+        const t = e.target as HTMLElement | null;
+        if (isInLayer(t) || t?.closest?.("input, textarea, select")) return;
         e.preventDefault();
         openTaskFromSelection();
       }

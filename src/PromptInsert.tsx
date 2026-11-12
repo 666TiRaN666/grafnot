@@ -6,9 +6,10 @@ import type { LlmTpl } from './data';
 import { builtinTemplates } from './data';
 import { buildTplEntries, fillBody, listSlots, promptPreview, imageInit } from './promptUtils';
 import { requiredSlots } from './workbenchModel';
-import { copyText } from './widgets';
+import { copyText } from './clipboard';
 import { useListNav } from './useListNav';
 import { useSheetSwipe } from './ui/useSheetSwipe';
+import { matchesQuery } from './textMatch';
 
 export interface PromptChoice { title: string; text: string; templateId?: string; params?: Record<string, string>; source?: PromptSave; kind?: PromptSave['kind']; model?: PromptSave['model']; tokens?: string[] }
 export function PromptInsert({ lang, templates, saves, valid, onInsert, onClose, onDraft }: {
@@ -27,7 +28,7 @@ export function PromptInsert({ lang, templates, saves, valid, onInsert, onClose,
     ...buildTplEntries(builtinTemplates(lang), templates).map(e => ({ id: e.tpl.id, title: e.tpl.name, body: e.tpl.body, defaults: e.tpl.defaults, templateId: e.tpl.id, source: undefined as PromptSave | undefined, kind: e.kind === 'image' ? 'image' as const : 'llm' as const, image: e.kind === 'image' ? imageInit(e.tpl) : undefined })),
     ...saves.map(p => ({ id: 'save-' + p.id, title: p.title, body: promptPreview(p, templates), defaults: {} as Record<string, string>, templateId: undefined, source: p, kind: p.kind, image: p.kind === 'image' ? { model: p.model, tokens: p.tokens } : undefined })),
   ], [templates, saves, lang]);
-  const hits = pool.filter(e => (e.title + ' ' + e.body).toLowerCase().includes(query.trim().toLowerCase()));
+  const hits = pool.filter(e => matchesQuery([e.title, e.body], query));
   const chosen = pool.find(e => e.id === selected);
   const slots = chosen ? listSlots(chosen.body) : [];
   const text = chosen ? fillBody(chosen.body, { ...chosen.defaults, ...values }) : '';

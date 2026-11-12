@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { Lang } from "./i18n";
 import { tr } from "./i18n";
 import type { SkillFormat, SkillSpec } from "./data";
-import { copyText } from "./widgets";
+import { copyText } from "./clipboard";
 import { estimateTokens, lintSkill, renderSkill, SKILL_DESC_MAX, skillDescription, skillFileName, slugify } from "./skillModel";
 import type { SkillIssueId } from "./skillModel";
 

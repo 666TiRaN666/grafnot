@@ -4,6 +4,8 @@ import type { Lang } from './i18n';
 import { noteAccessibleName, noteDisplayName } from './noteName';
 import type { Note, TaskItem } from './store';
 import { ConfirmDialog } from './ui/primitives';
+import { pageShortcutAllowed } from './ui/pageKeys';
+import { matchesQuery } from './textMatch';
 import { parseTrashDays } from './prefs';
 import type { TrashDays } from './prefs';
 
@@ -36,9 +38,7 @@ export function TrashPage({
   // `/` focuses the search, as in every other list.
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      const inField = !!t?.closest?.('input, textarea, select, [contenteditable]');
-      if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !inField && !t?.closest?.('.g-modal')) {
+      if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && pageShortcutAllowed(e)) {
         e.preventDefault();
         searchRef.current?.focus();
       }
@@ -47,9 +47,8 @@ export function TrashPage({
     return () => window.removeEventListener('keydown', h);
   }, []);
   const [pending, setPending] = useState<{ kind: 'note' | 'task'; id: string; title: string } | null>(null);
-  const needle = q.trim().toLowerCase();
-  const notes = needle ? trash.filter((n) => `${n.title} ${n.text}`.toLowerCase().includes(needle)) : trash;
-  const tasks = needle ? trashTasks.filter((t) => `${t.text} ${t.desc ?? ''}`.toLowerCase().includes(needle)) : trashTasks;
+  const notes = trash.filter((n) => matchesQuery([n.title, n.text], q));
+  const tasks = trashTasks.filter((t) => matchesQuery([t.text, t.desc], q));
   const empty = trash.length === 0 && trashTasks.length === 0;
 
   return (

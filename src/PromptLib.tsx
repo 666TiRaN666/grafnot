@@ -8,18 +8,15 @@ import type { PromptSave } from "./store";
 import { Hi } from "./widgets";
 import { useListState } from "./useListState";
 import { useMenu } from "./ui/useMenu";
-import { prefKeyFor } from "./prefs";
+import { pageShortcutAllowed } from "./ui/pageKeys";
+import { prefKeyFor, readPref, writePref } from "./prefs";
 import { buildLibrary, filterLibrary } from "./promptLibrary";
 import type { LibSeg } from "./promptLibrary";
 
 const LIB_PAGE = 50;
 
 function loadDensity(profileId: string): boolean {
-  try {
-    return window.localStorage.getItem(prefKeyFor("density", profileId)) === "1";
-  } catch {
-    return false;
-  }
+  return readPref(prefKeyFor("density", profileId), "0") === "1";
 }
 
 export function PromptLib({
@@ -64,11 +61,7 @@ export function PromptLib({
 
   const toggleDensity = () => {
     setCompact((c) => {
-      try {
-        window.localStorage.setItem(prefKeyFor("density", profileId), c ? "0" : "1");
-      } catch {
-        /* ignore */
-      }
+      writePref(prefKeyFor("density", profileId), c ? "0" : "1");
       return !c;
     });
     setMoreOpen(false);
@@ -77,15 +70,14 @@ export function PromptLib({
   // `/` focuses the library search (same guards as notes/tasks lists).
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      const inField = !!t && !!t.closest && !!t.closest("input, textarea, select, [contenteditable]");
-      if (e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey && !inField && !(e.target as HTMLElement)?.closest?.(".g-modal")) {
+      if (!pageShortcutAllowed(e)) return;
+      if (e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         searchRef.current?.focus();
         return;
       }
       // `N` creates, as in notes and tasks: here it opens the «New» menu.
-      if ((e.key === "n" || e.code === "KeyN") && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && !inField && !(e.target as HTMLElement)?.closest?.(".g-modal")) {
+      if ((e.key === "n" || e.code === "KeyN") && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
         e.preventDefault();
         setNewOpen(true);
       }

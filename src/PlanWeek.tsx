@@ -1,24 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
 import type { Lang } from "./i18n";
 import { tr } from "./i18n";
 import type { Note, TaskItem } from "./store";
-import { todayISO } from "./taskGroups";
+import { todayISO } from "./isoDate";
 import { mondayISO, weekRange } from "./weekCal";
 import { Icon } from "./widgets";
 import { TaskPanel } from "./PlanList";
 import { useMedia } from "./ui/useMedia";
+import { pageShortcutAllowed } from "./ui/pageKeys";
+import { usePopover } from "./ui/dismiss";
+import { useFitInViewport } from "./ui/useFitInViewport";
 import { dayMonth, weekRangeLabel, weekdayShort } from "./dateNames";
 
 /** Pointer travel that turns a press into a drag (S10 map uses the same). */
 const DRAG_PX = 4;
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
-
-function clampXY(x: number, y: number): { x: number; y: number } {
-  const w = window.innerWidth || 1024;
-  const h = window.innerHeight || 768;
-  return { x: Math.max(8, Math.min(x, w - 300)), y: Math.max(8, Math.min(y, h - 320)) };
-}
 
 export function PlanWeek({
   lang,
@@ -115,9 +112,12 @@ export function PlanWeek({
     return weekdayShort(new Date(y, (m || 1) - 1, d || 1), lang);
   };
   const dayNum = (iso: string) => Number(iso.split("-")[2]);
-  const openAt = (iso: string, x: number, y: number) => {
-    const p = clampXY(x, y + 8);
-    setPopup({ iso, x: p.x, y: p.y });
+  /** The button that opened the popup gets the focus back on Esc/Cancel (none for a cell click or «+»). */
+  const popupFrom = useRef<HTMLElement | null>(null);
+  /** Open at the anchor; the popup keeps itself on screen (useFitInViewport). */
+  const openAt = (iso: string, x: number, y: number, from: HTMLElement | null = null) => {
+    popupFrom.current = from;
+    setPopup({ iso, x, y: y + 8 });
   };
 
   useEffect(() => { if (createRequest) openAt(mTab === "inbox" ? "" : mDay, 16, 80);
@@ -127,10 +127,7 @@ export function PlanWeek({
   // ‹/›/T travel the weeks (never inside a field or dialog).
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      const inField = !!t && !!t.closest && !!t.closest("input, textarea, select, [contenteditable]");
-      const inModal = !!t && !!t.closest && !!t.closest(".g-modal");
-      if (inField || inModal || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (!pageShortcutAllowed(e) || e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.key === "ArrowLeft") {
         e.preventDefault();
         setOffset((o) => o - 1);
@@ -300,7 +297,7 @@ export function PlanWeek({
                       aria-label={tr("weekDayA", lang).replace("{d}", `${wd(iso)} ${dayMonth(dateOf(iso), lang)}`).replace("{n}", String(left))}
                       onClick={(e) => {
                         e.stopPropagation();
-                        openAt(iso, e.clientX, e.clientY);
+                        openAt(iso, e.clientX, e.clientY, e.currentTarget);
                       }}
                     >
                       <span className="w-wd">{wd(iso)}</span>
@@ -314,8 +311,8 @@ export function PlanWeek({
                       data-testid={`day-add-${iso}`}
                       onClick={(e) => {
                         e.stopPropagation();
-                        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                        openAt(iso, r.left, r.bottom);
+                        const r = e.currentTarget.getBoundingClientRect();
+                        openAt(iso, r.left, r.bottom, e.currentTarget);
                       }}
                     >
                       + {tr("addTask", lang)}
@@ -379,8 +376,8 @@ export function PlanWeek({
             >
               {(byDue.get(mDay) ?? []).map(renderChip)}
               <button type="button" className="w-add" data-testid={`day-add-${mDay}`} onClick={(e) => {
-                const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                openAt(mDay, r.left, r.bottom);
+                const r = e.currentTarget.getBoundingClientRect();
+                openAt(mDay, r.left, r.bottom, e.currentTarget);
               }}>
                 + {tr("addTask", lang)}
               </button>
@@ -408,6 +405,7 @@ export function PlanWeek({
           })()}
           onAdd={(text, desc) => onAdd(text, { desc: desc || undefined, due: popup.iso || undefined })}
           onClose={() => setPopup(null)}
+          trigger={popupFrom}
         />
       )}
 
@@ -442,6 +440,7 @@ function DayPopup({
   title,
   onAdd,
   onClose,
+  trigger,
 }: {
   lang: Lang;
   x: number;
@@ -449,7 +448,11 @@ function DayPopup({
   title: string;
   onAdd: (text: string, desc: string) => void;
   onClose: () => void;
+  trigger: RefObject<HTMLElement | null>;
 }) {
+  // Outside press and Esc close (ui/dismiss); the popup stays on screen.
+  const { ref, close } = usePopover<HTMLDivElement>(true, onClose, { trigger });
+  useFitInViewport(true, ref);
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [showDesc, setShowDesc] = useState(false);
@@ -462,14 +465,12 @@ function DayPopup({
   };
   return (
     <div
+      ref={ref}
       className="w-popup"
       data-testid="day-popup"
       role="dialog"
       aria-label={title}
       style={{ left: x, top: y }}
-      onKeyDown={(e) => {
-        if (e.key === "Escape") onClose();
-      }}
     >
       <div className="w-popup-t">{title}</div>
       <input
@@ -506,7 +507,7 @@ function DayPopup({
         <button type="button" data-testid="day-popup-add" className="g-btn primary sm" onClick={submit}>
           {tr("addTask", lang)}
         </button>
-        <button type="button" className="g-btn sm" onClick={onClose}>
+        <button type="button" className="g-btn sm" onClick={close}>
           {tr("cancelBtn", lang)}
         </button>
       </div>

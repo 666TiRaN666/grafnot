@@ -1,15 +1,12 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { Lang } from "./i18n";
 import { tr } from "./i18n";
 import type { Note } from "./store";
 import { Hi } from "./widgets";
 import { noteAccessibleName, noteDisplayName } from "./noteName";
 import { useFitInViewport } from "./ui/useFitInViewport";
-
-function clampXY(x: number, y: number): { x: number; y: number } {
-  const w = window.innerWidth || 1024;
-  return { x: Math.max(8, Math.min(x, w - Math.min(330, w - 16) - 8)), y: Math.max(8, y) };
-}
+import { matchesQuery } from "./textMatch";
+import { usePopover } from "./ui/dismiss";
 
 /** «В заметку ▾» popup (search + 5 recent) plus the binding chip.
  * Shared by both workbenches (S7 text, S8 image). Side effects stay
@@ -31,12 +28,18 @@ export function NoteAttach({
 }) {
   const [spot, setSpot] = useState<{ x: number; y: number } | null>(null);
   const [query, setQuery] = useState("");
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const shut = () => {
+    setSpot(null);
+    setQuery("");
+  };
+  // Outside press and Esc close, Esc and a pick give the focus back to the button (ui/dismiss).
+  const { ref: popRef, close: closePop } = usePopover<HTMLDivElement>(spot !== null, shut, { trigger: triggerRef });
   // Opened near the bottom of a tablet it used to leave the screen.
-  const fit = useFitInViewport<HTMLDivElement>(spot !== null);
+  useFitInViewport(spot !== null, popRef);
   const recent = useMemo(() => [...notes].sort((a, b) => b.updated - a.updated).slice(0, 5), [notes]);
   const rows = (() => {
-    const needle = query.trim().toLowerCase();
-    const all = needle ? notes.filter((n) => `${n.title} ${n.text}`.toLowerCase().includes(needle)) : recent;
+    const all = query.trim() ? notes.filter((n) => matchesQuery([n.title, n.text], query)) : recent;
     return all.slice(0, 6);
   })();
   const bound = bindingId ? notes.find((n) => n.id === bindingId) : undefined;
@@ -45,17 +48,17 @@ export function NoteAttach({
     <>
       <span className="n-morewrap">
         <button
+          ref={triggerRef}
           type="button"
           className="g-btn sm"
           aria-expanded={spot !== null}
           onClick={(e) => {
             if (spot) {
-              setSpot(null);
+              shut();
               return;
             }
-            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-            const p = clampXY(r.left, r.bottom);
-            setSpot({ x: p.x, y: p.y });
+            const r = e.currentTarget.getBoundingClientRect();
+            setSpot({ x: r.left, y: r.bottom });
           }}
         >
           {tr("toNote", lang)} ▾
@@ -73,16 +76,10 @@ export function NoteAttach({
       )}
       {spot && (
         <div
-          ref={fit}
+          ref={popRef}
           className="n-suggest"
           role="listbox"
           style={{ left: spot.x, top: spot.y }}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              setSpot(null);
-              setQuery("");
-            }
-          }}
         >
           <input
             autoFocus
@@ -105,8 +102,7 @@ export function NoteAttach({
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
                 onPick(n.id);
-                setSpot(null);
-                setQuery("");
+                closePop();
               }}
             >
               <span className={!n.title.trim() ? "g-note-derived" : undefined} title={noteAccessibleName(n, lang)}><Hi text={noteDisplayName(n, lang)} q={query} /></span>

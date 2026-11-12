@@ -12,12 +12,16 @@ import { noteAccessibleName, noteDisplayName } from "./noteName";
 import { useListState } from "./useListState";
 import { TPL_LIMITS } from "./listPrefs";
 import { PREVIEW_LEN } from "./promptUtils";
-import { prefKeyFor } from "./prefs";
+import { prefKeyFor, readPrefJSON, writePref } from "./prefs";
 
 import { layoutGraph, liveGraph, type GPos as Pos, type LiveGraph } from './graphLayout';
 import { MAP_H, MAP_W, ZOOM_MAX, ZOOM_MIN, boxHeight, centerView, fitView, revealShift } from './mapCamera';
 import { useMedia } from './ui/useMedia';
 import { useMenu } from './ui/useMenu';
+import { pageShortcutAllowed } from './ui/pageKeys';
+import { matchesQuery } from './textMatch';
+import { usePopover } from './ui/dismiss';
+import { useFitInViewport } from './ui/useFitInViewport';
 import { edgePath, mapLabel } from './mapDraw';
 
 export const HIT_R = 24;
@@ -498,7 +502,7 @@ type PinMap = Record<string, Record<string, Pos>>;
 /** Stored pins; anything malformed is ignored (a pin is a convenience, not data). */
 function readPins(key: string): PinMap {
   try {
-    const raw: unknown = JSON.parse(window.localStorage.getItem(key) ?? '{}');
+    const raw = readPrefJSON(key);
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
     const out: PinMap = {};
     for (const [scope, list] of Object.entries(raw)) {
@@ -562,6 +566,10 @@ export function MapView({
   const setPeekId = (id: string | null) => setSel(id ? { ids: [id], anchor: id } : NO_SELECTION);
   const [linkMode, setLinkMode] = useState(false);
   const [linkFind, setLinkFind] = useState<{ x: number; y: number } | null>(null);
+  const linkFindBtn = useRef<HTMLButtonElement>(null);
+  // «+ Link» search in the peek: outside press and Esc close it alone (ui/dismiss), focus back to its button.
+  const { ref: linkPopRef, close: closeLinkPop } = usePopover<HTMLDivElement>(linkFind !== null, () => setLinkFind(null), { trigger: linkFindBtn });
+  useFitInViewport(linkFind !== null, linkPopRef);
   const [linkQuery, setLinkQuery] = useState("");
   const [searchQ, setSearchQ] = useState("");
   const [searchGo, setSearchGo] = useState(false);
@@ -582,11 +590,7 @@ export function MapView({
   const updatePins = (scopeId: string, change: (cur: Record<string, Pos>) => Record<string, Pos>) => {
     setPins((all) => {
       const next = { ...all, [scopeId]: change(all[scopeId] ?? {}) };
-      try {
-        window.localStorage.setItem(pinsKey, JSON.stringify(next));
-      } catch {
-        /* the pin still holds for this session */
-      }
+      writePref(pinsKey, JSON.stringify(next)); // a failed write: the pin still holds for this session
       return next;
     });
   };
@@ -632,15 +636,9 @@ export function MapView({
     }
   }
 
-  const searchPool = searchQ.trim()
-    ? notes.filter((n) => `${n.title} ${n.text}`.toLowerCase().includes(searchQ.trim().toLowerCase())).slice(0, 6)
-    : [];
-  const switchGraphs = switcherQ.trim()
-    ? graphs.filter((g) => g.title.toLowerCase().includes(switcherQ.trim().toLowerCase()))
-    : graphs;
-  const linkPool = linkQuery.trim()
-    ? notes.filter((n) => n.id !== peekId && `${n.title} ${n.text}`.toLowerCase().includes(linkQuery.trim().toLowerCase())).slice(0, 6)
-    : notes.filter((n) => n.id !== peekId).slice(0, 6);
+  const searchPool = searchQ.trim() ? notes.filter((n) => matchesQuery([n.title, n.text], searchQ)).slice(0, 6) : [];
+  const switchGraphs = switcherQ.trim() ? graphs.filter((g) => matchesQuery([g.title], switcherQ)) : graphs;
+  const linkPool = notes.filter((n) => n.id !== peekId && matchesQuery([n.title, n.text], linkQuery)).slice(0, 6);
 
   const scopeLabel = graph
     ? `${graph.title} (${graph.noteIds.length})`
@@ -664,24 +662,22 @@ export function MapView({
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
-      const inField = !!t && !!t.closest && !!t.closest("input, textarea, select, [contenteditable]");
       const inModal = !!t && !!t.closest && !!t.closest(".g-modal");
-      if (e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey && !inField && !inModal) {
+      const page = pageShortcutAllowed(e);
+      if (e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey && page) {
         e.preventDefault();
         searchRef.current?.focus();
         return;
       }
-      // Ctrl/Cmd+A: every note of the shown graph, when the map has the focus (not a field).
-      if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key.toLowerCase() === "a" || e.code === "KeyA") && !inField && !inModal && t?.closest?.('[data-testid="map-view"]')) {
+      // Ctrl/Cmd+A: every note of the shown graph, when the map has the focus (not a field or a layer).
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key.toLowerCase() === "a" || e.code === "KeyA") && page && t?.closest?.('[data-testid="map-view"]')) {
         e.preventDefault();
         setSel(selectAll(scopeNotes.map((n) => n.id)));
         return;
       }
+      // Menus and popups close themselves first (ui/dismiss uses the Esc up).
       if (e.key === "Escape" && !inModal && !e.defaultPrevented) {
         if (linkMode) setLinkMode(false);
-        else if (switcherOpen) setSwitcherOpen(false);
-        else if (menuOpen) setMenuOpen(false);
-        else if (linkFind) setLinkFind(null);
         else if (membersOpen) setMembersOpen(false);
         else if (sel.ids.length > 0) setSel(NO_SELECTION);
         else if (boxMode) setBoxMode(false);
@@ -690,12 +686,11 @@ export function MapView({
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [linkMode, switcherOpen, menuOpen, linkFind, membersOpen, sel, boxMode, scopeNotes]);
+  }, [linkMode, membersOpen, sel, boxMode, scopeNotes]);
 
   const select = useCallback(
     (q: string) => {
-      const needle = q.trim().toLowerCase();
-      const base = needle ? notes.filter((n) => `${n.title} ${n.text}`.toLowerCase().includes(needle)) : notes;
+      const base = q.trim() ? notes.filter((n) => matchesQuery([n.title, n.text], q)) : notes;
       if (!graph) return base;
       if (memberFilter === "in") return base.filter((n) => graph.noteIds.includes(n.id));
       if (memberFilter === "out") return base.filter((n) => !graph.noteIds.includes(n.id));
@@ -1138,12 +1133,12 @@ export function MapView({
               {tr("openBtn", lang)}
             </button>
             <button
+              ref={linkFindBtn}
               type="button"
               className="g-btn sm"
               onClick={(e) => {
-                const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                const p = { x: Math.max(8, Math.min(r.left, (window.innerWidth || 1024) - 300)), y: Math.max(8, r.bottom + 8) };
-                setLinkFind({ x: p.x, y: p.y });
+                const r = e.currentTarget.getBoundingClientRect();
+                setLinkFind({ x: r.left, y: r.bottom + 8 });
                 setLinkQuery("");
               }}
             >
@@ -1162,12 +1157,10 @@ export function MapView({
           </div>
           {linkFind && (
             <div
+              ref={linkPopRef}
               className="n-suggest m-linkfind"
               role="listbox"
               style={{ left: linkFind.x, top: linkFind.y }}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") setLinkFind(null);
-              }}
             >
               <input
                 autoFocus
@@ -1185,7 +1178,10 @@ export function MapView({
                     aria-selected={false}
                     className="n-suggestitem"
                     onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => makeLink(peek.id, n.id)}
+                    onClick={() => {
+                      closeLinkPop();
+                      makeLink(peek.id, n.id);
+                    }}
                   >
                     <span className={!n.title.trim() ? "g-note-derived" : undefined} title={noteAccessibleName(n, lang)}><Hi text={noteDisplayName(n, lang)} q={linkQuery} /></span>
                   </button>

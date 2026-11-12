@@ -3,15 +3,12 @@ import {
   TPL_LIMIT_DEFAULT,
   buildTplEntries,
   clampActive,
-  filterTplEntries,
   getTplKind,
   loadTplLimit,
   makeSnippet,
-  matchesTpl,
   moveActive,
   parseTplLimit,
   saveTplLimit,
-  splitHighlight,
 } from "./promptUtils";
 import type { LlmTpl } from "./data";
 
@@ -43,49 +40,12 @@ describe("snippet", () => {
   });
 });
 
-describe("matchesTpl", () => {
-  it("matches empty query", () => {
-    expect(matchesTpl(A, "")).toBe(true);
-    expect(matchesTpl(A, "   ")).toBe(true);
-  });
-  it("searches title body and slots case insensitively", () => {
-    expect(matchesTpl(A, "code review")).toBe(true);
-    expect(matchesTpl(A, "CODE")).toBe(true);
-    expect(matchesTpl(A, "lang")).toBe(true);
-    expect(matchesTpl(A, "LEVEL")).toBe(true);
-    expect(matchesTpl(A, "missing")).toBe(false);
-  });
-});
-
 describe("entries", () => {
   it("merges builtins first then customs with mine flags", () => {
     const all = buildTplEntries([A, ART], [MINE]);
     expect(all.map((e) => e.tpl.id)).toEqual(["a", "art", "ct1"]);
     expect(all.map((e) => e.mine)).toEqual([false, false, true]);
     expect(all.map((e) => e.kind)).toEqual(["llm", "image", "llm"]);
-  });
-  it("filters by chip and query", () => {
-    const all = buildTplEntries([A, ART], [MINE]);
-    expect(filterTplEntries(all, "", "all")).toHaveLength(3);
-    expect(filterTplEntries(all, "", "mine").map((e) => e.tpl.id)).toEqual(["ct1"]);
-    expect(filterTplEntries(all, "", "llm").map((e) => e.tpl.id)).toEqual(["a", "ct1"]);
-    expect(filterTplEntries(all, "", "image").map((e) => e.tpl.id)).toEqual(["art"]);
-    expect(filterTplEntries(all, "sql", "all").map((e) => e.tpl.id)).toEqual(["ct1"]);
-    expect(filterTplEntries(all, "sql", "mine").map((e) => e.tpl.id)).toEqual(["ct1"]);
-    expect(filterTplEntries(all, "sql", "image")).toHaveLength(0);
-  });
-});
-
-describe("splitHighlight", () => {
-  it("returns single miss for empty query", () => {
-    expect(splitHighlight("abc", "")).toEqual([{ text: "abc", hit: false }]);
-  });
-  it("splits hits case insensitively", () => {
-    expect(splitHighlight("Code review code", "code")).toEqual([
-      { text: "Code", hit: true },
-      { text: " review ", hit: false },
-      { text: "code", hit: true },
-    ]);
   });
 });
 

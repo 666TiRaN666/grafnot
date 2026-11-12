@@ -1,18 +1,12 @@
 import { Component, useEffect, useRef, type ReactNode } from 'react';
 import { useMenu } from './ui/useMenu';
 import { FitMenu } from './ui/FitMenu';
-import { cutHiParts, splitHighlight } from "./promptUtils";
+import { cutHiParts, splitHighlight } from "./textMatch";
 import type { Lang } from './i18n';
 import { tr } from './i18n';
 import { exportRaw } from './exportRaw';
+import type { ToastMsg } from './toastQueue';
 import { storeKeyFor } from './store';
-
-export interface ToastMsg {
-  id: number;
-  text: string;
-  /** Optional Undo action (S1): label comes from the caller, no new i18n keys. */
-  actionLabel?: string;
-}
 
 /** Max simultaneously visible toasts; the rest collapse into a "+N" badge. */
 export const TOAST_VISIBLE_MAX = 3;
@@ -60,11 +54,6 @@ export function ToastStack({
       ))}
     </div>
   );
-}
-
-/** Remove one toast by id. Shared by the auto-hide timer and the manual close button. */
-export function dismissToast(items: ToastMsg[], id: number): ToastMsg[] {
-  return items.filter((t) => t.id !== id);
 }
 
 export function Hi({ text, q, max }: { text: string; q: string; max?: number }) {
@@ -459,33 +448,6 @@ export function SelectionBar({ lang, count, onClear, children, testid = 'sel-bar
       <span className="sel-actions">{children}</span>
     </div>
   );
-}
-
-/** Display form of a due date: ISO YYYY-MM-DD -> DD.MM, legacy strings as-is. */
-export function fmtDue(due?: string): string {
-  if (!due) return '';
-  const m = due.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (m) return `${m[3]}.${m[2]}`;
-  return due;
-}
-
-export async function copyText(s: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(s);
-    return true;
-  } catch {
-    try {
-      const ta = document.createElement('textarea');
-      ta.value = s;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      ta.remove();
-      return true;
-    } catch {
-      return false;
-    }
-  }
 }
 
 /** Permanent banner for blocked/failed/conflict states (Toast disappears,
