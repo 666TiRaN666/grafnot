@@ -58,6 +58,12 @@ const PAIRS = [
   ['--u-control', '--u-hover', 3],
   ['--u-focus', '--u-card', 3],
   ['--u-focus', '--u-bg', 3],
+  // 2026-11: the rail has its own surface (--u-side).
+  ['--u-text', '--u-side'],
+  ['--u-muted', '--u-side'],
+  ['--u-accent', '--u-side'],
+  ['--u-muted', '--u-accent-soft'],
+  ['--u-subtle', '--u-hover'],
 ];
 
 let fail = 0;
@@ -75,59 +81,26 @@ for (const theme of ['light', 'dark']) {
     if (!ok) fail++;
   }
 }
-// S12: real app theme tokens in src/index.css (both themes) — the u-*
-// primitives above are unused by pages, so gating them alone is theater.
+// 2026-11: index.css no longer holds its own colours. Its legacy names are
+// aliases of --u-* (one token set), so the pairs above cover the app. The
+// contract checked here: every legacy name points at its --u-* token, and
+// text on the accent uses --u-on-accent (white failed at 2.8:1 in dark).
 const appCss = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.css'), 'utf8');
-function appBlock(theme) {
-  const re = new RegExp(`\\.g-app\\[data-theme='${theme}'\\]\\s*\\{([^}]*)\\}`, 's');
-  const m = appCss.match(re);
-  if (!m) throw new Error('app theme block missing: ' + theme);
-  const vars = {};
-  for (const vm of m[1].matchAll(/(--[a-z-]+)\s*:\s*(#[0-9a-fA-F]{6})/g)) vars[vm[1]] = vm[2];
-  return vars;
+const ALIASES = {
+  '--bg': '--u-bg', '--card': '--u-card', '--text': '--u-text', '--muted': '--u-muted', '--faint': '--u-subtle',
+  '--border': '--u-border', '--border-soft': '--u-line', '--accent': '--u-accent', '--accent-ink': '--u-accent',
+  '--accent-soft': '--u-accent-soft', '--ok': '--u-ok', '--warn': '--u-warn', '--warn-soft': '--u-warn-soft', '--danger': '--u-danger',
+};
+for (const [legacy, token] of Object.entries(ALIASES)) {
+  const ok = new RegExp(`${legacy}:\\s*var\\(${token}\\)`).test(appCss);
+  console.log(`alias ${legacy} -> ${token}: ${ok ? 'OK' : 'FAIL'}`);
+  if (!ok) fail++;
 }
-const APP_PAIRS = [
-  ['--text', '--bg'],
-  ['--text', '--card'],
-  ['--muted', '--bg'],
-  ['--muted', '--card'],
-  ['--faint', '--bg'],
-  ['--faint', '--card'],
-  ['--accent-ink', '--accent-soft'],
-  ['--danger', '--card'],
-  ['--ok', '--card'],
-  ['--warn', '--card'],
-];
-for (const theme of ['light', 'dark']) {
-  const vars = appBlock(theme);
-  for (const [fg, bg] of APP_PAIRS) {
-    if (!vars[fg] || !vars[bg]) {
-      console.error(`MISSING app ${theme} ${fg} or ${bg}`);
-      fail++;
-      continue;
-    }
-    const r = ratio(vars[fg], vars[bg]);
-    const ok = r >= 4.5;
-    console.log(`app-${theme} ${fg}/${bg}: ${r.toFixed(2)} ${ok ? 'OK' : 'FAIL'}`);
-    if (!ok) fail++;
-  }
-}
-// Primary buttons: light theme uses #fff on --accent; dark theme must use
-// dark text (white on the dark accent is ~2.8). The rule below is the contract.
-const lightVars = appBlock('light');
-const darkVars = appBlock('dark');
-const wl = ratio('#ffffff', lightVars['--accent']);
-console.log(`app-light #fff/--accent: ${wl.toFixed(2)} ${wl >= 4.5 ? 'OK' : 'FAIL'}`);
-if (wl < 4.5) fail++;
-const dd = ratio('#0e1013', darkVars['--accent']);
-console.log(`app-dark #0e1013/--accent: ${dd.toFixed(2)} ${dd >= 4.5 ? 'OK' : 'FAIL'}`);
-if (dd < 4.5) fail++;
-if (!/\.g-app\[data-theme='dark'\]\s*\.g-btn\.primary\s*\{[^}]*color:\s*#0e1013/.test(appCss)) {
-  console.error('MISSING app dark .g-btn.primary dark-text rule');
-  fail++;
-} else {
-  console.log('app-dark .g-btn.primary dark-text rule: OK');
-}
+const raw = appCss.match(/\.g-app\[data-theme='(light|dark)'\][^{]*\{[^}]*--(muted|faint|accent|border)\s*:\s*#[0-9a-fA-F]{3,6}/);
+if (raw) { console.error('legacy colour redefined with a raw hex: ' + raw[0].slice(0, 80)); fail++; }
+const primary = /\.g-btn\.primary\s*\{[^}]*color:\s*var\(--u-on-accent\)/.test(appCss);
+console.log(`.g-btn.primary text uses --u-on-accent: ${primary ? 'OK' : 'FAIL'}`);
+if (!primary) fail++;
 if (fail > 0) {
   console.error(`contrast FAIL (${fail})`);
   process.exit(1);

@@ -41,7 +41,7 @@ describe("shortcuts registry", () => {
       expect(e.EN).toBeTruthy();
       expect(e.KZ).toBeTruthy();
     }
-    expect(SHORTCUTS.length).toBe(23);
+    expect(SHORTCUTS.length).toBe(30);
   });
   it("lists share one vocabulary: / searches and N creates wherever there is a list (focus group)", () => {
     const has = (scope: string, keys: string) => SHORTCUTS.some((s) => s.scope === scope && s.keys === keys);

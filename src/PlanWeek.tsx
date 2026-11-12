@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import type { Lang } from "./i18n";
 import { tr } from "./i18n";
 import type { Note, TaskItem } from "./store";
 import { todayISO } from "./taskGroups";
-import { weekRange } from "./weekCal";
+import { mondayISO, weekRange } from "./weekCal";
+import { Icon } from "./widgets";
 import { TaskPanel } from "./PlanList";
 import { useMedia } from "./ui/useMedia";
-import { monthYear, weekdayShort } from "./dateNames";
+import { dayMonth, weekRangeLabel, weekdayShort } from "./dateNames";
 
 /** Pointer travel that turns a press into a drag (S10 map uses the same). */
 const DRAG_PX = 4;
@@ -28,6 +30,7 @@ export function PlanWeek({
   onUpdate,
   onDelete,
   onOpenNote, createRequest = 0,
+  viewSwitch,
 }: {
   lang: Lang;
   tasks: TaskItem[];
@@ -39,6 +42,8 @@ export function PlanWeek({
   onDelete: (id: string) => void;
   onOpenNote: (id: string) => void;
   createRequest?: number;
+  /** «List | Week» switch: the first item of the page toolbar. */
+  viewSwitch?: ReactNode;
 }) {
   const today = todayISO();
   const [offset, setOffset] = useState(0);
@@ -55,6 +60,38 @@ export function PlanWeek({
   const narrow = useMedia("(max-width: 760px)");
 
   const days = useMemo(() => weekRange(offset, today), [offset, today]);
+  // «Today» always answers: it returns to this week and makes today's date
+  // shake briefly (a colour cue only with reduced motion), even when this
+  // week is already shown (2026-11: the click looked dead then).
+  const [todayCue, setTodayCue] = useState(0);
+  const goToday = () => {
+    setOffset(0);
+    setMDayState(null);
+    setTodayCue((n) => n + 1);
+  };
+  useEffect(() => {
+    if (!todayCue) return;
+    const cell = document.querySelector<HTMLElement>(`[data-testid="day-cell-${today}"], .w-mday.today`);
+    if (!cell) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    cell.scrollIntoView({ block: "nearest", inline: "nearest", behavior: reduce ? "auto" : "smooth" });
+    const accent = getComputedStyle(cell).getPropertyValue("--u-accent").trim() || "#2447c4";
+    // A fresh press restarts the cue instead of stacking a second one.
+    for (const a of cell.getAnimations({ subtree: true })) if (a.id === "today-cue") a.cancel();
+    const ring = cell.animate(
+      [{ boxShadow: `inset 0 0 0 2px ${accent}` }, { boxShadow: `inset 0 0 0 2px ${accent}`, offset: 0.55 }, { boxShadow: "inset 0 0 0 2px transparent" }],
+      { duration: reduce ? 1200 : 900, easing: "ease-out" },
+    );
+    ring.id = "today-cue";
+    const date = cell.querySelector<HTMLElement>("strong");
+    if (date && !reduce) {
+      const shake = date.animate(
+        [{ transform: "translateX(0)" }, { transform: "translateX(-4px)" }, { transform: "translateX(4px)" }, { transform: "translateX(-3px)" }, { transform: "translateX(2px)" }, { transform: "translateX(0)" }],
+        { duration: 450, easing: "ease-in-out" },
+      );
+      shake.id = "today-cue";
+    }
+  }, [todayCue, today]);
   const mDay = mDayState && days.includes(mDayState) ? mDayState : days.includes(today) ? today : (days[0] ?? today);
 
   const byDue = useMemo(() => {
@@ -68,15 +105,11 @@ export function PlanWeek({
     }
     return m;
   }, [tasks]);
-  const inbox = useMemo(() => tasks.filter((t) => !(t.due && ISO.test(t.due))), [tasks]);
+  const inbox = useMemo(() => tasks.filter((t) => !t.done && !(t.due && ISO.test(t.due))), [tasks]);
 
   if (panelId && !tasks.some((t) => t.id === panelId)) setPanelId(null);
   const panelTask = panelId ? (tasks.find((t) => t.id === panelId) ?? null) : null;
 
-  const monthTitle = useMemo(() => {
-    const [y, m, d] = days[0]?.split("-").map(Number) ?? [2026, 1, 1];
-    return monthYear(new Date(y, (m || 1) - 1, d || 1), lang);
-  }, [days, lang]);
   const wd = (iso: string) => {
     const [y, m, d] = iso.split("-").map(Number);
     return weekdayShort(new Date(y, (m || 1) - 1, d || 1), lang);
@@ -106,7 +139,7 @@ export function PlanWeek({
         setOffset((o) => o + 1);
       } else if (e.key === "t" || e.key === "T" || e.code === "KeyT") {
         e.preventDefault();
-        setOffset(0);
+        goToday();
       }
     };
     window.addEventListener("keydown", h);
@@ -146,8 +179,26 @@ export function PlanWeek({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const dateOf = (iso: string) => {
+    const [y, m, d] = iso.split("-").map(Number);
+    return new Date(y || 2026, (m || 1) - 1, d || 1);
+  };
+  const weekStart = days[0] ?? today;
+  const weekEnd = days[6] ?? today;
+  const rangeTitle = weekRangeLabel(dateOf(weekStart), dateOf(weekEnd), lang);
+  const inWeek = tasks.some((t) => t.due && ISO.test(t.due) && t.due >= weekStart && t.due <= weekEnd);
+  // An empty week points to the next planned task instead of leaving a blank grid.
+  const nextTask = inWeek
+    ? undefined
+    : tasks.filter((t) => !t.done && t.due && ISO.test(t.due) && t.due > weekEnd).sort((a, b) => (a.due ?? "").localeCompare(b.due ?? ""))[0];
+  const weekOffsetOf = (iso: string) => Math.round((dateOf(mondayISO(iso)).getTime() - dateOf(mondayISO(today)).getTime()) / (7 * 86400000));
+
   const renderChip = (t: TaskItem) => (
-    <span key={t.id} className="w-chipwrap" data-day={t.due && ISO.test(t.due) ? t.due : ""}>
+    <span
+      key={t.id}
+      className={"w-chipwrap" + (t.done ? " done" : "") + (!t.done && t.due && t.due < today ? " overdue" : "")}
+      data-day={t.due && ISO.test(t.due) ? t.due : ""}
+    >
       <input
         type="checkbox"
         className="w-chipcheck"
@@ -182,68 +233,99 @@ export function PlanWeek({
 
   return (
     <div className="g-page w-week" data-testid="plan-week">
-      <div className="g-page-h">
-        <h2 className="g-h2">{monthTitle}</h2>
-        <div className="g-cal-nav">
-          <button type="button" className="g-btn sm" onClick={() => setOffset((o) => o - 1)} aria-label="‹">
-            ‹
+      <div className="p-toolbar">
+        {viewSwitch}
+        <div className="w-nav">
+          <button type="button" className="g-iconbtn" data-testid="week-prev" aria-label={tr("weekPrevA", lang)} title={tr("weekPrevA", lang) + " · ←"} onClick={() => setOffset((o) => o - 1)}>
+            <Icon n="chevL" />
           </button>
-          <button type="button" className="g-btn sm" onClick={() => setOffset(0)}>
+          <h2 className="w-range" aria-live="polite">{rangeTitle}</h2>
+          <button type="button" className="g-iconbtn" data-testid="week-next" aria-label={tr("weekNextA", lang)} title={tr("weekNextA", lang) + " · →"} onClick={() => setOffset((o) => o + 1)}>
+            <Icon n="chevR" />
+          </button>
+          <button type="button" className="g-btn sm" data-testid="week-today" title={tr("today", lang) + " · T"} onClick={goToday}>
             {tr("today", lang)}
           </button>
-          <button type="button" className="g-btn sm" onClick={() => setOffset((o) => o + 1)} aria-label="›">
-            ›
-          </button>
         </div>
+        {!inWeek && tasks.length > 0 && (
+          <p className="w-note" role="status">
+            {tr("weekNoTasks", lang)}
+            {nextTask?.due && (
+              <>
+                {" · "}
+                <button type="button" className="g-linkbtn" data-testid="week-next-task" onClick={() => setOffset(weekOffsetOf(nextTask.due as string))}>
+                  {tr("weekNextTask", lang).replace("{d}", dayMonth(dateOf(nextTask.due), lang))} →
+                </button>
+              </>
+            )}
+          </p>
+        )}
       </div>
-
-      {tasks.length === 0 && (
-        <div className="g-empty">
-          <div className="g-empty-t">{tr("emptyTasksActive", lang)}</div>
-          <button type="button" className="g-btn primary" onClick={() => openAt(today, window.innerWidth / 2, 200)}>
-            {tr("addFirstTask", lang)}
-          </button>
-        </div>
-      )}
 
       {!narrow ? (
-      <div className="w-grid">
-        <section className={"w-inbox" + (dropDay === "" ? " drop" : "")} data-testid="week-inbox" data-day="">
-          <div className="t-grouphead">{tr("inboxT", lang)} ({inbox.length})</div>
-          <div className="w-inbox-list">{inbox.map(renderChip)}</div>
-        </section>
-        {days.map((iso) => (
-          <div
-            key={iso}
-            className={`w-day g-day${iso === today ? " today" : ""}${dropDay === iso ? " drop" : ""}`}
-            data-testid={`day-cell-${iso}`}
-            data-day={iso}
-            onClick={(e) => {
-              const hit = (e.target as HTMLElement).closest?.(".g-taskchip, .w-chipcheck, .g-day-head, .w-add");
-              if (!hit) openAt(iso, e.clientX, e.clientY);
-            }}
-          >
-            <button type="button" className="g-day-head" title={iso} onClick={(e) => { e.stopPropagation(); openAt(iso, e.clientX, e.clientY); }}>
-              <span>{wd(iso)}</span>
-              <strong>{dayNum(iso)}</strong>
-            </button>
-            {(byDue.get(iso) ?? []).map(renderChip)}
-            <span className="w-spacer" />
-            <button
-              type="button"
-              className="w-add"
-              data-testid={`day-add-${iso}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                openAt(iso, r.left, r.bottom);
-              }}
-            >
-              + {tr("addTask", lang)}
-            </button>
+        <div className="w-board">
+          <section className={"w-inbox" + (dropDay === "" ? " drop" : "")} data-testid="week-inbox" data-day="">
+            <div className="w-inbox-h">
+              <span className="w-inbox-t">{tr("undated", lang)}</span>
+              <span className="w-count">{inbox.length}</span>
+              {inbox.length > 0 && <span className="w-inbox-hint">{tr("weekInboxHint", lang)}</span>}
+            </div>
+            {inbox.length > 0 ? (
+              <div className="w-inbox-list">{inbox.map(renderChip)}</div>
+            ) : (
+              <p className="w-inbox-empty">{tasks.length === 0 ? tr("weekAllEmpty", lang) : tr("weekInboxEmpty", lang)}</p>
+            )}
+          </section>
+          <div className="w-scroller">
+            <div className="w-grid">
+              {days.map((iso, i) => {
+                const list = byDue.get(iso) ?? [];
+                const left = list.filter((x) => !x.done).length;
+                return (
+                  <div
+                    key={iso}
+                    className={"w-day" + (iso === today ? " today" : "") + (iso < today ? " past" : "") + (i >= 5 ? " weekend" : "") + (dropDay === iso ? " drop" : "")}
+                    data-testid={`day-cell-${iso}`}
+                    data-day={iso}
+                    onClick={(e) => {
+                      const hit = (e.target as HTMLElement).closest?.(".g-taskchip, .w-chipcheck, .g-day-head, .w-add");
+                      if (!hit) openAt(iso, e.clientX, e.clientY);
+                    }}
+                  >
+                    <button
+                      type="button"
+                      className="g-day-head"
+                      title={iso}
+                      aria-current={iso === today ? "date" : undefined}
+                      aria-label={tr("weekDayA", lang).replace("{d}", `${wd(iso)} ${dayMonth(dateOf(iso), lang)}`).replace("{n}", String(left))}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openAt(iso, e.clientX, e.clientY);
+                      }}
+                    >
+                      <span className="w-wd">{wd(iso)}</span>
+                      <strong>{dayNum(iso)}</strong>
+                      {left > 0 && <span className="w-left" aria-hidden="true">{left}</span>}
+                    </button>
+                    <div className="w-daybody">{list.map(renderChip)}</div>
+                    <button
+                      type="button"
+                      className="w-add"
+                      data-testid={`day-add-${iso}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        openAt(iso, r.left, r.bottom);
+                      }}
+                    >
+                      + {tr("addTask", lang)}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        ))}
-      </div>
+        </div>
       ) : (
       <div className="w-mobile">
         <div className="g-seg" role="group" aria-label={tr("weekViewA", lang)}>
@@ -252,9 +334,10 @@ export function PlanWeek({
               key={v}
               type="button"
               className={"g-btn sm" + (mTab === v ? " active" : "")}
+              aria-pressed={mTab === v}
               onClick={() => setMTab(v)}
             >
-              {v === "day" ? wd(mDay) : tr("inboxT", lang)}
+              {v === "day" ? `${wd(mDay)} ${dayNum(mDay)}` : `${tr("undated", lang)} · ${inbox.length}`}
             </button>
           ))}
         </div>
@@ -266,6 +349,7 @@ export function PlanWeek({
                   key={iso}
                   type="button"
                   className={"w-mday" + (iso === mDay ? " active" : "") + (iso === today ? " today" : "")}
+                  aria-pressed={iso === mDay}
                   onClick={() => setMDayState(iso)}
                 >
                   <span>{wd(iso)}</span>
@@ -273,7 +357,7 @@ export function PlanWeek({
                   {/* Open tasks of the day: find a deadline without tapping every day. */}
                   {(() => {
                     const n = (byDue.get(iso) ?? []).filter((x) => !x.done).length;
-                    return n > 0 ? <span className="w-mcount" data-testid="day-count" aria-label={`${tr("nav_tasks", lang)}: ${n}`}>{n}</span> : null;
+                    return n > 0 ? <span className="w-mcount" data-testid="day-count" aria-label={`${tr("nav_tasks", lang)}: ${n}`}>{n}</span> : <span className="w-mcount none" aria-hidden="true" />;
                   })()}
                 </button>
               ))}
@@ -303,7 +387,9 @@ export function PlanWeek({
             </div>
           </>
         ) : (
-          <div className="w-agenda">{inbox.map(renderChip)}</div>
+          <div className="w-agenda">
+            {inbox.length > 0 ? inbox.map(renderChip) : <p className="w-inbox-empty">{tasks.length === 0 ? tr("weekAllEmpty", lang) : tr("weekInboxEmpty", lang)}</p>}
+          </div>
         )}
       </div>
       )}
@@ -315,11 +401,12 @@ export function PlanWeek({
           x={popup.x}
           y={popup.y}
           title={(() => {
+            if (!popup.iso) return `${tr("dayTaskT", lang)} · ${tr("undated", lang)}`;
             const [y, m, d] = popup.iso.split("-").map(Number);
             const s = `${weekdayShort(new Date(y, (m || 1) - 1, d || 1), lang)} ${d}`;
             return `${tr("dayTaskT", lang)} · ${s}`;
           })()}
-          onAdd={(text, desc) => onAdd(text, { desc: desc || undefined, due: popup.iso })}
+          onAdd={(text, desc) => onAdd(text, { desc: desc || undefined, due: popup.iso || undefined })}
           onClose={() => setPopup(null)}
         />
       )}

@@ -84,6 +84,14 @@ module.exports = async function (t) {
     await page.getByTestId('trash-page').locator('.g-sugg', { hasText: 'Beta' }).waitFor();
     await page.goto(t.URL + '#/settings/profiles', { waitUntil: 'networkidle' });
     assert(await page.getByTestId('settings-nav-trash').count() === 0, 'settings still has a trash tab');
+    // Desktop: the rail already holds Trash and Settings, the profile menu only the profile.
+    await page.getByTestId('profile-menu-open').click();
+    const menu = page.getByTestId('profile-menu');
+    await menu.waitFor();
+    assert((await menu.getByRole('menuitem', { name: /Корзина|Настройки/ }).count()) === 0, 'desktop profile menu duplicates the rail');
+    assert((await menu.getByRole('menuitemradio').count()) >= 1, 'profiles are not a single-choice group');
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('[data-testid="profile-menu"]') && document.activeElement?.getAttribute('data-testid') === 'profile-menu-open', null, { timeout: 5000 });
     const ctx = await t.browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true, storageState: await page.context().storageState() });
     const pg = await ctx.newPage();
     try {

@@ -4,6 +4,7 @@ import { tr } from "./i18n";
 import type { LlmTpl } from "./data";
 import type { Note } from "./store";
 import { copyText } from "./widgets";
+import { useMenu } from "./ui/useMenu";
 import { fillBody, isBlockSlot, listSlots, missingSlots, resolveParams, splitSlots } from "./promptUtils";
 import { buildSaveTitle, requiredSlots } from "./workbenchModel";
 import { NoteAttach } from "./NoteAttach";
@@ -49,7 +50,7 @@ export function PromptWorkbench({
   );
   const [attempted, setAttempted] = useState(false);
   const [binding, setBinding] = useState<string | undefined>(undefined);
-  const [moreOpen, setMoreOpen] = useState(false);
+  const { open: moreOpen, setOpen: setMoreOpen, rootRef: moreRootRef, triggerRef: moreTriggerRef, triggerProps: moreTrigger, menuProps: moreMenuProps } = useMenu<HTMLSpanElement>();
   const fieldRefs = useRef<(HTMLElement | null)[]>([]);
 
   const result = fillBody(tpl.body, values);
@@ -120,20 +121,19 @@ export function PromptWorkbench({
             </span>
           </span>
         </div>
-        <span className="n-morewrap">
+        <span className="n-morewrap" ref={moreRootRef}>
           <button
             type="button"
             data-testid="prompt-wb-more"
             className="g-btn sm ghost"
             title={tr("menu", lang)}
             aria-label={tr("menu", lang)}
-            aria-expanded={moreOpen}
-            onClick={() => setMoreOpen((v) => !v)}
+            ref={moreTriggerRef} {...moreTrigger}
           >
             ⋯
           </button>
           {moreOpen && (
-            <span className="n-menu" role="menu">
+            <span className="n-menu" {...moreMenuProps}>
               {save ? (
                 <>
                   {save.noteId && onUnbindSave && (

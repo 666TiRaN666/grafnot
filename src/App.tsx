@@ -1039,6 +1039,43 @@ export default function App() {
     notifyAction(`${tr('toastNoteDeleted', lang)}: ${noteDisplayName(victim, lang)}`, tr('undoToast', lang), () => restoreTrash(victim.id));
   };
 
+  /** Bulk trash (notes list, map selection): one store change, one Undo for the group. */
+  const trashNotes = (ids: string[]) => {
+    const victims = notes.filter((n) => ids.includes(n.id));
+    if (victims.length === 0) return;
+    if (victims.length === 1 && victims[0]) { deleteNote(victims[0].id); return; }
+    const gone = new Set(victims.map((v) => v.id));
+    setStore((s) => {
+      const now = Date.now();
+      const t = victims.reduce((acc, v) => trashNote(acc, v.id, now), s);
+      return { ...t, activeId: t.notes.some((n) => n.id === t.activeId) ? t.activeId : (t.notes[0]?.id ?? '') };
+    });
+    // The route pins the open note: leave it when it went to the trash.
+    if (route.section === 'notes' && route.param && gone.has(route.param)) {
+      const next = notes.find((n) => !gone.has(n.id));
+      if (next) go('notes', next.id); else go('notes');
+    }
+    notifyAction(tr('toastNotesTrashed', lang).replace('{n}', String(victims.length)), tr('undoToast', lang), () => {
+      setStore((s) => victims.reduce((acc, v) => (acc.trash.some((x) => x.id === v.id) ? restoreNote(acc, v.id) : acc), s));
+      notify(tr('toastNotesRestored', lang).replace('{n}', String(victims.length)));
+    });
+  };
+
+  /** Bulk graph membership: adds (or removes) only what changes, reversibly. */
+  const setMembers = (ids: string[], graphId: string, member: boolean) => {
+    const g = graphs.find((x) => x.id === graphId);
+    if (!g) return;
+    const changed = ids.filter((id) => g.noteIds.includes(id) !== member);
+    const apply = (list: string[], on: boolean) => setStore((s) => ({
+      ...s,
+      graphs: s.graphs.map((x) => (x.id !== graphId ? x : { ...x, noteIds: on ? [...x.noteIds, ...list.filter((id) => !x.noteIds.includes(id))] : x.noteIds.filter((id) => !list.includes(id)) })),
+    }));
+    if (changed.length > 0) apply(changed, member);
+    const msg = tr(member ? 'toastAddedToGraph' : 'toastRemovedFromGraph', lang).replace('{g}', g.title).replace('{n}', String(changed.length));
+    if (changed.length > 0) notifyAction(msg, tr('undoToast', lang), () => apply(changed, !member));
+    else notify(msg);
+  };
+
   /** Sister of createNote that leaves activeId alone (for `[[` create-row). */
   const createLinkedNote = (title: string): string => {
     const id = newId("n");
@@ -1235,7 +1272,8 @@ export default function App() {
     notifyAction,
     toggleMember,
     savePrompt,
-
+    trashNotes,
+    setMembers,
   };
 
   // Palette entries over real notes, tasks and saved prompts. Grouping and
@@ -1496,6 +1534,17 @@ export default function App() {
     setCreateRequest(n => n + 1);
   };
 
+  // «List | Week»: a compact switch that opens the plan page's toolbar.
+  const planSwitch = (
+    <div className="p-viewseg" role="group" aria-label={tr("planViewA", lang)}>
+      <button type="button" data-testid="plan-view-list" aria-pressed={planView === 'list'} onClick={() => go('plan', 'list')}>
+        {tr('planList', lang)}
+      </button>
+      <button type="button" data-testid="plan-view-week" aria-pressed={planView === 'week'} onClick={() => go('plan', 'week')}>
+        {tr('planWeek', lang)}
+      </button>
+    </div>
+  );
   const shellBlocked = storeBlocked !== null || boot.registryFailed;
   const saveText =
     shellBlocked ? tr('storageBlockedShort', lang) : saveState === 'saved'
@@ -1522,13 +1571,13 @@ export default function App() {
     </button>
   );
   const saveStatus = (
-    <div data-testid="save-state" role="status" aria-live="polite" title={saveText} className={`g-status${saveState === 'saved' && !shellBlocked ? '' : ' g-status-bad'}`}>
+    <div data-testid="save-state" role="status" aria-live="polite" title={saveText} className={`g-status${shellBlocked || saveState === 'failed' || saveState === 'conflict' ? ' g-status-bad' : saveState === 'pending' ? ' g-status-pending' : ''}`}>
       <span className="g-pulse" />
       <span className="s-statustext">{saveText}</span>
     </div>
   );
 
-  const profileMenu = <ProfileMenu key={profileId} lang={lang} registry={registry} activeId={profileId ?? ''} collapsed={isPhone || !sideOpen} onSelect={(id) => { void enterProfile(id); }} onManage={() => go('settings', 'profiles')} onTrash={() => go('trash')} trashCount={trash.length + trashTasks.length} onSettings={() => go('settings', 'appearance')} />;
+  const profileMenu = <ProfileMenu key={profileId} lang={lang} registry={registry} activeId={profileId ?? ''} collapsed={isPhone || !sideOpen} appNav={isPhone} onSelect={(id) => { void enterProfile(id); }} onManage={() => go('settings', 'profiles')} onTrash={() => go('trash')} trashCount={trash.length + trashTasks.length} onSettings={() => go('settings', 'appearance')} />;
   const showSaveDetails = () => {
     if (shellBlocked || saveState === 'failed' || saveState === 'conflict') {
       const host = document.querySelector<HTMLElement>('.s-strip:not(:empty)') ?? document.querySelector<HTMLElement>('.g-main');
@@ -1571,10 +1620,10 @@ export default function App() {
             {shellBtn('prompt', 'nav-prompt', tr('nav_prompt', lang), section === 'prompts', () => go('prompts'))}
           </div>
           <div className="s-railfoot">
-            {!isPhone && saveStatus}
-            {!isPhone && profileMenu}
             {shellBtn('trash', 'nav-trash', tr('trashT', lang), section === 'trash', () => go('trash'), trash.length + trashTasks.length)}
             {shellBtn('sliders', 'nav-settings', tr('settings', lang), section === 'settings', () => go('settings', 'profiles'))}
+            {/* Who and where the data is: the profile and its save state, apart from the sections. */}
+            {!isPhone && <div className="s-railid">{profileMenu}{saveStatus}</div>}
           </div>
         </aside>
 
@@ -1773,26 +1822,8 @@ export default function App() {
           )}
           {section === 'plan' && (
             <>
-              <div className="g-seg" role="group" aria-label={tr("planViewA", lang)}>
-                <button
-                  type="button"
-                  data-testid="plan-view-list"
-                  className={`g-btn sm${planView === 'list' ? ' active' : ''}`}
-                  onClick={() => go('plan', 'list')}
-                >
-                  {tr('planList', lang)}
-                </button>
-                <button
-                  type="button"
-                  data-testid="plan-view-week"
-                  className={`g-btn sm${planView === 'week' ? ' active' : ''}`}
-                  onClick={() => go('plan', 'week')}
-                >
-                  {tr('planWeek', lang)}
-                </button>
-              </div>
               {planView === 'week' ? (
-                <PlanWeek createRequest={createRequest}
+                <PlanWeek createRequest={createRequest} viewSwitch={planSwitch}
                   lang={lang}
                   tasks={tasks}
                   notes={notes}
@@ -1804,7 +1835,7 @@ export default function App() {
                   onOpenNote={openNoteById}
                 />
               ) : (
-                <PlanList createRequest={createRequest}
+                <PlanList createRequest={createRequest} viewSwitch={planSwitch}
                   lang={lang}
                   tasks={tasks}
                   notes={notes}
@@ -1833,6 +1864,8 @@ export default function App() {
                 onRenameGraph={renameGraph}
                 onDeleteGraph={deleteGraph}
                 onToggleMember={toggleMember}
+                onSetMembers={setMembers}
+                onTrashNotes={trashNotes}
                 onLinkNotes={linkNotes}
                 profileId={profileId}
               />

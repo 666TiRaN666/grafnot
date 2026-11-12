@@ -4,14 +4,13 @@ import { tr } from "./i18n";
 import type { AIModel, AspectId, TagCat } from "./data";
 import { NEGATIVE_PRESET, TAG_DATA } from "./promptData";
 import type { Note } from "./store";
-import { Hi, copyText } from "./widgets";
+import { Hi, MenuPopup, copyText } from "./widgets";
 import { prefKeyFor } from "./prefs";
 import { filterTags, formatWeight, hasWeights, moveTag, parseTagInput, stepWeight, stripWeight, tagWeight, weightValue } from "./imageTags";
 import { ASPECT_IDS, CAT_ORDER, catOf, moveInLane, orderTokens, renderImage } from "./imageModel";
 import { estimateTokens } from "./skillModel";
 import { useListNav } from "./useListNav";
 import { NoteAttach } from "./NoteAttach";
-import { FitMenu } from "./ui/FitMenu";
 
 const MODELS: AIModel[] = ["Pony", "SDXL", "Flux", "Midjourney"];
 const SUGGEST_CAP = 8;
@@ -114,7 +113,6 @@ export function PromptImageWb({
   const [saveAs, setSaveAs] = useState("");
   const [input, setInput] = useState("");
   const [negInput, setNegInput] = useState("");
-  const [menuIdx, setMenuIdx] = useState<number | null>(null);
   const [binding, setBinding] = useState<string | undefined>(undefined);
   const [recent, setRecent] = useState<string[]>(() => loadRecent(profileId));
   const drag = useRef<{ from: number; x0: number; y0: number; on: boolean } | null>(null);
@@ -172,7 +170,6 @@ export function PromptImageWb({
     const victim = tokens[i];
     if (victim === undefined) return;
     setTokens((p) => p.filter((_, j) => j !== i));
-    setMenuIdx(null);
     notifyAction(tr("promptDeleted", lang), tr("undoToast", lang), () => setTokens((p) => [...p, victim]));
   };
 
@@ -182,7 +179,6 @@ export function PromptImageWb({
     const next = { ...tagCats, [stripWeight(tok).toLowerCase()]: cat };
     setTagCats(next);
     setTokens((p) => p, next);
-    setMenuIdx(null);
   };
 
   const moveChip = (i: number, dir: -1 | 1) => {
@@ -425,7 +421,8 @@ export function PromptImageWb({
                   <div className="t-chips">
                     {lane.items.map(({ t, i }) => (
                       <div
-                        key={`${t}#${i}`}
+                        // Identity is the tag, not its weight: a weight step must not remount the chip (its menu would close).
+                        key={`${stripWeight(t)}#${i}`}
                         ref={(el) => {
                           if (el) chipRefs.current.set(i, el);
                           else chipRefs.current.delete(i);
@@ -447,19 +444,16 @@ export function PromptImageWb({
                         }}
                       >
                         <span className="t-tagtext">{t}</span>
-                        <button type="button" className="t-tagmenu" title={tr("menu", lang)} aria-label={tr("menu", lang)} aria-expanded={menuIdx === i} onClick={() => setMenuIdx((m) => (m === i ? null : i))}>
-                          ⋯
-                        </button>
                         <button type="button" className="t-tagx" title={`${tr("deleteNote", lang)} ${stripWeight(t)}`} aria-label={`${tr("deleteNote", lang)} ${stripWeight(t)}`} onClick={() => removeToken(i)}>
                           ×
                         </button>
-                        {menuIdx === i && (
-                          <FitMenu className="t-menu" role="menu">
+                        <MenuPopup label="⋯" ariaLabel={tr("menu", lang)} className="t-tagmenu" menuClassName="t-menu">
+                          {(close) => (<>
                             {/* Reorder without a keyboard (touch): same move as Alt+arrows. */}
-                            <button type="button" role="menuitem" className="t-menuitem" onClick={() => { moveChip(i, -1); setMenuIdx(null); }}>
+                            <button type="button" role="menuitem" className="t-menuitem" onClick={() => { moveChip(i, -1); close(); }}>
                               {tr("tagEarlier", lang)}
                             </button>
-                            <button type="button" role="menuitem" className="t-menuitem" onClick={() => { moveChip(i, 1); setMenuIdx(null); }}>
+                            <button type="button" role="menuitem" className="t-menuitem" onClick={() => { moveChip(i, 1); close(); }}>
                               {tr("tagLater", lang)}
                             </button>
                             {hasWeights(model) &&
@@ -472,7 +466,7 @@ export function PromptImageWb({
                                   className="t-menuitem"
                                   onClick={() => {
                                     setTokens((p) => p.map((x, j) => (j === i ? formatWeight(model, x, w) : x)));
-                                    setMenuIdx(null);
+                                    close();
                                   }}
                                 >
                                   {w === "low" ? tr("tagWLow", lang) : w === "high" ? tr("tagWHigh", lang) : tr("tagWNrm", lang)}
@@ -493,7 +487,7 @@ export function PromptImageWb({
                             )}
                             <label className="t-menuitem i-catpick">
                               {tr("catL", lang)}
-                              <select data-testid="tag-cat" value={catOf(t, tagCats)} onChange={(e) => setCat(i, e.target.value as TagCat)}>
+                              <select data-testid="tag-cat" value={catOf(t, tagCats)} onChange={(e) => { setCat(i, e.target.value as TagCat); close(); }}>
                                 {CAT_ORDER.map((c) => (
                                   <option key={c} value={c}>{catLabel(c, lang)}</option>
                                 ))}
@@ -502,8 +496,8 @@ export function PromptImageWb({
                             <button type="button" role="menuitem" className="t-menuitem danger" onClick={() => removeToken(i)}>
                               {tr("deleteNote", lang)}
                             </button>
-                          </FitMenu>
-                        )}
+                          </>)}
+                        </MenuPopup>
                       </div>
                     ))}
                   </div>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { monthYear, weekdayShort } from './dateNames';
+import { dayMonth, monthYear, weekRangeLabel, weekdayShort } from './dateNames';
 
 describe('date names', () => {
   const thu = new Date(2026, 9, 29);
@@ -11,5 +11,13 @@ describe('date names', () => {
   it('Russian month title raises only the first letter', () => {
     expect(monthYear(thu, 'RU')).toMatch(/^Октябрь 2026/);
     expect(monthYear(thu, 'RU')).not.toContain('Г.');
+  });
+});
+
+describe('week labels', () => {
+  it('names the shown week as a range, across months too', () => {
+    expect(weekRangeLabel(new Date(2026, 10, 9), new Date(2026, 10, 15), 'RU')).toBe('9–15 ноября 2026');
+    expect(weekRangeLabel(new Date(2026, 10, 30), new Date(2026, 11, 6), 'KZ')).toBe('30 Қараша – 6 Желтоқсан 2026');
+    expect(dayMonth(new Date(2026, 10, 20), 'RU')).toBe('20 ноября');
   });
 });

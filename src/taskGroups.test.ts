@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDaysISO, groupTasks, todayISO, toISODate } from "./taskGroups";
+import { addDaysISO, groupTasks, pageTaskGroups, todayISO, toISODate } from "./taskGroups";
 import type { TaskItem } from "./store";
 
 const t = (id: string, extra: Partial<TaskItem> = {}): TaskItem =>
@@ -102,4 +102,24 @@ describe("groupTasks weekday matrix", () => {
       expect(g.done.map((x) => x.id)).toEqual(wantDone);
     });
   }
+});
+
+describe("task paging", () => {
+  const t = (id: string, done = false) => ({ id, text: id, done });
+  it("does not offer more rows for a collapsed group", () => {
+    const p = pageTaskGroups([{ key: "undated", items: [t("a"), t("b")] }], [t("x", true)], new Set(["done"]), false, 50);
+    expect(p.rendered).toBe(2);
+    expect(p.open).toBe(2);
+  });
+  it("shares one budget with Done and pages only the expanded rows", () => {
+    const many = Array.from({ length: 3 }, (_, i) => t("u" + i));
+    const p = pageTaskGroups([{ key: "undated", items: many }], [t("d1", true), t("d2", true)], new Set(), false, 4);
+    expect(p.sections[0]?.items.length).toBe(3);
+    expect(p.done.length).toBe(1);
+    expect(p.open - p.rendered).toBe(1);
+  });
+  it("search opens every group", () => {
+    const p = pageTaskGroups([{ key: "today", items: [t("a")] }], [t("d", true)], new Set(["today", "done"]), true, 50);
+    expect(p.rendered).toBe(2);
+  });
 });

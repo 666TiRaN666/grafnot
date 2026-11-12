@@ -25,11 +25,11 @@ module.exports = async function (t) {
     // The list re-renders after the input event: wait for it, never read once.
     const rowsAre = (n, why) => page.waitForFunction((k) => document.querySelectorAll('.g-noterow').length === k, n, { timeout: 5000 })
       .catch(() => { throw new Error(why); });
-    await page.locator('.g-notes-tools .g-in').fill('zebra');
+    await page.getByTestId('notes-search').fill('zebra');
     await rowsAre(1, 'search must narrow first');
-    await page.locator('.g-notes-tools .g-in').fill('');
+    await page.getByTestId('notes-search').fill('');
     await rowsAre(12, 'clear must restore batch');
-    await page.locator('.g-notes-tools .g-in').click();
+    await page.getByTestId('notes-search').click();
     await page.keyboard.press('ArrowDown');
     await page.keyboard.press('Enter');
     await page.locator('.g-title-in').waitFor();
@@ -51,10 +51,10 @@ module.exports = async function (t) {
     // S4/N9: groups instead of filter/limit segs; done collapsed by default.
     assert((await page.getByTestId('task-group-undated').innerText()).includes('(9)'), 'undated group off');
     assert((await page.getByTestId('task-group-done').innerText()).includes('(3)'), 'done group off');
-    await page.locator('.g-notes-tools .g-in').fill('login');
+    await page.getByTestId('task-search').fill('login');
     assert((await page.locator('.g-taskline').count()) === 2, 'search must find both');
-    await page.locator('.g-notes-tools .g-in').fill('');
-    await page.locator('.g-notes-tools .g-in').click();
+    await page.getByTestId('task-search').fill('');
+    await page.getByTestId('task-search').click();
     await page.keyboard.press('ArrowDown');
     await page.keyboard.press(' ');
     await page.waitForFunction(() => (document.querySelector('[data-testid="task-group-undated"]') || {}).innerText?.includes('(8)'), null, { timeout: 8000 });

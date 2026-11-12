@@ -25,11 +25,11 @@ module.exports = async function (t) {
   }));
   const activeTestid = () => page.evaluate(() => (document.activeElement || {}).getAttribute?.('data-testid'));
 
-  await check('S12 keys page lists the 23 registry rows', async () => {
+  await check('S12 keys page lists the 30 registry rows', async () => {
     await page.getByTestId('nav-settings').click();
     await page.getByTestId('settings-nav-keys').click();
     await page.getByTestId('keys-row').first().waitFor();
-    assert((await page.getByTestId('keys-row').count()) === 23, 'keys rows != registry');
+    assert((await page.getByTestId('keys-row').count()) === 30, 'keys rows != registry');
   });
 
   await check('S12 Ctrl+K opens palette, Esc closes', async () => {
@@ -232,13 +232,74 @@ module.exports = async function (t) {
       .catch(() => { throw new Error('Ctrl+Alt+N from the text created no note'); });
   });
 
+  await check('2026-11 keys: Tab/Shift+Tab/Esc in the text, list selection, map box', async () => {
+    // note-indent / note-leave: repeated Tab keeps the focus, Esc leaves the text, Tab then moves on.
+    await page.getByTestId('nav-notes').click();
+    await page.locator('[data-testid="note-item"]', { hasText: 'Beta' }).click();
+    const body = page.getByTestId('editor').getByRole('textbox');
+    await body.click();
+    await page.waitForFunction(() => document.activeElement?.classList.contains('ProseMirror'));
+    await page.keyboard.press('Control+Home');
+    // The block indent level (not characters): also on this empty first line.
+    const level = () => page.evaluate(() => Number(document.querySelector('.tiptap p')?.getAttribute('data-indent') || 0));
+    for (let i = 0; i < 3; i++) await page.keyboard.press('Tab');
+    assert(await body.evaluate((el) => document.activeElement === el), 'repeated Tab left the text');
+    assert((await level()) === 3, 'three Tabs did not indent three times');
+    assert(!(await page.evaluate(() => (document.querySelector('.tiptap p')?.textContent || '').includes('\t'))), 'Tab typed characters');
+    await page.waitForTimeout(600);
+    await page.keyboard.press('Shift+Tab');
+    assert((await level()) === 2, 'Shift+Tab did not outdent');
+    await page.keyboard.press('ControlOrMeta+z');
+    await page.waitForFunction(() => Number(document.querySelector('.tiptap p')?.getAttribute('data-indent') || 0) === 3, null, { timeout: 5000 });
+    // note-find: Ctrl+F from the text opens find; Esc returns to the text.
+    await page.keyboard.press('ControlOrMeta+f');
+    await page.getByTestId('find-input').waitFor();
+    assert((await page.evaluate(() => document.activeElement?.getAttribute('data-testid'))) === 'find-input', 'Ctrl+F did not focus find');
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('[data-testid="find-bar"]') && document.activeElement?.classList.contains('ProseMirror'), null, { timeout: 5000 });
+    await page.keyboard.press('Escape');
+    assert(await page.getByTestId('editor').evaluate((el) => document.activeElement === el), 'Esc did not leave the text');
+    await page.keyboard.press('Tab');
+    assert(!(await body.evaluate((el) => document.activeElement === el)), 'Tab after Esc went back into the text');
+    // sel-toggle / sel-range / sel-all / sel-clear in the notes list.
+    const items = page.getByTestId('note-item');
+    const n = await items.count();
+    await items.nth(n - 1).click({ modifiers: ['ControlOrMeta'] });
+    await page.getByTestId('notes-sel-bar').waitFor();
+    await items.nth(0).click({ modifiers: ['Shift'] });
+    const checked = () => page.evaluate(() => [...document.querySelectorAll('[data-testid="note-check"]')].filter((c) => c.checked).length);
+    assert((await checked()) === n, 'Shift+click did not select the range');
+    await items.first().focus();
+    await page.keyboard.press('ControlOrMeta+a');
+    assert((await checked()) === n, 'Ctrl+A did not select the list');
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('[data-testid="notes-sel-bar"]'), null, { timeout: 5000 });
+    // map-box: Shift+drag on the canvas draws a box (no pan).
+    await page.getByTestId('nav-map').click();
+    const canvas = page.locator('svg.g-canvas');
+    await canvas.waitFor();
+    await page.locator('[aria-label="Вписать"]').click();
+    await page.waitForTimeout(400);
+    const b = await canvas.boundingBox();
+    const before = await page.evaluate(() => document.querySelector('g.g-view')?.getAttribute('transform'));
+    await page.keyboard.down('Shift');
+    await page.mouse.move(b.x + 4, b.y + 4);
+    await page.mouse.down();
+    await page.mouse.move(b.x + b.width - 4, b.y + b.height - 4, { steps: 8 });
+    await page.mouse.up();
+    await page.keyboard.up('Shift');
+    assert((await page.locator('circle.g-vnode.sel').count()) === (await page.locator('circle.g-vnode').count()), 'Shift+drag did not box-select');
+    assert((await page.evaluate(() => document.querySelector('g.g-view')?.getAttribute('transform'))) === before, 'Shift+drag panned the map');
+    await page.keyboard.press('Escape');
+  });
+
   await check('S12 KZ keys layout has no overflow', async () => {
     await page.getByTestId('nav-settings').click();
     await page.getByTestId('settings-nav-appearance').click();
     await page.getByRole('button', { name: 'Қазақша', exact: true }).click();
     await page.getByTestId('settings-nav-keys').click();
     await page.getByTestId('keys-row').first().waitFor();
-    assert((await page.getByTestId('keys-row').count()) === 23, 'keys rows missing in KZ');
+    assert((await page.getByTestId('keys-row').count()) === 30, 'keys rows missing in KZ');
     const bad = await page.evaluate(() => {
       const de = document.documentElement;
       return de.scrollWidth <= window.innerWidth + 1 ? null : `${de.scrollWidth}>${window.innerWidth}`;

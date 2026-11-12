@@ -42,7 +42,9 @@
   --u-danger: #a41d13;
   --u-on-danger: #ffffff;
   --u-card: #ffffff;
-  --u-border: #d7dbe3;
+  --u-border: #d0d5dd;
+  /* Navigation surface: a second neutral beside the content (2026-11). */
+  --u-side: #f7f8fa;
   --u-focus: #2447c4;
   /* W5 «Лист» roles (Stage3_Visual_System.md §2). */
   --u-hover: #eef0f3;
@@ -58,6 +60,18 @@
   --u-shadow-pop: 0 10px 30px rgba(16, 24, 40, 0.16), 0 1px 3px rgba(16, 24, 40, 0.08);
   --u-shadow-row: 0 1px 2px rgba(16, 24, 40, 0.1), 0 0 0 1px rgba(16, 24, 40, 0.04);
   --u-scrim: rgba(16, 24, 40, 0.32);
+  /* Note text colours and highlights (rich text, 2026-11): legible on the card and on every highlight. */
+  --tc-red: #b42318;
+  --tc-orange: #a6460a;
+  --tc-green: #16703d;
+  --tc-blue: #1f55c4;
+  --tc-purple: #6b33b8;
+  --tc-gray: #5b6474;
+  --hl-yellow: #fff1a8;
+  --hl-green: #d3f3dc;
+  --hl-blue: #dbe7ff;
+  --hl-pink: #fcdbe7;
+  --hl-gray: #e6e9ee;
 }
 .g-app[data-theme='dark'] {
   --u-bg: #0e1013;
@@ -68,7 +82,8 @@
   --u-danger: #ff9d94;
   --u-on-danger: #1a0b09;
   --u-card: #171b21;
-  --u-border: #333b47;
+  --u-border: #3a4350;
+  --u-side: #13161b;
   --u-focus: #9dbcff;
   /* W5 «Лист» roles (Stage3_Visual_System.md §2). */
   --u-hover: #1f242c;
@@ -84,6 +99,17 @@
   --u-shadow-pop: 0 10px 30px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.05);
   --u-shadow-row: 0 1px 2px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.06);
   --u-scrim: rgba(0, 0, 0, 0.5);
+  --tc-red: #ff9b92;
+  --tc-orange: #ffb27a;
+  --tc-green: #74d99c;
+  --tc-blue: #9dbcff;
+  --tc-purple: #cfa8ff;
+  --tc-gray: #a3abb8;
+  --hl-yellow: #5a4a00;
+  --hl-green: #17402a;
+  --hl-blue: #1b3157;
+  --hl-pink: #4f1c32;
+  --hl-gray: #323946;
 }
 @media (prefers-reduced-motion: reduce) {
   :root {

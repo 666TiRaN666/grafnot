@@ -113,4 +113,150 @@ module.exports = async function (t) {
     await page.getByTestId('ctx-tab-tasks').click();
     await page.getByTestId('ctx-panel').getByRole('tabpanel').filter({ hasText: '(1)' }).waitFor();
   });
+
+  await check('Notes: Ctrl/Shift selection, Ctrl+A, bulk trash with one Undo, Esc clears', async () => {
+    await t.closeContext(page);
+    await page.getByTestId('nav-notes').click();
+    const items = page.getByTestId('note-item');
+    await items.first().waitFor();
+    const n = await items.count();
+    await items.first().click();
+    await page.waitForFunction(() => /^#\/notes\/./.test(location.hash));
+    const hash = await page.evaluate(() => location.hash);
+    await items.nth(1).click({ modifiers: ['ControlOrMeta'] });
+    await page.getByTestId('notes-sel-bar').waitFor();
+    assert((await page.evaluate(() => location.hash)) === hash, 'Ctrl+click opened a note');
+    const checked = () => page.evaluate(() => [...document.querySelectorAll('[data-testid="note-check"]')].filter((c) => c.checked).length);
+    assert((await checked()) === 2, 'open note did not join the selection');
+    await items.first().focus();
+    await page.keyboard.press('ControlOrMeta+a');
+    await page.waitForFunction((k) => [...document.querySelectorAll('[data-testid="note-check"]')].filter((c) => c.checked).length === k, n, { timeout: 5000 });
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('[data-testid="notes-sel-bar"]'), null, { timeout: 5000 });
+    await items.nth(0).click({ modifiers: ['ControlOrMeta'] });
+    await items.nth(n - 1).click({ modifiers: ['Shift'] });
+    assert((await checked()) === n, 'Shift+click range is not the whole list');
+    await page.getByTestId('notes-sel-trash').click();
+    await page.waitForFunction(() => document.querySelectorAll('[data-testid="note-item"]').length === 0, null, { timeout: 5000 });
+    await page.locator('.g-toast', { hasText: String(n) }).locator('.g-toast-undo').click();
+    await page.waitForFunction((k) => document.querySelectorAll('[data-testid="note-item"]').length === k, n, { timeout: 5000 });
+    const store = await page.evaluate(() => JSON.parse(localStorage.getItem('grafnot-store-p1')));
+    assert(store.trash.length === 0 && store.notes.length === n, 'Undo did not restore every note');
+  });
+
+  // Select from the start of block `a` (char offset) to block `b` in the editor, then wait for focus to hold.
+  const selectBlocks = (a, b) => page.evaluate(([x, y]) => {
+    const ed = document.querySelector('.tiptap');
+    ed.focus();
+    const blocks = [...ed.querySelectorAll(':scope > p')];
+    const r = document.createRange();
+    r.setStart(blocks[x].firstChild || blocks[x], 0);
+    const last = blocks[y].firstChild || blocks[y];
+    r.setEnd(last, (last.textContent || '').length);
+    const s = window.getSelection();
+    s.removeAllRanges();
+    s.addRange(r);
+  }, [a, b]);
+  const tb = (id) => page.getByTestId(id).click();
+
+  await check('Rich text: list buttons make the asked type from a selection, formatting and indent survive reload', async () => {
+    await page.getByTestId('nav-notes').click();
+    await page.locator('[data-testid="note-item"]', { hasText: 'Beta' }).click();
+    await page.getByTestId('editor-toolbar').waitFor();
+    // Start from three known paragraphs: earlier checks of the group edit this note.
+    await focusEditor();
+    await page.keyboard.press('Control+a');
+    await page.keyboard.press('Delete');
+    await page.keyboard.insertText('first line');
+    await page.keyboard.press('Enter');
+    await page.keyboard.insertText('second line');
+    await page.keyboard.press('Enter');
+    await page.keyboard.insertText('third line');
+    await page.waitForFunction(() => document.querySelectorAll('.tiptap > p').length === 3);
+    await selectBlocks(0, 1);
+    await tb('tb-ordered');
+    await page.waitForFunction(() => document.querySelectorAll('.tiptap > ol > li').length === 2, null, { timeout: 5000 });
+    assert((await page.locator('.tiptap ul').count()) === 0, 'numbered list button made a bulleted list');
+    await tb('tb-task');
+    await page.waitForFunction(() => document.querySelectorAll('.tiptap ul[data-type="taskList"] > li').length === 2, null, { timeout: 5000 });
+    await tb('tb-bullet');
+    await page.waitForFunction(() => document.querySelectorAll('.tiptap > ul:not([data-type]) > li').length === 2, null, { timeout: 5000 });
+    await tb('tb-bullet');
+    await page.waitForFunction(() => document.querySelectorAll('.tiptap > p').length === 3, null, { timeout: 5000 });
+    // Bold + italic + highlight on a selection that stays selected between buttons.
+    await selectBlocks(2, 2);
+    await tb('tb-bold');
+    await tb('tb-italic');
+    assert((await page.evaluate(() => window.getSelection()?.toString())) === 'third line', 'toolbar lost the selection');
+    await tb('tb-color');
+    await tb('tb-mark-green');
+    await tb('tb-color');
+    await tb('tb-color-red');
+    const applied = await page.evaluate(() => document.querySelector('.tiptap').innerHTML);
+    assert(applied.includes('data-color="green"') && applied.includes('data-color="red"'), 'colour menu did not apply: ' + applied.slice(-260));
+    // Tab on the empty line after it: an indent level, focus stays.
+    await page.keyboard.press('End');
+    // The caret moved by End must reach the editor state before Enter (Enter on a
+    // stale selection replaced the line: the toolbar's late second focus wrote it back).
+    await page.waitForFunction(() => document.querySelector('.tiptap')?.editor?.state.selection.empty === true, null, { timeout: 5000 }).catch(async () => {
+      const d = await page.evaluate(() => { const e = document.querySelector('.tiptap')?.editor; const ds = getSelection(); return { active: (document.activeElement?.className || document.activeElement?.tagName || '').slice(0, 40), testid: document.activeElement?.getAttribute('data-testid'), hasFocus: document.hasFocus(), pm: e ? [e.state.selection.from, e.state.selection.to] : null, pmFocus: e?.view.hasFocus(), dom: ds?.toString(), anchor: ds?.anchorNode?.nodeName, html: document.querySelector('.tiptap')?.innerHTML.slice(-200), pages: 0 }; });
+      throw new Error('DIAG ' + JSON.stringify({ ...d, pages: page.context().pages().length }));
+    });
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Tab');
+    assert(await page.evaluate(() => document.activeElement?.classList.contains('ProseMirror')), 'Tab on an empty line left the text');
+    await page.waitForFunction(() => [...document.querySelectorAll('.tiptap > p')].pop()?.getAttribute('data-indent') === '2', null, { timeout: 5000 });
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('grafnot-store-p1')).notes.find((n) => n.id === 'b1').content.content.some((b) => b.attrs?.indent === 2), null, { timeout: 8000 });
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.locator('.tiptap mark[data-color="green"]').waitFor({ timeout: 8000 }).catch(async () => {
+      const dump = await page.evaluate(() => ({ hash: location.hash, html: document.querySelector('.tiptap')?.innerHTML.slice(0, 300), stored: JSON.stringify(JSON.parse(localStorage.getItem('grafnot-store-p1')).notes.find((n) => n.id === 'b1').content).slice(0, 600) }));
+      throw new Error('after reload: ' + JSON.stringify(dump));
+    });
+    const html = await page.evaluate(() => document.querySelector('.tiptap').innerHTML);
+    assert(/<strong>|<em>/.test(html) && html.includes('data-color="red"') && html.includes('data-color="green"'), 'combined formatting lost on reload: ' + html.slice(0, 200));
+    assert((await page.evaluate(() => [...document.querySelectorAll('.tiptap > p')].pop()?.getAttribute('data-indent'))) === '2', 'indent lost on reload');
+  });
+
+  await check('Menus: note ⋯ closes on outside click and Esc (aria-expanded, focus back); Insert table, Tab walks its cells', async () => {
+    const more = page.getByTestId('notes-more');
+    await more.click();
+    await page.getByTestId('notes-menu').waitFor();
+    assert((await more.getAttribute('aria-expanded')) === 'true', 'menu not marked open');
+    await page.mouse.click(5, 5);
+    await page.waitForFunction(() => !document.querySelector('[data-testid="notes-menu"]'), null, { timeout: 5000 });
+    assert((await more.getAttribute('aria-expanded')) === 'false', 'aria-expanded stayed true');
+    await more.click();
+    await page.getByTestId('notes-menu').waitFor();
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('[data-testid="notes-menu"]') && document.activeElement?.getAttribute('data-testid') === 'notes-more', null, { timeout: 5000 });
+    // Insert → Table: the caret lands in the first cell; Tab walks, a new row after the last.
+    await focusEditor();
+    await page.keyboard.press('Control+End');
+    await page.getByTestId('insert-open').click();
+    await page.getByTestId('insert-item-table').click();
+    await page.waitForFunction(() => document.activeElement?.classList.contains('ProseMirror') && !!window.getSelection()?.anchorNode?.parentElement?.closest('th'), null, { timeout: 5000 });
+    await page.keyboard.insertText('Head');
+    for (let i = 0; i < 9; i++) await page.keyboard.press('Tab');
+    assert((await page.locator('.tiptap tr').count()) === 4, 'Tab after the last cell did not add a row');
+    assert((await page.locator('.tiptap th').first().innerText()) === 'Head', 'typing missed the first cell');
+  });
+
+  await check('Data safety: a note with content this version cannot read stays read-only and unchanged', async () => {
+    const before = await page.evaluate(() => {
+      const st = JSON.parse(localStorage.getItem('grafnot-store-p1'));
+      const n = st.notes.find((x) => x.id === 'a1');
+      n.content = { type: 'doc', content: [{ type: 'futureWidget', attrs: { x: 1 } }, { type: 'paragraph', content: [{ type: 'text', text: 'kept' }] }] };
+      n.text = 'kept';
+      localStorage.setItem('grafnot-store-p1', JSON.stringify(st));
+      return JSON.stringify(n.content);
+    });
+    await page.evaluate(() => { location.hash = '#/notes/a1'; });
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.getByTestId('note-unsupported').waitFor();
+    assert((await page.locator('.tiptap').getAttribute('contenteditable')) === 'false', 'unsupported note is editable');
+    await page.waitForTimeout(1200);
+    const after = await page.evaluate(() => JSON.stringify(JSON.parse(localStorage.getItem('grafnot-store-p1')).notes.find((x) => x.id === 'a1').content));
+    assert(after === before, 'unsupported content was rewritten');
+  });
 };

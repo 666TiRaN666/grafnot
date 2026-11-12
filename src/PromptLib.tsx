@@ -7,6 +7,7 @@ import { DATASET_VERSION, TAG_DATA } from "./promptData";
 import type { PromptSave } from "./store";
 import { Hi } from "./widgets";
 import { useListState } from "./useListState";
+import { useMenu } from "./ui/useMenu";
 import { prefKeyFor } from "./prefs";
 import { buildLibrary, filterLibrary } from "./promptLibrary";
 import type { LibSeg } from "./promptLibrary";
@@ -43,10 +44,9 @@ export function PromptLib({
 }) {
   const [seg, setSeg] = useState<LibSeg>("all");
   const [compact, setCompact] = useState(() => loadDensity(profileId));
-  const [moreOpen, setMoreOpen] = useState(false);
-  const [newOpen, setNewOpen] = useState(false);
-  const newMenuRef = useRef<HTMLSpanElement>(null);
-  const newBtnRef = useRef<HTMLButtonElement>(null);
+  // Shared menu model (ui/useMenu): outside click, Esc, focus, arrows.
+  const { open: moreOpen, setOpen: setMoreOpen, rootRef: moreRootRef, triggerRef: moreTriggerRef, triggerProps: moreTrigger, menuProps: moreMenuProps } = useMenu<HTMLSpanElement>();
+  const { open: newOpen, setOpen: setNewOpen, rootRef: newRootRef, triggerRef: newTriggerRef, triggerProps: newTrigger, menuProps: newMenuProps } = useMenu<HTMLSpanElement>();
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -88,12 +88,11 @@ export function PromptLib({
       if ((e.key === "n" || e.code === "KeyN") && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && !inField && !(e.target as HTMLElement)?.closest?.(".g-modal")) {
         e.preventDefault();
         setNewOpen(true);
-        window.requestAnimationFrame(() => newMenuRef.current?.querySelector<HTMLButtonElement>("button")?.focus());
       }
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, []);
+  }, [setNewOpen]);
 
   const segs: { id: LibSeg; label: string }[] = [
     { id: "all", label: tr("tplFAll", lang) },
@@ -119,24 +118,12 @@ export function PromptLib({
         <span className="p-lib-title">
           {tr("libT", lang)} ({list.filtered.length})
         </span>
-        <span className="n-morewrap">
-          <button ref={newBtnRef} type="button" className="g-btn sm primary" data-testid="prompt-new" aria-expanded={newOpen} onClick={() => setNewOpen((v) => !v)}>
+        <span className="n-morewrap" ref={newRootRef}>
+          <button type="button" className="g-btn sm primary" data-testid="prompt-new" ref={newTriggerRef} {...newTrigger}>
             {tr("newTpl", lang)} ▾
           </button>
           {newOpen && (
-            <span
-              ref={newMenuRef}
-              className="n-menu"
-              role="menu"
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setNewOpen(false);
-                  newBtnRef.current?.focus();
-                }
-              }}
-            >
+            <span className="n-menu" {...newMenuProps}>
               {([["text", tr("newText", lang)], ["image", tr("newImage", lang)], ["skill", tr("newSkill", lang)]] as const).map(([k, label]) => (
                 <button key={k} type="button" role="menuitem" className="n-menuitem" data-testid={`prompt-new-${k}`} onClick={() => { setNewOpen(false); onCreate(k); }}>
                   {label}
@@ -145,19 +132,18 @@ export function PromptLib({
             </span>
           )}
         </span>
-        <span className="n-morewrap">
+        <span className="n-morewrap" ref={moreRootRef}>
           <button
             type="button"
             className="g-btn sm ghost"
             title={tr("menu", lang)}
             aria-label={tr("menu", lang)}
-            aria-expanded={moreOpen}
-            onClick={() => setMoreOpen((v) => !v)}
+            ref={moreTriggerRef} {...moreTrigger}
           >
             ⋯
           </button>
           {moreOpen && (
-            <span className="n-menu" role="menu">
+            <span className="n-menu" {...moreMenuProps}>
               <button
                 type="button"
                 role="menuitemcheckbox"

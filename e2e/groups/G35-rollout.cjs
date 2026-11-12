@@ -496,7 +496,7 @@ module.exports = async function(t) {
     await reseed(page, twoProfiles('p1'));
     await page.getByTestId('note-list').waitFor();
     await page.getByTestId('profile-menu-open').click();
-    await page.getByRole('menuitem', { name: 'Two', exact: true }).focus();
+    await page.getByRole('menuitemradio', { name: 'Two', exact: true }).focus();
     await page.keyboard.press('Enter');
     await page.getByTestId('note-item').filter({ hasText: 'Two note' }).waitFor();
     const state = await page.evaluate(() => ({ registry: JSON.parse(localStorage.getItem('grafnot-profiles-v1')), p1: JSON.parse(localStorage.getItem('grafnot-store-p1')), p2: JSON.parse(localStorage.getItem('grafnot-store-p2')) }));

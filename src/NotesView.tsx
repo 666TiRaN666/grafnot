@@ -1,6 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import type { Lang } from "./i18n";
 import type { LlmTpl } from "./data";
@@ -13,11 +12,18 @@ const NoteContext = lazy(() => import("./NoteContext").then(m => ({ default: m.N
 const PromptInsert = lazy(() => import("./PromptInsert").then(m => ({ default: m.PromptInsert })));
 import type { Graph, Note, PromptSave, TaskItem } from "./store";
 import { linkedNoteIds } from "./store";
-import { copyText, Hi } from "./widgets";
+import { copyText, Hi, Icon, MenuButton, SelectionBar } from "./widgets";
+import type { MenuItem } from "./widgets";
+import { NO_SELECTION, clickSelect, pruneSelection, selectAll, selectMods } from "./selectionModel";
+import type { Selection } from "./selectionModel";
 import { firstMatchPos } from "./paletteModel";
 import { lastNavigationWasTraversal } from "./ui/router";
 import { WikiLinks } from "./wikiLinks";
+import { TabIndent } from "./editorIndent";
+import { checkContent, openLinkOnModClick, richTextExtensions } from "./editorExtensions";
+import { EditorToolbar, FindBar } from "./EditorToolbar";
 import { useFitInViewport } from "./ui/useFitInViewport";
+import { useMenu } from "./ui/useMenu";
 import { noteAccessibleName, noteDisplayName, noteUpdatedLabel } from "./noteName";
 import { PREVIEW_LEN } from "./promptUtils";
 import { useListState } from "./useListState";
@@ -46,6 +52,10 @@ export interface NotesActions {
   notifyAction: (text: string, actionLabel: string, fn: () => void) => void;
   toggleMember: (noteId: string, graphId: string) => void;
   savePrompt: (data: Omit<PromptSave, "id" | "created">) => void;
+  /** Bulk: several notes to the trash with one Undo. */
+  trashNotes: (noteIds: string[]) => void;
+  /** Bulk graph membership (add or remove), reversible. */
+  setMembers: (noteIds: string[], graphId: string, member: boolean) => void;
 }
 
 const TPL_HTML: Record<string, string> = {
@@ -55,6 +65,13 @@ const TPL_HTML: Record<string, string> = {
 };
 
 const normName = (n: string) => n.trim().replace(/\s+/g, "");
+
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
+/** First focusable element after `el` in document order (outside it); else the first one on the page (browser wrap). */
+function focusableAfter(el: HTMLElement): HTMLElement | null {
+  const all = [...document.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((x) => x.getClientRects().length > 0);
+  return all.find((x) => !el.contains(x) && (el.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING)) ?? all.find((x) => !el.contains(x)) ?? null;
+}
 
 /** Safe arithmetic with named variables, no eval. Throws on cycle / unknown names. */
 function evalExpr(src: string, blocks: { name: string }[], lookup: (name: string) => number): number {
@@ -261,6 +278,40 @@ export function NotesView({
   }, [noteId]);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
+  // ----- selection (one model with the map, selectionModel.ts) -----
+  // Selection mode = the «Select» toggle or a non-empty selection. In it a
+  // plain click marks a note; outside it a plain click opens the note and
+  // only Ctrl/Cmd/Shift+click select (the open note joins as the base).
+  const [sel, setSel] = useState<Selection>(NO_SELECTION);
+  const [selMode, setSelMode] = useState(false);
+  const presentIds = useMemo(() => new Set(notes.map((n) => n.id)), [notes]);
+  const liveSel = pruneSelection(sel, presentIds);
+  if (liveSel !== sel) setSel(liveSel);
+  const selecting = selMode || liveSel.ids.length > 0;
+  const selSet = new Set(liveSel.ids);
+  const visibleOrder = list.visible.map((n) => n.id);
+  const clearSel = () => {
+    setSel(NO_SELECTION);
+    setSelMode(false);
+  };
+  const markNote = (id: string, mods: { toggle: boolean; range: boolean }) =>
+    setSel((s) => clickSelect(s, id, selecting && !mods.toggle && !mods.range ? { toggle: true, range: false } : mods, visibleOrder, selecting ? null : noteId));
+  useEffect(() => {
+    if (!selecting) return;
+    const h = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.('.tiptap, .g-modal, [role="dialog"], [role="menu"]')) return;
+      clearSel();
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [selecting]);
+  const graphItems: MenuItem[] = [
+    ...graphs.map((g): MenuItem => ({ key: "add-" + g.id, label: g.title, run: () => actions.setMembers(liveSel.ids, g.id, true) })),
+    ...graphs.filter((g) => liveSel.ids.some((id) => g.noteIds.includes(id))).map((g, i): MenuItem => ({ key: "del-" + g.id, label: `${tr("selFromGraph", lang)}: ${g.title}`, run: () => actions.setMembers(liveSel.ids, g.id, false), group: i === 0 })),
+  ];
+
   // ----- editor state -----
   const [words, setWords] = useState(note?.text ?? "");
   const [, setTick] = useState(0);
@@ -278,16 +329,8 @@ export function NotesView({
   // A temporary panel returns only with Back/Forward; opening the note anew
   // (list, palette, a nav click) shows it closed, as it came.
   const [ctxOpen, setCtxOpen] = useState(() => rightOpen || (lastNavigationWasTraversal() && (sessions.get(noteId ?? '')?.open ?? false)));
-  const [insertOpen, setInsertOpen] = useState(false);
-  const insertRoot = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!insertOpen) return;
-    insertRoot.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
-    const outside = (e: PointerEvent) => { if (e.target instanceof Node && !insertRoot.current?.contains(e.target)) setInsertOpen(false); };
-    const key = (e: KeyboardEvent) => { if (e.key === "Escape" && !e.isComposing) { e.preventDefault(); setInsertOpen(false); insertRoot.current?.querySelector<HTMLButtonElement>("button")?.focus(); } };
-    document.addEventListener("pointerdown", outside); document.addEventListener("keydown", key);
-    return () => { document.removeEventListener("pointerdown", outside); document.removeEventListener("keydown", key); };
-  }, [insertOpen]);
+  // Both note menus run on the shared menu model (outside click, Esc, focus).
+  const { open: insertOpen, setOpen: setInsertOpen, rootRef: insertRootRef, triggerRef: insertTriggerRef, triggerProps: insertTrigger, menuProps: insertMenuProps } = useMenu<HTMLDivElement>();
   const [promptOpen, setPromptOpen] = useState(false);
   const ctxRoot = useRef<HTMLDivElement>(null);
   const ctxOpener = useRef<HTMLElement | null>(null);
@@ -312,7 +355,7 @@ export function NotesView({
     return () => observer.disconnect();
   }, []);
 
-  const [moreOpen, setMoreOpen] = useState(false);
+  const { open: moreOpen, setOpen: setMoreOpen, rootRef: moreRootRef, triggerRef: moreTriggerRef, triggerProps: moreTrigger, menuProps: moreMenuProps } = useMenu<HTMLDivElement>();
   const moreMenuFit = useFitInViewport<HTMLDivElement>(moreOpen);
   const insertMenuFit = useFitInViewport<HTMLDivElement>(insertOpen);
   const [suggest, setSuggest] = useState<SuggestState | null>(null);
@@ -338,9 +381,18 @@ export function NotesView({
   notesRef.current = notes;
   const openNoteRef = useRef(onOpenNote);
   openNoteRef.current = onOpenNote;
+  // Esc first closes an inline menu ([[ / slash); only then it leaves the text.
+  const inlineMenuRef = useRef(false);
+  // Find bar: 0 closed; a growing number re-opens and re-focuses it.
+  const [findOpen, setFindOpen] = useState(0);
+  // Content from a newer or foreign schema: shown read-only with its data kept.
+  const [unsupported, setUnsupported] = useState<string | null>(null);
+  const unsupportedRef = useRef<string | null>(null);
+  inlineMenuRef.current = !!suggest || !!slash;
+  const editorWrapRef = useRef<HTMLDivElement>(null);
   const editor = useEditor({
     extensions: [
-      StarterKit,
+      ...richTextExtensions({ taskLabel: (text, checked) => `${tr(checked ? "taskDoneA" : "taskOpenA", langRef.current)}: ${text || tr("tbTask", langRef.current)}` }),
       Placeholder.configure({ placeholder: () => tr("editorPh", langRef.current) }),
       WikiLinks.configure({
         hint: () => tr("wikiOpenHint", langRef.current),
@@ -349,15 +401,35 @@ export function NotesView({
           if (target) openNoteRef.current(target.id);
         },
       }),
+      TabIndent.configure({
+        onEscape: () => {
+          if (inlineMenuRef.current) return false;
+          // Focus lands on the text area itself: Tab and Shift+Tab continue
+          // from here through the interface, Enter returns into the text.
+          editorWrapRef.current?.focus();
+          return true;
+        },
+      }),
     ],
     content: note?.content,
     editorProps: {
-      attributes: { role: "textbox", "aria-multiline": "true", "aria-label": tr("a11yNoteBody", lang) },
-      handleKeyDown: (_view, event) => event.isComposing || event.keyCode === 229,
+      attributes: { role: "textbox", "aria-multiline": "true", "aria-label": tr("a11yNoteBody", lang), "aria-description": tr("a11yNoteBodyKeys", lang) },
+      handleKeyDown: (_view, event) => {
+        if (event.isComposing || event.keyCode === 229) return true;
+        // Find and replace from the text (Ctrl/Cmd+F, Ctrl/Cmd+H as in Word).
+        if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && (event.code === "KeyF" || event.code === "KeyH")) {
+          event.preventDefault();
+          setFindOpen((n) => n + 1);
+          return true;
+        }
+        return false;
+      },
+      handleClick: (view, _pos, event) => openLinkOnModClick(view.dom, event),
     },
     onUpdate: ({ editor: e }) => {
       const cur = noteRef.current;
-      if (!cur) return;
+      // A note with content this schema cannot hold is read-only: never write back.
+      if (!cur || unsupportedRef.current) return;
       actions.updateDoc(cur.id, e.getJSON(), e.getText());
       setWords(e.getText());
       syncInlineMenus(e);
@@ -387,6 +459,27 @@ export function NotesView({
   }, [editor]);
 
 
+  /** Run a command from a menu and put focus in the text at once (commands.focus()
+   * waits a frame; the menu would hand focus back to its button first). */
+  const runInText = (fn: (e: NonNullable<typeof editor>) => void) => {
+    const e = editorRef.current;
+    if (!e || e.isDestroyed) return;
+    fn(e);
+    e.view.focus();
+  };
+
+  /** Put a stored document into the editor. Content the schema cannot hold
+   * (a file from a newer version) would be replaced by an empty document and
+   * then saved over: it is shown read-only instead and never written back. */
+  const loadDoc = (ed: NonNullable<typeof editor>, content: Note["content"]) => {
+    const check = checkContent(ed.schema, content);
+    const bad = check.ok ? null : check.error;
+    unsupportedRef.current = bad;
+    setUnsupported(bad);
+    ed.setEditable(!bad, false);
+    ed.commands.setContent(bad ? "" : content, { emitUpdate: false });
+  };
+
   // Self-heal (P4): the mounted doc must converge to the store doc. A
   // delete→undo cycle (or chunk/remount timing) can leave a stale or empty
   // doc mounted while the store holds content; without this guard the stale
@@ -394,8 +487,8 @@ export function NotesView({
   // guard keeps typing intact: while the user types, editor and store agree.
   useLayoutEffect(() => {
     const ed = editorRef.current;
-    if (note && ed && !ed.isDestroyed && ed.getText() !== (note.text ?? "")) {
-      ed.commands.setContent(note.content, { emitUpdate: false });
+    if (note && ed && !ed.isDestroyed && !unsupportedRef.current && ed.getText() !== (note.text ?? "")) {
+      loadDoc(ed, note.content);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, noteId, notes]);
@@ -403,7 +496,8 @@ export function NotesView({
   // Switch document before paint and before any first input can arrive.
   useLayoutEffect(() => {
     const ed = editorRef.current;
-    if (note && ed && !ed.isDestroyed) ed.commands.setContent(note.content, { emitUpdate: false });
+    if (note && ed && !ed.isDestroyed) loadDoc(ed, note.content);
+    setFindOpen(0);
     setWords(note?.text ?? "");
     setSuggest(null);
     setSlash(null);
@@ -703,22 +797,29 @@ export function NotesView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, noteId, findRequest]);
 
-  const SLASH_RUNNERS: { testid: string; label: string; run: () => void }[] = useMemo(() => {
+  const SLASH_RUNNERS: { testid: string; group: "block" | "insert"; label: string; run: () => void }[] = useMemo(() => {
     const ed = () => editorRef.current;
     const delSlash = (at: number) => {
       const e = ed();
       if (e && !e.isDestroyed) e.chain().focus().deleteRange({ from: at, to: at + 1 }).run();
     };
     const at = slash?.slashAt ?? 0;
+    const block = (fn: (e: NonNullable<ReturnType<typeof ed>>) => void) => () => { delSlash(at); const e = ed(); if (e && !e.isDestroyed) fn(e); };
     return [
-      { testid: "slash-item-0", label: tr("blkHeading", lang), run: () => { delSlash(at); ed()?.chain().focus().toggleHeading({ level: 3 }).run(); } },
-      { testid: "slash-item-1", label: tr("blkList", lang), run: () => { delSlash(at); ed()?.chain().focus().toggleBulletList().run(); } },
-      { testid: "slash-item-2", label: tr("snipLecture", lang), run: () => { delSlash(at); insertTpl("lec"); } },
-      { testid: "slash-item-3", label: tr("snipEnt", lang), run: () => { delSlash(at); insertTpl("ent"); } },
-      { testid: "slash-item-4", label: tr("snipProj", lang), run: () => { delSlash(at); insertTpl("proj"); } },
-      { testid: "slash-item-5", label: tr("addCalc", lang), run: () => { delSlash(at); requestCalculation(); } },
-      { testid: "slash-item-6", label: tr("addLinkBtn", lang), run: () => { delSlash(at); focusEditorEnd(); } },
-      { testid: "slash-item-7", label: tr("insertPrompt", lang), run: () => { delSlash(at); openPrompt(); } },
+      { testid: "slash-item-0", group: "block", label: tr("blkHeading", lang), run: block((e) => e.chain().focus().toggleHeading({ level: 3 }).run()) },
+      { testid: "slash-item-1", group: "block", label: tr("blkList", lang), run: block((e) => e.chain().focus().toggleBulletList().run()) },
+      { testid: "slash-item-8", group: "block", label: tr("blkOrdered", lang), run: block((e) => e.chain().focus().toggleOrderedList().run()) },
+      { testid: "slash-item-9", group: "block", label: tr("blkTask", lang), run: block((e) => e.chain().focus().toggleTaskList().run()) },
+      { testid: "slash-item-10", group: "block", label: tr("blkQuote", lang), run: block((e) => e.chain().focus().toggleBlockquote().run()) },
+      { testid: "slash-item-11", group: "block", label: tr("blkCode", lang), run: block((e) => e.chain().focus().toggleCodeBlock().run()) },
+      { testid: "slash-item-12", group: "block", label: tr("insHr", lang), run: block((e) => e.chain().focus().setHorizontalRule().run()) },
+      { testid: "slash-item-13", group: "block", label: tr("tbTable", lang), run: block((e) => e.chain().focus().insertTable(3, 3).run()) },
+      { testid: "slash-item-2", group: "insert", label: tr("snipLecture", lang), run: () => { delSlash(at); insertTpl("lec"); } },
+      { testid: "slash-item-3", group: "insert", label: tr("snipEnt", lang), run: () => { delSlash(at); insertTpl("ent"); } },
+      { testid: "slash-item-4", group: "insert", label: tr("snipProj", lang), run: () => { delSlash(at); insertTpl("proj"); } },
+      { testid: "slash-item-5", group: "insert", label: tr("addCalc", lang), run: () => { delSlash(at); requestCalculation(); } },
+      { testid: "slash-item-6", group: "insert", label: tr("addLinkBtn", lang), run: () => { delSlash(at); focusEditorEnd(); } },
+      { testid: "slash-item-7", group: "insert", label: tr("insertPrompt", lang), run: () => { delSlash(at); openPrompt(); } },
     ];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lang, slash?.slashAt]);
@@ -885,7 +986,14 @@ export function NotesView({
 
   return (
     <div ref={ctxRoot} className={"n-notes" + (note ? " has-open" : "") + (ctxOpen && rightOpen && pinAllowed ? " has-pinned-context" : "")}>
-      <div className="n-listpane">
+      <div className="n-listpane" onKeyDown={(e) => {
+        // Ctrl/Cmd+A selects the list only from the list itself (never in a field or the text).
+        const t = e.target as HTMLElement;
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key.toLowerCase() === "a" || e.code === "KeyA") && !t.closest("input, textarea, [contenteditable]")) {
+          e.preventDefault();
+          setSel(selectAll(list.filtered.map((n) => n.id)));
+        }
+      }}>
         {notes.length === 0 ? (
           <div className="g-empty">
             <div className="g-empty-t">{tr("emptyHomeT", lang)}</div>
@@ -908,7 +1016,16 @@ export function NotesView({
                 placeholder={tr("linkSearchPh", lang)}
                 aria-label={tr("linkSearchPh", lang)}
               />
+              <button type="button" className={"g-iconbtn" + (selecting ? " on" : "")} data-testid="notes-select" aria-pressed={selecting} aria-label={tr("selMode", lang)} title={`${tr("selMode", lang)} · Ctrl/⌘+клик, Shift+клик`} onClick={() => (selecting ? clearSel() : setSelMode(true))}>
+                <Icon n="select" />
+              </button>
             </div>
+            {selecting && (
+              <SelectionBar lang={lang} count={liveSel.ids.length} onClear={clearSel} testid="notes-sel-bar">
+                {graphs.length > 0 && <MenuButton testid="notes-sel-graph" label={`${tr("selToGraph", lang)} ▾`} ariaLabel={tr("selToGraph", lang)} items={graphItems.map((it) => ({ ...it, disabled: liveSel.ids.length === 0 }))} />}
+                <button type="button" className="g-btn sm danger" data-testid="notes-sel-trash" disabled={liveSel.ids.length === 0} onClick={() => actions.trashNotes(liveSel.ids)}>{tr("selTrash", lang)}</button>
+              </SelectionBar>
+            )}
             {list.filtered.length === 0 && (
               <div className="g-tpl-empty">
                 <div className="muted">{tr("noResults", lang)}</div>
@@ -917,14 +1034,19 @@ export function NotesView({
                 </button>
               </div>
             )}
-            {list.filtered.length > 0 && (
+            {list.filtered.length > 0 && !selecting && (
               <div className="muted small">
                 {tr("listShownOf", lang).replace("{x}", String(list.visible.length)).replace("{y}", String(list.filtered.length))}
               </div>
             )}
             <div className="g-note-list" data-testid="note-list">
               {list.visible.map((n) => (
-                <div className={"g-noterow" + (n.id === noteId ? " active" : "")} key={n.id}>
+                <div className={"g-noterow" + (n.id === noteId ? " active" : "") + (selecting ? " selecting" : "") + (selSet.has(n.id) ? " selected" : "")} key={n.id}>
+                  {selecting && (
+                    <input type="checkbox" className="g-notecheck" data-testid="note-check" checked={selSet.has(n.id)}
+                      aria-label={tr("selNoteA", lang).replace("{name}", noteAccessibleName(n, lang))}
+                      onChange={() => setSel((s) => clickSelect(s, n.id, { toggle: true, range: false }, visibleOrder))} />
+                  )}
                   <button
                     type="button"
                     className="g-noteopen"
@@ -932,7 +1054,20 @@ export function NotesView({
                     data-active={n.id === noteId ? "true" : undefined}
                     data-note-id={n.id}
                     aria-label={`${noteAccessibleName(n, lang)} · ${noteUpdatedLabel(n, lang)}`}
+                    aria-pressed={selecting ? selSet.has(n.id) : undefined}
+                    onKeyDown={(e) => {
+                      // Keyboard twin of Ctrl/Shift+click: Ctrl/Cmd+Space marks, Shift+Space extends.
+                      if (e.key === " " && (e.ctrlKey || e.metaKey || e.shiftKey)) {
+                        e.preventDefault();
+                        markNote(n.id, selectMods(e));
+                      }
+                    }}
                     onClick={(e) => {
+                      const mods = selectMods(e);
+                      if (selecting || mods.toggle || mods.range) {
+                        markNote(n.id, mods);
+                        return;
+                      }
                       // A pointer click means "work on this note": the caret goes
                       // into its text so typing lands there (not on shortcuts).
                       // Keyboard Enter (detail 0) keeps list navigation; phones
@@ -1004,20 +1139,16 @@ export function NotesView({
               <span className="g-wordcount">
                 {wc} {tr("words", lang)}
               </span>
-              <div className="n-morewrap" ref={insertRoot}>
-                <button type="button" className="g-btn sm" data-testid="insert-open" aria-expanded={insertOpen} onClick={() => setInsertOpen(v => !v)}>{tr('insertMenu', lang)} ▾</button>
-                {insertOpen && <div ref={insertMenuFit} className="n-menu" data-testid="insert-menu" role="menu" onKeyDown={e => {
-                  if (e.key === 'Escape') { setInsertOpen(false); e.currentTarget.parentElement?.querySelector<HTMLButtonElement>('[data-testid="insert-open"]')?.focus(); }
-                  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-                    e.preventDefault();
-                    const items = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
-                    const at = items.indexOf(document.activeElement as HTMLButtonElement);
-                    items[(at + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus();
-                  }
-                }}>
+              <div className="n-morewrap" ref={insertRootRef}>
+                <button type="button" className="g-btn sm" data-testid="insert-open" ref={insertTriggerRef} {...insertTrigger}>{tr('insertMenu', lang)} ▾</button>
+                {insertOpen && <div ref={insertMenuFit} className="n-menu" data-testid="insert-menu" {...insertMenuProps}>
                   <button type="button" role="menuitem" className="n-menuitem" data-testid="insert-item-prompt" onClick={openPrompt}>{tr('insertPrompt', lang)}</button>
                   <button type="button" role="menuitem" className="n-menuitem" data-testid="insert-item-calc" onClick={() => { setInsertOpen(false); requestCalculation(); }}>{tr('addCalc', lang)}</button>
                   <button type="button" role="menuitem" className="n-menuitem" data-testid="insert-item-link" onClick={() => { setInsertOpen(false); focusEditorEnd(); }}>{tr('addLinkBtn', lang)}</button>
+                  <div className="n-menusep" role="separator" />
+                  <button type="button" role="menuitem" className="n-menuitem" data-testid="insert-item-table" onClick={() => runInText((e) => e.chain().insertTable(3, 3).run())}>{tr('tbTable', lang)}</button>
+                  <button type="button" role="menuitem" className="n-menuitem" data-testid="insert-item-hr" onClick={() => runInText((e) => e.chain().setHorizontalRule().run())}>{tr('insHr', lang)}</button>
+                  <button type="button" role="menuitem" className="n-menuitem" data-testid="insert-item-code" onClick={() => runInText((e) => e.chain().toggleCodeBlock().run())}>{tr('blkCode', lang)}</button>
                   <div className="n-menusep" role="separator" />
                   <div className="muted small">{tr('snipT', lang)}</div>
                   <button type="button" role="menuitem" className="n-menuitem" data-testid="insert-item-lec" onClick={() => { setInsertOpen(false); insertTpl('lec'); }}>{tr('snipLecture', lang)}</button>
@@ -1025,20 +1156,19 @@ export function NotesView({
                   <button type="button" role="menuitem" className="n-menuitem" data-testid="insert-item-proj" onClick={() => { setInsertOpen(false); insertTpl('proj'); }}>{tr('snipProj', lang)}</button>
                 </div>}
               </div>
-              <div className="n-morewrap">
+              <div className="n-morewrap" ref={moreRootRef}>
                 <button
                   type="button"
                   className="g-btn sm ghost"
                   data-testid="notes-more"
                   title={tr("menu", lang)}
                   aria-label={tr("menu", lang)}
-                  aria-expanded={moreOpen}
-                  onClick={() => setMoreOpen((v) => !v)}
+                  ref={moreTriggerRef} {...moreTrigger}
                 >
                   ⋯
                 </button>
                 {moreOpen && (
-                  <div ref={moreMenuFit} className="n-menu" data-testid="notes-menu" role="menu">
+                  <div ref={moreMenuFit} className="n-menu" data-testid="notes-menu" {...moreMenuProps}>
                     <button
                       type="button"
                       role="menuitem"
@@ -1119,12 +1249,44 @@ export function NotesView({
               </div>
             )}
 
-            <div data-testid="editor" onKeyDown={(e) => {
-              // Keep handled editor keys (e.g. list outdent); otherwise visit
+            {editor && !unsupported && <EditorToolbar editor={editor} lang={lang} findOpen={findOpen > 0} onFind={() => setFindOpen((n) => (n > 0 ? 0 : 1))} />}
+            {editor && findOpen > 0 && !unsupported && <FindBar key={findOpen} editor={editor} lang={lang} onClose={() => setFindOpen(0)} />}
+            {unsupported && (
+              <div className="g-banner-warn n-unsupported" role="alert" data-testid="note-unsupported">
+                <div>{tr("unsupportedT", lang)}</div>
+                <div className="small">{tr("unsupportedB", lang)}</div>
+                <div className="g-banner-actions">
+                  <button type="button" className="g-btn sm" onClick={() => {
+                    const blob = new Blob([JSON.stringify(note, null, 2)], { type: "application/json;charset=utf-8" });
+                    const a = document.createElement("a");
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `grafnot-note-${note.id}.json`;
+                    a.click();
+                    window.setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+                  }}>{tr("unsupportedDl", lang)}</button>
+                </div>
+              </div>
+            )}
+
+            <div data-testid="editor" ref={editorWrapRef} tabIndex={-1} className="n-body" onKeyDown={(e) => {
+              // Keep handled editor keys (indent, outdent); otherwise visit
               // the title before the body in the reverse keyboard path.
               if (e.key === "Tab" && e.shiftKey && !e.defaultPrevented && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 titleRef.current?.focus();
+              }
+              // After Esc the area itself holds focus: Enter goes back into the
+              // text, Tab skips it (the text is its own first focusable child).
+              if (e.key === "Enter" && e.target === e.currentTarget) {
+                e.preventDefault();
+                editorRef.current?.commands.focus();
+              }
+              if (e.key === "Tab" && !e.shiftKey && e.target === e.currentTarget) {
+                const next = focusableAfter(e.currentTarget);
+                if (next) {
+                  e.preventDefault();
+                  next.focus();
+                }
               }
             }}>
               <EditorContent editor={editor} />
@@ -1142,7 +1304,8 @@ export function NotesView({
                   type="button"
                   data-testid="sel-bold"
                   className="n-selbtn strong"
-                  title="Bold"
+                  title={tr("tbBold", lang)}
+                  aria-label={tr("tbBold", lang)}
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => runOnSelection(() => editorRef.current?.chain().focus().toggleBold().run())}
                 >
@@ -1152,31 +1315,12 @@ export function NotesView({
                   type="button"
                   data-testid="sel-italic"
                   className="n-selbtn em"
-                  title="Italic"
+                  title={tr("tbItalic", lang)}
+                  aria-label={tr("tbItalic", lang)}
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => runOnSelection(() => editorRef.current?.chain().focus().toggleItalic().run())}
                 >
                   I
-                </button>
-                <button
-                  type="button"
-                  data-testid="sel-h"
-                  className="n-selbtn"
-                  title="Heading"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => runOnSelection(() => editorRef.current?.chain().focus().toggleHeading({ level: 3 }).run())}
-                >
-                  H
-                </button>
-                <button
-                  type="button"
-                  data-testid="sel-list"
-                  className="n-selbtn"
-                  title="List"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => runOnSelection(() => editorRef.current?.chain().focus().toggleBulletList().run())}
-                >
-                  ≡
                 </button>
                 <button
                   type="button"
@@ -1252,7 +1396,7 @@ export function NotesView({
                 role="menu"
                 style={{ left: slash.x, top: slash.y }}
               >
-                {[SLASH_RUNNERS.slice(0, 2), SLASH_RUNNERS.slice(2)].map((group) => <div role="group" className="n-slash-group" key={group[0]?.testid}>{group.map((r) => (
+                {[SLASH_RUNNERS.filter((r) => r.group === "block"), SLASH_RUNNERS.filter((r) => r.group === "insert")].map((group) => <div role="group" className="n-slash-group" key={group[0]?.testid}>{group.map((r) => (
                   <button
                     key={r.testid}
                     type="button"

@@ -84,15 +84,44 @@ module.exports = async function (t) {
 
   await check('S5 header nav moves week', async () => {
     const firstBefore = await page.locator('.g-day-head strong').first().innerText();
-    await page.getByLabel('›').click();
+    await page.getByTestId('week-next').click();
     await page.waitForFunction(
       (prev) => document.querySelector('.g-day-head strong')?.textContent !== prev,
       firstBefore, { timeout: 8000 },
     );
-    await page.getByLabel('‹').click();
+    await page.getByTestId('week-prev').click();
     await page.waitForFunction(
       (prev) => document.querySelector('.g-day-head strong')?.textContent === prev,
       firstBefore, { timeout: 8000 },
     );
+  });
+
+  await check('Week: named range, an empty week keeps its grid and points to the next task', async () => {
+    assert(/\d+\s*[–-]\s*\d+/.test(await page.locator('.w-range').innerText()), 'no date range in the week header');
+    assert((await page.getByTestId('week-prev').getAttribute('aria-label')) !== '‹', 'week buttons have no names');
+    await page.getByTestId('week-next').click();
+    await page.getByTestId('week-next').click();
+    await page.locator('.w-note').waitFor();
+    assert((await page.locator('[data-testid^="day-cell-"]').count()) === 7, 'empty week lost its grid');
+    assert((await page.getByTestId('week-next-task').count()) === 0, 'no later task exists, yet a jump is offered');
+    await page.getByTestId('week-today').click();
+    await page.waitForFunction(() => !document.querySelector('.w-note'), null, { timeout: 5000 });
+  });
+
+  await check('Week: Today always answers — back to this week, a cue on today also when already here, no layout shift', async () => {
+    const today = await page.evaluate(() => { const d = new Date(); const p = (x) => String(x).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; });
+    await page.getByTestId('week-next').click();
+    await page.waitForFunction((t) => !document.querySelector(`[data-testid="day-cell-${t}"]`), today, { timeout: 5000 });
+    await page.getByTestId('week-today').click();
+    await page.getByTestId(`day-cell-${today}`).waitFor();
+    const cue = () => page.evaluate((t) => document.querySelector(`[data-testid="day-cell-${t}"]`).getAnimations({ subtree: true }).filter((a) => a.id === 'today-cue').length, today);
+    const geo = () => page.evaluate(() => [...document.querySelectorAll('[data-testid^="day-cell-"]')].map((c) => { const r = c.getBoundingClientRect(); return `${Math.round(r.left)}:${Math.round(r.width)}`; }).join('|'));
+    await page.waitForFunction(() => true);
+    const g0 = await geo();
+    await page.getByTestId('week-today').click();
+    await page.getByTestId('week-today').click();
+    const n = await cue();
+    assert(n >= 1 && n <= 2, 'Today on this week gave no cue, or stacked cues: ' + n);
+    assert((await geo()) === g0, 'the cue moved the day columns');
   });
 };

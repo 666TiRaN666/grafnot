@@ -1,54 +1,79 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
+import { useMenu } from './ui/useMenu';
 import type { Lang } from './i18n';
 import { tr } from './i18n';
 import type { ProfileRegistry } from './profiles';
 import { profileLabel } from './profiles';
-import { useListNav } from './useListNav';
 import { Icon } from './widgets';
 
-export function ProfileMenu({ lang, registry, activeId, collapsed, onSelect, onManage, onTrash, trashCount, onSettings }: {
+interface Item {
+  key: string;
+  label: string;
+  run: () => void;
+  /** Profiles are a single choice: menuitemradio with aria-checked. */
+  checked?: boolean;
+  /** Starts a new group (separator above). */
+  group?: boolean;
+}
+
+/**
+ * The profile menu holds what belongs to the profile: switch and manage.
+ * Sections of the app live in the navigation; only a phone, which has no
+ * rail, also lists Trash and Settings here (`appNav`).
+ */
+export function ProfileMenu({ lang, registry, activeId, collapsed, appNav, onSelect, onManage, onTrash, trashCount, onSettings }: {
   lang: Lang; registry: ProfileRegistry; activeId: string; collapsed: boolean;
-  /** The trash has no phone tab: its entry lives here (desktop: the rail). */
+  /** Phone: the menu is also the way to Trash and Settings (no rail there). */
+  appNav: boolean;
   onSelect: (id: string) => void; onManage: () => void; onTrash: () => void; trashCount: number; onSettings: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null);
-  const profiles = registry.profiles.slice(0, 5);
+  const { open, setOpen, close, rootRef, triggerRef, triggerProps, menuProps } = useMenu<HTMLDivElement>();
+  // Fixed to the trigger: the rail scrolls, so an absolute popup was clipped by it.
+  const [place, setPlace] = useState<React.CSSProperties>({});
   const active = registry.profiles.find(p => p.id === activeId);
-  const pick = (i: number) => {
-    setOpen(false);
-    if (i < profiles.length) { const p = profiles[i]; if (p && p.id !== activeId) onSelect(p.id); }
-    else if (i === profiles.length) onManage();
-    else if (i === profiles.length + 1) onTrash();
-    else onSettings();
+  const items: Item[] = [
+    ...registry.profiles.slice(0, 5).map((p): Item => ({
+      key: p.id,
+      label: profileLabel(p.name, lang),
+      checked: p.id === activeId,
+      run: () => { if (p.id !== activeId) onSelect(p.id); },
+    })),
+    { key: 'manage', label: tr('profileManage', lang), run: onManage, group: true },
+    ...(appNav ? [
+      { key: 'trash', label: tr('trashT', lang) + (trashCount > 0 ? ` · ${trashCount}` : ''), run: onTrash, group: true },
+      { key: 'settings', label: tr('settings', lang), run: onSettings },
+    ] : []),
+  ];
+  const toggle = () => {
+    const r = triggerRef.current?.getBoundingClientRect();
+    if (!open && r) {
+      const w = Math.min(280, window.innerWidth - 16);
+      const left = Math.min(Math.max(8, r.left), window.innerWidth - w - 8);
+      // The rail button sits low: open upwards; the phone header: downwards.
+      setPlace(r.top > window.innerHeight / 2 ? { left, width: w, bottom: window.innerHeight - r.top + 8 } : { left, width: w, top: r.bottom + 8 });
+    }
+    setOpen(v => !v);
   };
-  const nav = useListNav(profiles.length + 3, pick);
-  useEffect(() => {
-    if (!open) return;
-    root.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
-    const outside = (e: PointerEvent) => { if (e.target instanceof Node && !root.current?.contains(e.target)) setOpen(false); };
-    document.addEventListener('pointerdown', outside);
-    return () => document.removeEventListener('pointerdown', outside);
-  }, [open]);
-  return <div className="profile-menu" ref={root}>
-    <button ref={trigger} type="button" data-testid="profile-menu-open" className="s-navbtn" aria-label={tr('profilesT', lang)} aria-description={active ? profileLabel(active.name, lang) : undefined} aria-haspopup="menu" aria-expanded={open} title={active ? profileLabel(active.name, lang) : undefined} onClick={() => setOpen(v => !v)}>
+  return <div className="profile-menu" ref={rootRef}>
+    <button type="button" data-testid="profile-menu-open" className="s-navbtn" aria-label={tr('profilesT', lang)} aria-description={active ? profileLabel(active.name, lang) : undefined} title={active ? profileLabel(active.name, lang) : undefined}
+      ref={triggerRef} {...triggerProps}
+      onClick={toggle}
+      onKeyDown={e => { if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !open) { e.preventDefault(); toggle(); } }}>
       {/* An outline icon, not the ◔ glyph: Linux fonts drew it as a dot (stage 6). */}
-      <Icon n="user" />{!collapsed && <span className="profile-label">{active ? profileLabel(active.name, lang) : tr('profilesT', lang)} ▾</span>}
+      <Icon n="user" />{!collapsed && <span className="profile-label">{active ? profileLabel(active.name, lang) : tr('profilesT', lang)}</span>}
+      {!collapsed && <span className="profile-caret" aria-hidden="true">▾</span>}
     </button>
-    {open && <div role="menu" className="profile-pop" data-testid="profile-menu" onKeyDown={e => {
-      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setOpen(false); trigger.current?.focus(); return; }
-      if (e.key === 'Enter' || e.key === ' ') return; // Native activation belongs to the focused item.
-      nav.onKeyDown(e);
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        const items = root.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]');
-        const current = items ? Array.from(items).indexOf(document.activeElement as HTMLButtonElement) : 0;
-        items?.[(current + (e.key === 'ArrowDown' ? 1 : profiles.length + 2)) % (profiles.length + 3)]?.focus();
-      }
-    }}>
-      {profiles.map((p, i) => <button key={p.id} type="button" role="menuitem" className="n-menuitem" aria-current={p.id === activeId ? 'true' : undefined} onClick={() => pick(i)}>{p.id === activeId ? '✓ ' : ''}{profileLabel(p.name, lang)}</button>)}
-      <button type="button" role="menuitem" className="n-menuitem" onClick={() => pick(profiles.length)}>{tr('profileManage', lang)}</button>
-      <button type="button" role="menuitem" className="n-menuitem" onClick={() => pick(profiles.length + 1)}>{tr('trashT', lang)}{trashCount > 0 ? ` · ${trashCount}` : ''}</button>
-      <button type="button" role="menuitem" className="n-menuitem" onClick={() => pick(profiles.length + 2)}>{tr('settings', lang)}</button>
+    {open && <div aria-label={tr('profilesT', lang)} className="profile-pop" data-testid="profile-menu" style={place} {...menuProps}>
+      {items.map(it => [
+        it.group ? <div key={it.key + '-sep'} role="separator" className="n-menusep" /> : null,
+        <button key={it.key} type="button" tabIndex={-1} className="n-menuitem profile-item"
+          role={it.checked === undefined ? 'menuitem' : 'menuitemradio'}
+          aria-checked={it.checked === undefined ? undefined : it.checked}
+          onClick={() => { close(); it.run(); }}>
+          {it.checked !== undefined && <span className="profile-check" aria-hidden="true">{it.checked ? '✓' : ''}</span>}
+          <span className="profile-itemlbl">{it.label}</span>
+        </button>,
+      ])}
     </div>}
   </div>;
 }

@@ -22,7 +22,7 @@ module.exports = async function (t) {
   });
   await check('P6 bold + undo', async () => {
     await page.keyboard.press('Control+a');
-    await page.getByTitle('Bold').click();
+    await page.getByTestId('sel-bold').click();
     const html = await page.locator('.tiptap').innerHTML();
     assert(html.includes('<strong>'), 'no bold applied');
     // S3: the one-letter toolbar is gone; bold lives in the selection menu,
@@ -80,9 +80,9 @@ module.exports = async function (t) {
     await page.getByTestId('nav-plan').click();
     // S4: vertical composer; the date picker hides behind «Выбрать дату…».
     await page.getByTestId('task-composer').click();
-    await page.locator('.g-addtask input').first().fill('Cal task');
+    await page.getByTestId('task-composer-title').fill('Cal task');
     await page.getByRole('button', { name: /Выбрать дату|Pick a date|Күнді/ }).click();
-    await page.locator('.g-addtask input[type="date"]').fill(todayISO);
+    await page.getByTestId('task-composer').locator('input[type="date"]').fill(todayISO);
     await page.getByRole('button', { name: 'Добавить' }).click();
     await page.locator('.g-taskline', { hasText: 'Cal task' }).waitFor();
   });
@@ -91,7 +91,7 @@ module.exports = async function (t) {
     await page.getByTestId('plan-view-week').click();
     // P4: the week chunk loads lazily; counting before it mounts reads 0.
     await page.getByTestId('plan-week').waitFor();
-    assert((await page.locator('.g-day').count()) === 7, 'not 7 days');
+    assert((await page.locator('[data-testid^="day-cell-"]').count()) === 7, 'not 7 days');
     await page.locator('.g-taskchip', { hasText: 'Cal task' }).waitFor();
     const chip = page.locator('.g-taskchip', { hasText: 'Cal task' });
     // S5: the chip opens the panel; only its checkbox toggles done.

@@ -159,4 +159,45 @@ module.exports = async function (t) {
     await page.getByRole('button', { name: 'Отменить', exact: true }).click();
     await page.waitForFunction(() => document.querySelectorAll('g[data-pinned="true"]').length === 3);
   });
+
+  await check('Map: Ctrl+click and box select, bulk pin and unpin, Esc clears', async () => {
+    await page.getByTestId('nav-map').click();
+    await page.locator('svg.g-canvas').waitFor();
+    await page.locator('[aria-label="Вписать"]').click();
+    await page.waitForTimeout(400);
+    const center = async (id) => { const b = await page.locator(`circle.g-vnode[data-id="${id}"]`).boundingBox(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; };
+    const sel = () => page.evaluate(() => [...document.querySelectorAll('circle.g-vnode.sel')].map((c) => c.dataset.id).sort().join(','));
+    const ids = await page.evaluate(() => [...document.querySelectorAll('circle.g-vnode')].map((c) => c.dataset.id));
+    const [a, b] = ids;
+    const pa = await center(a), pb = await center(b);
+    await page.mouse.click(pa.x, pa.y);
+    await page.keyboard.down('Control');
+    await page.mouse.click(pb.x, pb.y);
+    await page.keyboard.up('Control');
+    assert((await sel()) === [a, b].sort().join(','), 'Ctrl+click did not add to the selection: ' + (await sel()));
+    await page.getByTestId('map-sel-bar').waitFor();
+    const allPinned = (on) => page.waitForFunction(([k, v]) => k.every((id) => !!document.querySelector(`g[data-node="${id}"][data-pinned="true"]`) === v), [[a, b], on], { timeout: 5000 });
+    // Earlier checks may leave pins: start from none, then pin both, then unpin both.
+    if (await page.getByTestId('map-sel-unpin').isEnabled()) await page.getByTestId('map-sel-unpin').click();
+    await allPinned(false);
+    await page.getByTestId('map-sel-pin').click();
+    await allPinned(true);
+    await page.getByTestId('map-sel-unpin').click();
+    await allPinned(false);
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => document.querySelectorAll('circle.g-vnode.sel').length === 0, null, { timeout: 5000 });
+    // A box over the whole canvas in box mode: every node, and the view does not pan.
+    const before = await page.evaluate(() => document.querySelector('g.g-view')?.getAttribute('transform'));
+    const box = await page.locator('svg.g-canvas').boundingBox();
+    await page.getByTestId('map-box').click();
+    await page.mouse.move(box.x + 4, box.y + 4);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width - 4, box.y + box.height - 4, { steps: 8 });
+    await page.mouse.up();
+    assert((await sel()).split(',').length === ids.length, 'box did not select every node: ' + (await sel()));
+    assert((await page.evaluate(() => document.querySelector('g.g-view')?.getAttribute('transform'))) === before, 'box select panned the map');
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    assert((await page.getByTestId('map-box').getAttribute('aria-pressed')) === 'false', 'Esc did not leave box mode');
+  });
 };

@@ -83,7 +83,7 @@ check('gates wires the e2e gate through e2eEnv', () => {
 });
 check('manifest: full and subset totals', () => {
   assert(expectedFor('') === EXPECTED_CHECKS, 'full total');
-  assert(expectedFor('G20-plan,G21-week') === 13, 'subset total ' + expectedFor('G20-plan,G21-week'));
+  assert(expectedFor('G20-plan,G21-week') === 17, 'subset total ' + expectedFor('G20-plan,G21-week'));
   assert(expectedFor('G99-nope') === undefined, 'unknown group must have no total');
 });
 check('full run order covers the manifest exactly', () => {

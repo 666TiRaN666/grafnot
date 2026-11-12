@@ -18,3 +18,21 @@ export function monthYear(date: Date, lang: Lang): string {
   const t = new Intl.DateTimeFormat(locOf(lang), { month: 'long', year: 'numeric' }).format(date);
   return t.charAt(0).toLocaleUpperCase(locOf(lang)) + t.slice(1);
 }
+
+/** "9–15 ноября 2026" / "Nov 30 – Dec 6, 2026" / "9–15 Қараша 2026": the shown week. */
+export function weekRangeLabel(from: Date, to: Date, lang: Lang): string {
+  if (lang === 'KZ') {
+    const m1 = KZ_MONTHS[from.getMonth()] ?? '', m2 = KZ_MONTHS[to.getMonth()] ?? '';
+    return from.getMonth() === to.getMonth()
+      ? `${from.getDate()}–${to.getDate()} ${m2} ${to.getFullYear()}`
+      : `${from.getDate()} ${m1} – ${to.getDate()} ${m2} ${to.getFullYear()}`;
+  }
+  const f = new Intl.DateTimeFormat(locOf(lang), { day: 'numeric', month: 'long', year: 'numeric' });
+  return f.formatRange(from, to).replace(/\s*г\.$/, '');
+}
+
+/** "20 ноября" / "November 20" / "20 қараша". */
+export function dayMonth(date: Date, lang: Lang): string {
+  if (lang === 'KZ') return `${date.getDate()} ${(KZ_MONTHS[date.getMonth()] ?? '').toLocaleLowerCase('kk')}`;
+  return new Intl.DateTimeFormat(locOf(lang), { day: 'numeric', month: 'long' }).format(date);
+}

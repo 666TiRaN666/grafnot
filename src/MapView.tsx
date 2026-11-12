@@ -4,7 +4,10 @@ import type { Lang } from './i18n';
 import { tr } from './i18n';
 import { unlinkedNotes } from './store';
 import type { Graph, Note } from './store';
-import { Hi } from './widgets';
+import { Hi, Icon, MenuButton, SelectionBar } from './widgets';
+import type { MenuItem } from './widgets';
+import { NO_SELECTION, clickSelect, idsInRect, pruneSelection, selectAll, selectMods } from './selectionModel';
+import type { SelectMods, Selection } from './selectionModel';
 import { noteAccessibleName, noteDisplayName } from "./noteName";
 import { useListState } from "./useListState";
 import { TPL_LIMITS } from "./listPrefs";
@@ -14,6 +17,7 @@ import { prefKeyFor } from "./prefs";
 import { layoutGraph, liveGraph, type GPos as Pos, type LiveGraph } from './graphLayout';
 import { MAP_H, MAP_W, ZOOM_MAX, ZOOM_MIN, boxHeight, centerView, fitView, revealShift } from './mapCamera';
 import { useMedia } from './ui/useMedia';
+import { useMenu } from './ui/useMenu';
 import { edgePath, mapLabel } from './mapDraw';
 
 export const HIT_R = 24;
@@ -45,29 +49,39 @@ function GraphCanvas({
   lang,
   nodes,
   edges,
-  selectedId,
-  onSelect,
+  selectedIds,
+  onNodeClick,
+  onEmptyClick,
+  boxMode,
+  onBox,
   linkMode,
   onLinkTarget,
   onLinkCancel,
   hlOrphans,
   pinned,
-  onPinMoved,
+  onPinsMoved,
   apiRef,
 }: {
   lang: Lang;
   nodes: Note[];
   edges: [string, string][];
-  selectedId: string | null;
-  onSelect: (id: string) => void;
+  selectedIds: ReadonlySet<string>;
+  /** A click (no drag) on a node, with the modifiers held. */
+  onNodeClick: (id: string, mods: SelectMods) => void;
+  /** A click on the empty canvas: clears the selection. */
+  onEmptyClick: () => void;
+  /** «Box select» mode: a drag on the empty canvas draws a box instead of panning. */
+  boxMode: boolean;
+  /** Nodes inside a drawn box; `additive` keeps the current selection. */
+  onBox: (ids: string[], additive: boolean) => void;
   linkMode: boolean;
   onLinkTarget: (fromId: string, toId: string) => void;
   onLinkCancel: () => void;
   hlOrphans: boolean;
   /** Pinned notes of this scope: they hold still while others are dragged. */
   pinned: Record<string, Pos>;
-  /** A pinned note was dragged to a new spot and stays pinned there. */
-  onPinMoved: (id: string, at: Pos) => void;
+  /** Dragged notes stay where they were dropped (one or a whole selection). */
+  onPinsMoved: (at: Record<string, Pos>) => void;
   apiRef: ForwardedRef<CanvasApi>;
 }) {
   const ids = nodes.map((n) => n.id);
@@ -84,9 +98,14 @@ function GraphCanvas({
   boxRef.current = boxH;
   const svgRef = useRef<SVGSVGElement>(null);
   const simRef = useRef<LiveGraph | null>(null);
+  const [box, setBox] = useState<null | { a: Pos; b: Pos }>(null);
   const dragRef = useRef<null | {
-    mode: 'pan' | 'node' | 'link';
+    mode: 'pan' | 'node' | 'link' | 'box';
     id?: string;
+    /** Group drag: every selected note keeps its offset from the pointer. */
+    group?: { id: string; dx: number; dy: number }[];
+    start?: Pos;
+    mods: SelectMods;
     sx: number;
     sy: number;
     ox: number;
@@ -257,14 +276,25 @@ function GraphCanvas({
   const onPointerDown = (e: React.PointerEvent) => {
     const el = svgRef.current;
     if (!el) return;
+    // Primary button acts; the middle one always pans; the right one is left
+    // to the context menu (it used to start a pan).
+    if (e.button !== 0 && e.button !== 1) return;
     el.setPointerCapture(e.pointerId);
     const p = toContent(e.clientX, e.clientY);
     const near = nearestNode(nodes, pos, p.x, p.y);
-    const id = near && near.d <= HIT_R ? near.id : undefined;
+    const id = e.button === 0 && near && near.d <= HIT_R ? near.id : undefined;
     const v = viewRef.current;
+    const mods = selectMods(e);
+    const boxing = e.button === 0 && !linkMode && !id && (boxMode || mods.toggle || mods.range);
+    const group = id && selectedIds.has(id) && selectedIds.size > 1 && !mods.toggle && !mods.range
+      ? [...selectedIds].flatMap((sid) => { const q = pos[sid]; return q ? [{ id: sid, dx: q.x - p.x, dy: q.y - p.y }] : []; })
+      : undefined;
     dragRef.current = {
-      mode: linkMode ? 'link' : id ? 'node' : 'pan',
+      mode: e.button === 1 ? 'pan' : linkMode ? 'link' : id ? 'node' : boxing ? 'box' : 'pan',
       id,
+      group,
+      start: p,
+      mods,
       sx: e.clientX,
       sy: e.clientY,
       ox: v.x,
@@ -279,7 +309,9 @@ function GraphCanvas({
     if (!d) return;
     if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > 4) d.moved = true;
     if (!d.moved) return;
-    if (d.mode === 'pan') {
+    if (d.mode === 'box' && d.start) {
+      setBox({ a: d.start, b: toContent(e.clientX, e.clientY) });
+    } else if (d.mode === 'pan') {
       const { s } = metrics();
       const v = viewRef.current;
       setView({ ...v, x: d.ox + (e.clientX - d.sx) / s / v.k, y: d.oy + (e.clientY - d.sy) / s / v.k });
@@ -287,7 +319,8 @@ function GraphCanvas({
       const sim = simRef.current;
       if (!sim) return;
       const p = toContent(e.clientX, e.clientY);
-      sim.drag(d.id, p.x, p.y);
+      if (d.group) for (const g of d.group) sim.drag(g.id, p.x + g.dx, p.y + g.dy);
+      else sim.drag(d.id, p.x, p.y);
       // Without animation the neighbours still follow, a few steps per move.
       if (reduceMotion) {
         sim.step(6);
@@ -302,16 +335,28 @@ function GraphCanvas({
     if (!d) return;
     if (d.mode === 'node' && d.id && d.moved) {
       const sim = simRef.current;
+      const ids = d.group ? d.group.map((g) => g.id) : [d.id];
       // A dropped note stays where it was put (focus group: it sprang
       // back); a cancelled drag lets an unpinned note go as before.
-      const keep = !cancelled || !!pinnedRef.current[d.id];
-      sim?.release(d.id, keep);
+      for (const id of ids) sim?.release(id, !cancelled || !!pinnedRef.current[id]);
       if (sim && reduceMotion) {
         sim.step(200);
         setPos(sim.positions());
       }
-      const at = sim?.positions()[d.id];
-      if (keep && at && !cancelled) onPinMoved(d.id, at);
+      const now = sim?.positions() ?? {};
+      const at: Record<string, Pos> = {};
+      for (const id of ids) { const q = now[id]; if (q) at[id] = q; }
+      if (!cancelled && Object.keys(at).length > 0) onPinsMoved(at);
+      return;
+    }
+    if (d.mode === 'box') {
+      setBox(null);
+      if (cancelled) return;
+      if (d.moved && d.start && e) {
+        const inScope: Record<string, Pos> = {};
+        for (const n of nodes) { const q = posRef.current[n.id]; if (q) inScope[n.id] = q; }
+        onBox(idsInRect(inScope, d.start, toContent(e.clientX, e.clientY)), d.mods.toggle || d.mods.range);
+      } else if (!d.mods.toggle && !d.mods.range) onEmptyClick();
       return;
     }
     if (cancelled) return;
@@ -324,7 +369,8 @@ function GraphCanvas({
       }
       return;
     }
-    if (!d.moved && d.mode === 'node' && d.id) onSelect(d.id);
+    if (!d.moved && d.mode === 'node' && d.id) onNodeClick(d.id, d.mods);
+    else if (!d.moved && d.mode === 'pan') onEmptyClick();
   };
 
   const deg = new Map<string, number>();
@@ -341,7 +387,7 @@ function GraphCanvas({
     <div className="m-canvaswrap">
       <svg
         ref={svgRef}
-        className={'g-canvas' + (selectedId ? ' has-sel' : '')}
+        className={'g-canvas' + (selectedIds.size > 0 ? ' has-sel' : '') + (boxMode ? ' box-mode' : '')}
         viewBox={`0 0 ${MAP_W} ${boxH}`}
         role="group"
         tabIndex={0}
@@ -368,7 +414,7 @@ function GraphCanvas({
             // Ends stop at the node rims, so the arrow tips stay visible.
             const d = edgePath(pa, pb, radius(a) + 3, radius(b) + 3, mutual);
             if (!d) return null;
-            const near = selectedId === a || selectedId === b || hoverId === a || hoverId === b;
+            const near = selectedIds.has(a) || selectedIds.has(b) || hoverId === a || hoverId === b;
             const arrow = near ? 'url(#g-arr-hl)' : 'url(#g-arr)';
             return (
               <path
@@ -384,7 +430,7 @@ function GraphCanvas({
           {nodes.map((n) => {
             const p = pos[n.id] ?? { x: MAP_W / 2, y: MAP_H / 2 };
             const r = radius(n.id);
-            const sel = selectedId === n.id;
+            const sel = selectedIds.has(n.id);
             const orph = !deg.has(n.id);
             const pin = !!pinned[n.id];
             return (
@@ -394,6 +440,7 @@ function GraphCanvas({
                 data-pinned={pin ? 'true' : undefined}
                 tabIndex={0}
                 role="button"
+                aria-pressed={sel}
                 aria-label={noteAccessibleName(n, lang) + (pin ? ` · ${tr('mapPinned', lang)}` : '')}
                 onPointerEnter={() => setHoverId(n.id)}
                 onPointerLeave={() => setHoverId((h) => (h === n.id ? null : h))}
@@ -402,7 +449,7 @@ function GraphCanvas({
                 onKeyDown={(ke) => {
                   if (ke.key === 'Enter' || ke.key === ' ') {
                     ke.preventDefault();
-                    onSelect(n.id);
+                    onNodeClick(n.id, selectMods(ke));
                   }
                 }}
               >
@@ -421,9 +468,11 @@ function GraphCanvas({
           {/* Labels paint above every node; the focused one last, so its full name is never covered. */}
           <g className="g-vlabels" aria-hidden="true">
             {[...nodes]
-              .sort((x, y) => Number(x.id === selectedId || x.id === hoverId) - Number(y.id === selectedId || y.id === hoverId))
+              .sort((x, y) => Number(selectedIds.has(x.id) || x.id === hoverId) - Number(selectedIds.has(y.id) || y.id === hoverId))
               .map((n) => {
-                const focus = selectedId === n.id || hoverId === n.id;
+                // Full names for the hovered note and a small selection; a large
+                // one keeps short labels (its nodes are marked), or names pile up.
+                const focus = hoverId === n.id || (selectedIds.has(n.id) && selectedIds.size <= 3);
                 const label = mapLabel(noteDisplayName(n, lang), focus, view.k);
                 const p = pos[n.id];
                 if (!label || !p) return null;
@@ -434,6 +483,9 @@ function GraphCanvas({
                 );
               })}
           </g>
+          {box && (
+            <rect className="g-vbox" x={Math.min(box.a.x, box.b.x)} y={Math.min(box.a.y, box.b.y)} width={Math.abs(box.b.x - box.a.x)} height={Math.abs(box.b.y - box.a.y)} vectorEffect="non-scaling-stroke" />
+          )}
         </g>
       </svg>
     </div>
@@ -477,6 +529,8 @@ export function MapView({
   onRenameGraph,
   onDeleteGraph,
   onToggleMember,
+  onSetMembers,
+  onTrashNotes,
   onLinkNotes,
   profileId, routeParam, onRoute,
 }: {
@@ -492,19 +546,28 @@ export function MapView({
   onRenameGraph: (id: string, title: string) => void;
   onDeleteGraph: (id: string) => void;
   onToggleMember: (noteId: string, graphId: string) => void;
+  /** Bulk graph membership of the selection (reversible). */
+  onSetMembers: (noteIds: string[], graphId: string, member: boolean) => void;
+  /** Bulk trash of the selection (one Undo). */
+  onTrashNotes: (noteIds: string[]) => void;
   onLinkNotes: (fromId: string, toId: string) => void;
   profileId: string; routeParam?: string; onRoute: (param?: string) => void;
 }) {
   const [scope, setScope] = useState<string>("all");
-  const [peekId, setPeekId] = useState<string | null>(null);
+  // One selection model with the notes list (selectionModel.ts); the note
+  // card shows for a single note, the bulk bar for several.
+  const [sel, setSel] = useState<Selection>(NO_SELECTION);
+  const [boxMode, setBoxMode] = useState(false);
+  const peekId = sel.ids.length === 1 ? (sel.ids[0] ?? null) : null;
+  const setPeekId = (id: string | null) => setSel(id ? { ids: [id], anchor: id } : NO_SELECTION);
   const [linkMode, setLinkMode] = useState(false);
   const [linkFind, setLinkFind] = useState<{ x: number; y: number } | null>(null);
   const [linkQuery, setLinkQuery] = useState("");
   const [searchQ, setSearchQ] = useState("");
   const [searchGo, setSearchGo] = useState(false);
-  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const { open: switcherOpen, setOpen: setSwitcherOpen, rootRef: switcherRootRef, triggerRef: switcherTriggerRef, triggerProps: switcherTrigger, menuProps: switcherMenuProps } = useMenu<HTMLSpanElement>({ focus: 'none' });
   const [switcherQ, setSwitcherQ] = useState("");
-  const [menuOpen, setMenuOpen] = useState(false);
+  const { open: menuOpen, setOpen: setMenuOpen, rootRef: mapMenuRootRef, triggerRef: mapMenuTriggerRef, triggerProps: mapMenuTrigger, menuProps: mapMenuMenuProps } = useMenu<HTMLSpanElement>();
   const [renaming, setRenaming] = useState(false);
   const [gDraft, setGDraft] = useState("");
   const [membersOpen, setMembersOpen] = useState(false);
@@ -541,6 +604,9 @@ export function MapView({
   const scopeNotes = graph ? notes.filter((n) => graph.noteIds.includes(n.id)) : scope === "ungrouped" ? notes.filter((n) => !graphs.some((g) => g.noteIds.includes(n.id))) : notes;
   const ungrouped = notes.filter((n) => !graphs.some((g) => g.noteIds.includes(n.id)));
   const unlinked = unlinkedNotes(scopeNotes);
+  const liveSel = pruneSelection(sel, new Set(scopeNotes.map((n) => n.id)));
+  if (liveSel !== sel) setSel(liveSel);
+  const selIds = new Set(liveSel.ids);
 
   const allIds = new Set(notes.map((n) => n.id));
   const brokenMap = new Map<string, number>();
@@ -605,19 +671,26 @@ export function MapView({
         searchRef.current?.focus();
         return;
       }
-      if (e.key === "Escape" && !inModal) {
+      // Ctrl/Cmd+A: every note of the shown graph, when the map has the focus (not a field).
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key.toLowerCase() === "a" || e.code === "KeyA") && !inField && !inModal && t?.closest?.('[data-testid="map-view"]')) {
+        e.preventDefault();
+        setSel(selectAll(scopeNotes.map((n) => n.id)));
+        return;
+      }
+      if (e.key === "Escape" && !inModal && !e.defaultPrevented) {
         if (linkMode) setLinkMode(false);
         else if (switcherOpen) setSwitcherOpen(false);
         else if (menuOpen) setMenuOpen(false);
         else if (linkFind) setLinkFind(null);
         else if (membersOpen) setMembersOpen(false);
-        else if (peekId) setPeekId(null);
+        else if (sel.ids.length > 0) setSel(NO_SELECTION);
+        else if (boxMode) setBoxMode(false);
       }
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [linkMode, switcherOpen, menuOpen, linkFind, membersOpen, peekId]);
+  }, [linkMode, switcherOpen, menuOpen, linkFind, membersOpen, sel, boxMode, scopeNotes]);
 
   const select = useCallback(
     (q: string) => {
@@ -688,6 +761,19 @@ export function MapView({
     setMenuOpen(false);
     notifyAction(tr('mapLayoutReset', lang), tr('undoToast', lang), () => updatePins(scopeId, () => before));
   };
+  /** Pin or unpin every selected note of this scope (layout pref, not note data). */
+  const pinMany = (ids: string[], on: boolean) => {
+    const at: Record<string, Pos> = {};
+    if (on) for (const id of ids) { const p = apiRef.current?.positionOf(id); if (p) at[id] = { x: p.x, y: p.y }; }
+    const changed = ids.filter((id) => !!scopePins[id] !== on);
+    updatePins(scope, (cur) => {
+      const next = { ...cur };
+      for (const id of ids) { const p = at[id]; if (on && p) next[id] = p; else if (!on) delete next[id]; }
+      return next;
+    });
+    notify(tr(on ? 'toastPinnedN' : 'toastUnpinnedN', lang).replace('{n}', String(changed.length)));
+  };
+  const graphItems: MenuItem[] = graphs.map((g) => ({ key: 'add-' + g.id, label: g.title, run: () => onSetMembers(liveSel.ids, g.id, true) }));
   const togglePin = (id: string) => {
     const at = scopePins[id] ? null : apiRef.current?.positionOf(id);
     updatePins(scope, (cur) => {
@@ -752,14 +838,17 @@ export function MapView({
           lang={lang}
           nodes={scopeNotes}
           edges={edges}
-          selectedId={peekId}
-          onSelect={setPeekId}
+          selectedIds={selIds}
+          onNodeClick={(id, mods) => setSel((s) => clickSelect(s, id, mods, null))}
+          onEmptyClick={() => setSel(NO_SELECTION)}
+          boxMode={boxMode}
+          onBox={(ids, additive) => setSel((s) => (additive ? { ids: [...new Set([...s.ids, ...ids])], anchor: s.anchor } : { ids, anchor: ids[0] ?? null }))}
           linkMode={linkMode}
           onLinkTarget={makeLink}
           onLinkCancel={() => setLinkMode(false)}
           hlOrphans={hlOrphans}
           pinned={scopePins}
-          onPinMoved={(id, at) => updatePins(scope, (cur) => ({ ...cur, [id]: at }))}
+          onPinsMoved={(at) => updatePins(scope, (cur) => ({ ...cur, ...at }))}
           apiRef={apiRef}
         />
       )}
@@ -792,7 +881,7 @@ export function MapView({
         >
           {tr("mapFit", lang)}
         </button>
-        <span className="m-switchwrap">
+        <span className="m-switchwrap" ref={switcherRootRef}>
           {renaming && graph ? (
             <input
               autoFocus
@@ -817,7 +906,7 @@ export function MapView({
               type="button"
               data-testid="map-graphs"
               className="m-toolbtn wide"
-              aria-expanded={switcherOpen}
+              ref={switcherTriggerRef} {...switcherTrigger}
               onClick={() => {
                 setSwitcherOpen((v) => !v);
                 setSwitcherQ("");
@@ -827,7 +916,7 @@ export function MapView({
             </button>
           )}
           {switcherOpen && (
-            <span className="m-pop" role="menu" data-testid="map-graphs-pop">
+            <span className="m-pop" data-testid="map-graphs-pop" {...switcherMenuProps}>
               <input
                 autoFocus
                 className="g-in m-pop-search"
@@ -894,20 +983,19 @@ export function MapView({
             </span>
           )}
         </span>
-        <span className="n-morewrap">
+        <span className="n-morewrap" ref={mapMenuRootRef}>
           <button
             type="button"
             data-testid="map-menu"
             className="m-toolbtn"
             title={tr("menu", lang)}
             aria-label={tr("menu", lang)}
-            aria-expanded={menuOpen}
-            onClick={() => setMenuOpen((v) => !v)}
+            ref={mapMenuTriggerRef} {...mapMenuTrigger}
           >
             ⋯
           </button>
           {menuOpen && (
-            <span className="n-menu m-up" role="menu">
+            <span className="n-menu m-up" {...mapMenuMenuProps}>
               <button type="button" role="menuitem" className="n-menuitem" data-testid="map-pin-all" disabled={scopeNotes.length === 0} onClick={pinAll}>
                 {tr('mapPinAll', lang)}
               </button>
@@ -960,6 +1048,17 @@ export function MapView({
         </span>
         <button
           type="button"
+          data-testid="map-box"
+          className={"m-toolbtn" + (boxMode ? " active" : "")}
+          title={tr("selMarquee", lang) + " · Shift"}
+          aria-label={tr("selMarquee", lang)}
+          aria-pressed={boxMode}
+          onClick={() => setBoxMode((v) => !v)}
+        >
+          <Icon n="select" />
+        </button>
+        <button
+          type="button"
           data-testid="map-link"
           className={"m-toolbtn" + (linkMode ? " active" : "")}
           title={tr("addLinkBtn", lang)}
@@ -979,6 +1078,18 @@ export function MapView({
           {tr("orphansT", lang)} ({unlinked.length})
         </button>
       </div>
+      {boxMode && !linkMode && <div className="m-linkbar" role="status">{tr("selMarqueeHint", lang)}</div>}
+      {liveSel.ids.length > 1 && (
+        <div className="m-selbar">
+          <SelectionBar lang={lang} count={liveSel.ids.length} onClear={() => setSel(NO_SELECTION)} testid="map-sel-bar">
+            <button type="button" className="g-btn sm" data-testid="map-sel-pin" disabled={liveSel.ids.every((id) => scopePins[id])} onClick={() => pinMany(liveSel.ids, true)}>{tr("selPin", lang)}</button>
+            <button type="button" className="g-btn sm" data-testid="map-sel-unpin" disabled={!liveSel.ids.some((id) => scopePins[id])} onClick={() => pinMany(liveSel.ids, false)}>{tr("selUnpin", lang)}</button>
+            {graphs.length > 0 && <MenuButton testid="map-sel-graph" label={tr("selToGraph", lang) + " ▾"} ariaLabel={tr("selToGraph", lang)} items={graphItems} />}
+            {graph && <button type="button" className="g-btn sm" data-testid="map-sel-ungraph" onClick={() => onSetMembers(liveSel.ids, graph.id, false)}>{tr("selFromGraph", lang)}</button>}
+            <button type="button" className="g-btn sm danger" data-testid="map-sel-trash" onClick={() => onTrashNotes(liveSel.ids)}>{tr("selTrash", lang)}</button>
+          </SelectionBar>
+        </div>
+      )}
       {linkMode && (
         <div className="m-linkbar" role="status">
           {tr("mapLinkHint", lang)}

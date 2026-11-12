@@ -112,4 +112,35 @@ module.exports = async function (t) {
     await page.getByTestId('task-panel').waitFor();
     assert((await page.getByTestId('task-panel-title').inputValue()) === 'Later dream', 'deep link opened wrong task');
   });
+
+  await check('Plan: quick add and search work apart, the row menu closes with Esc', async () => {
+    await page.keyboard.press('Escape');
+    await page.getByTestId('task-search').fill('Tomorrow');
+    await page.waitForFunction(() => document.querySelectorAll('[data-testid="task-row"]').length === 1, null, { timeout: 5000 });
+    await page.getByTestId('task-composer-title').fill('Separate add');
+    await page.keyboard.press('Enter');
+    assert((await page.getByTestId('task-search').inputValue()) === 'Tomorrow', 'adding a task touched the search');
+    assert((await page.getByTestId('task-composer-title').inputValue()) === '', 'quick add kept its text');
+    await page.getByTestId('task-search').fill('');
+    await page.locator('[data-testid="task-row"]', { hasText: 'Separate add' }).waitFor();
+    const row = page.locator('[data-testid="task-row"]', { hasText: 'Free thought' });
+    await row.getByTestId('task-row-menu').click();
+    await page.getByTestId('task-menu-del').waitFor();
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('[data-testid="task-menu-del"]') && document.activeElement?.getAttribute('data-testid') === 'task-row-menu', null, { timeout: 5000 });
+  });
+
+  await check('Plan: quick add names its purpose, a blank Enter adds nothing, a collapsed Done is not offered as «show more»', async () => {
+    const box = page.getByTestId('task-composer-title');
+    assert(/задач/i.test((await box.getAttribute('placeholder')) || ''), 'placeholder does not say it adds a task');
+    assert(!!(await box.getAttribute('aria-label')), 'quick add has no label');
+    const rows = await page.getByTestId('task-row').count();
+    await box.fill('   ');
+    await page.keyboard.press('Enter');
+    assert((await page.getByTestId('task-row').count()) === rows, 'a blank name became a task');
+    assert(await page.getByTestId('task-add').isDisabled(), 'Add is enabled for a blank name');
+    await box.fill('');
+    assert((await page.getByTestId('task-group-done').getByTestId('task-row').count()) === 0, 'Done should start collapsed');
+    assert((await page.getByTestId('tasks-more').count()) === 0, '«show more» offered for a collapsed group');
+  });
 };
