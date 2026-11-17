@@ -41,6 +41,7 @@ const ORDER = [
   'G35-rollout',
   'G36-skills',
   'G37-fg2',
+  'G38-lab7',
 ];
 
 run(ORDER).catch((e) => {

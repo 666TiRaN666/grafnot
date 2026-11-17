@@ -3,6 +3,8 @@ import { tr } from './i18n';
 import type { Lang, Theme } from './i18n';
 import type { ProfileRegistry } from './profiles';
 import { profileLabel } from './profiles';
+import { useProfileName } from './profileForm';
+import { ProfileNameForm } from './ProfileNameForm';
 import { ConfirmDialog } from './ui/primitives';
 import { SETTINGS_SECTIONS, settingsSectionTitle } from './settingsNav';
 import type { SettingsSection } from './settingsNav';
@@ -31,6 +33,7 @@ export function SettingsPage({
   onTheme,
   onLang,
   registry,
+  currentId,
   onEnterProfile,
   onCreateProfile,
   onRenameProfile,
@@ -45,6 +48,8 @@ export function SettingsPage({
   onTheme: (t: Theme) => void;
   onLang: (l: Lang) => void;
   registry: ProfileRegistry;
+  /** The profile open in this tab (marked «текущий»). */
+  currentId: string;
   onEnterProfile: (id: string) => void;
   onCreateProfile: (name: string) => void;
   onRenameProfile: (id: string, name: string) => void;
@@ -57,18 +62,18 @@ export function SettingsPage({
   onImportFile: (file: File) => Promise<ImportReason | 'write' | null>;
   addMode: AddMode; onAddMode: (mode: AddMode) => void; saveState: string;
 }) {
-  const [newName, setNewName] = useState('');
   const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [renameDraft, setRenameDraft] = useState('');
+  const newName = useProfileName(registry.profiles, lang);
+  const rename = useProfileName(registry.profiles, lang, renamingId ?? undefined);
   const [pendingProfile, setPendingProfile] = useState<{ id: string; name: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<ImportReason | 'write' | null>(null);
 
-  const commitRename = () => {
-    if (renamingId && renameDraft.trim()) onRenameProfile(renamingId, renameDraft.trim());
+  const commitRename = (name: string) => {
+    if (renamingId) onRenameProfile(renamingId, name);
     setRenamingId(null);
-    setRenameDraft('');
+    rename.reset();
   };
 
   return (
@@ -107,29 +112,26 @@ export function SettingsPage({
           {registry.profiles.map((p) => (
             <div className="g-sugg" key={p.id}>
               {renamingId === p.id ? (
-                <span>
-                  <input
-                    className="g-in"
-                    // Focused with the current name selected: typing renames,
-                    // never lands in the "new profile" field below (focus group).
-                    autoFocus
-                    onFocus={(e) => e.currentTarget.select()}
-                    value={renameDraft}
-                    onChange={(e) => setRenameDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') commitRename();
-                      if (e.key === 'Escape') setRenamingId(null);
-                    }}
-                    aria-label={tr('profileNamePh', lang)}
-                  />
-                  <button type="button" className="g-btn sm" onClick={commitRename}>
-                    {tr('saveBtn', lang)}
-                  </button>
-                </span>
+                // Focused with the current name selected: typing renames,
+                // never lands in the "new profile" field below (focus group).
+                <ProfileNameForm
+                  lang={lang}
+                  field={rename}
+                  label={tr('profileRenameL', lang).replace('{name}', profileLabel(p.name, lang))}
+                  submitLabel={tr('saveBtn', lang)}
+                  onSubmit={commitRename}
+                  onCancel={() => setRenamingId(null)}
+                  autoFocus
+                  selectOnFocus
+                />
               ) : (
-                <span>{profileLabel(p.name, lang)}</span>
+                // «текущий» is this tab's open profile, not the shared registry's last one.
+                <span className="g-pname">
+                  <span>{profileLabel(p.name, lang)}</span>
+                  {p.id === currentId && <span className="g-kind" data-testid="profile-current">{tr('profileCurrent', lang)}</span>}
+                </span>
               )}
-              <span>
+              {renamingId !== p.id && <span>
                 <button type="button" className="g-btn sm" onClick={() => onEnterProfile(p.id)}>
                   {tr('profileEnter', lang)}
                 </button>{' '}
@@ -138,7 +140,7 @@ export function SettingsPage({
                   className="g-btn sm ghost"
                   onClick={() => {
                     setRenamingId(p.id);
-                    setRenameDraft(p.name);
+                    rename.reset(p.name);
                   }}
                 >
                   {tr('renameGo', lang)}
@@ -152,37 +154,20 @@ export function SettingsPage({
                     {tr('delForever', lang)}
                   </button>
                 )}
-              </span>
+              </span>}
             </div>
           ))}
-          <div className="g-addtask">
-            <input
-              data-testid="profile-name-in"
-              className="g-in"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && newName.trim()) {
-                  onCreateProfile(newName.trim());
-                  setNewName('');
-                }
-              }}
-              placeholder={tr('profileNamePh', lang)}
-              aria-label={tr('profileNamePh', lang)}
-            />
-            <button
-              type="button"
-              className="g-btn sm"
-              onClick={() => {
-                if (newName.trim()) {
-                  onCreateProfile(newName.trim());
-                  setNewName('');
-                }
-              }}
-            >
-              {tr('profileNew', lang)}
-            </button>
-          </div>
+          <ProfileNameForm
+            lang={lang}
+            field={newName}
+            label={tr('profileNameL', lang)}
+            submitLabel={tr('profileNew', lang)}
+            onSubmit={(name) => {
+              onCreateProfile(name);
+              newName.reset();
+            }}
+            testid="profile-name-in"
+          />
           <div className="g-field">
             <button type="button" className="g-btn sm g-wide" onClick={onSwitchProfile}>
               {tr('switchProfile', lang)}

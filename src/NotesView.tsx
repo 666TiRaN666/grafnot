@@ -32,7 +32,7 @@ import { readPref, writePref } from "./prefs";
 import { noteAccessibleName, noteDisplayName, noteUpdatedLabel } from "./noteName";
 import { PREVIEW_LEN } from "./promptUtils";
 import { useListState } from "./useListState";
-import { parseBracketQuery, rankLinkSuggest } from "./linkSuggest";
+import { linkDirection, parseBracketQuery, rankLinkSuggest } from "./linkSuggest";
 
 /** Note commands take the id of the note they act on (D1): the shown note,
  * never an app-wide "active" one. */
@@ -1113,7 +1113,7 @@ export function NotesView({
                 <span className="muted small">{tr('linkedT', lang)}: </span>
                 {linkedCount === 0 && <span className="muted small">{tr('ctxNoLinks', lang)}</span>}
                 {[...notes.filter(n => note.linkedIds.includes(n.id)), ...incoming].filter((n, i, all) => all.findIndex(x => x.id === n.id) === i).slice(0, 3).map(n =>
-                  <button type="button" className="g-linkbtn" key={n.id} aria-label={noteAccessibleName(n, lang)} onClick={() => onOpenNote(n.id)}>{incoming.some(x => x.id === n.id) && '← '}{noteDisplayName(n, lang)}</button>)}
+                  { const dir = linkDirection(note, n); return <button type="button" className="g-linkbtn" key={n.id} aria-label={`${dir === 'out' ? '' : tr(dir === 'both' ? 'linkBothA' : 'linkInA', lang) + ': '}${noteAccessibleName(n, lang)}`} title={dir === 'out' ? undefined : tr(dir === 'both' ? 'linkBothA' : 'linkInA', lang)} onClick={() => onOpenNote(n.id)}>{dir === 'both' ? '↔ ' : dir === 'in' ? '← ' : ''}{noteDisplayName(n, lang)}</button>; })}
                 <button type="button" className="g-btn sm" data-testid="ctx-all-links" onClick={e => openContext('links', e.currentTarget)}>{tr('ctxAllLinks', lang)} ({linkedCount})</button>
               </div>
               <div className="note-context-tools">
@@ -1367,7 +1367,7 @@ export function NotesView({
         <NoteContext lang={lang} note={note} notes={notes} graphs={graphs} tasks={tasks} prompts={prompts} actions={actions} tab={tab} onTab={setTab}
           pinned={rightOpen && pinAllowed} canPin={pinAllowed} onPin={onToggleRight} onClose={closeContext} autoFocus={!returnMapFocus.current}
           onOpenNote={onOpenNote} onOpenPlan={onOpenPlan} onOpenPrompt={onOpenPrompt} onUnbind={onUnbind}
-          onAddLink={() => { closeContext(); focusEditorEnd(); }} onTask={openTaskFromSelection} onInsertPrompt={openPrompt} onShowMap={showOnMap} />
+          onTask={openTaskFromSelection} onInsertPrompt={openPrompt} onShowMap={showOnMap} />
       </Suspense>}
       {promptOpen && note && <Suspense fallback={<div role="status">{tr('insertPrompt', lang)}…</div>}>
         <PromptInsert lang={lang} templates={templates} saves={prompts}

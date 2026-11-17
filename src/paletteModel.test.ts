@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterPalette, firstMatchPos, type PaletteEntry } from './paletteModel';
+import { filterPalette, firstMatchPos, PALETTE_RECENT, suggestNotes, type PaletteEntry } from './paletteModel';
 
 const NOTES: PaletteEntry[] = [
   { id: 'n1', group: 'notes', title: 'Alpha Michel', sub: 'first' },
@@ -53,6 +53,14 @@ describe('filterPalette', () => {
     expect(rows.filter((r) => r.group === 'commands')).toHaveLength(3);
   });
 
+  it('empty query: commands first, then the first three notes as recent, no tasks', () => {
+    const rows = filterPalette('', NOTES, TASKS, [], COMMANDS);
+    expect(rows.map((r) => r.id)).toEqual(['c-new-note', 'c-new-task', 'c-go-map', 'n1', 'n2', 'n3']);
+    // Raised limits (the "show more" pass) never widen the recent list.
+    const all = filterPalette('', NOTES, TASKS, [], COMMANDS, { notes: Infinity, tasks: Infinity, prompts: Infinity, commands: Infinity });
+    expect(all.filter((r) => r.group === 'notes')).toHaveLength(PALETTE_RECENT);
+  });
+
   it('filters commands by title fragment', () => {
     const rows = filterPalette('new', NOTES, TASKS, [], COMMANDS);
     expect(rows.map((r) => r.id).sort()).toEqual(['c-new-note', 'c-new-task']);
@@ -82,5 +90,34 @@ describe('firstMatchPos', () => {
     expect(firstMatchPos([{ pos: 1, text: 'Әліпби' }], 'ә')).toBe(1);
     expect(firstMatchPos([{ pos: 1, text: 'Әліпби' }], 'а')).toBeNull();
     expect(firstMatchPos(blocks, '   ')).toBeNull();
+  });
+});
+
+describe('suggestNotes (HE-1: "Did you mean" for a query with no hits)', () => {
+  const notes: PaletteEntry[] = [
+    { id: 'a', group: 'notes', title: 'Normalization', sub: '' },
+    { id: 'b', group: 'notes', title: 'Transactions', sub: '' },
+    { id: 'c', group: 'notes', title: 'Нормализация БД', sub: '' },
+    { id: 'd', group: 'notes', title: 'Normal forms', sub: '' },
+  ];
+  it('finds a title behind an adjacent-letter swap', () => {
+    expect(suggestNotes('nrom', notes).map((e) => e.id)).toEqual(['a', 'd']);
+  });
+  it('tolerates two typos only in long words', () => {
+    expect(suggestNotes('trnsactons', notes).map((e) => e.id)).toEqual(['b']);
+    expect(suggestNotes('nxrx', notes)).toEqual([]);
+  });
+  it('works for Cyrillic titles', () => {
+    expect(suggestNotes('нормлаизация', notes).map((e) => e.id)).toEqual(['c']);
+  });
+  it('returns nothing for an empty or unrelated query', () => {
+    expect(suggestNotes('', notes)).toEqual([]);
+    expect(suggestNotes('qwerty', notes)).toEqual([]);
+  });
+  it('caps the list and puts the closest first', () => {
+    const many: PaletteEntry[] = ['norm', 'nrom', 'noem', 'nirm', 'npqm'].map((t, i) => ({ id: 'm' + i, group: 'notes', title: t, sub: '' }));
+    const got = suggestNotes('norm', many);
+    expect(got).toHaveLength(3);
+    expect(got[0]?.id).toBe('m0');
   });
 });

@@ -124,9 +124,6 @@ button { font-family: inherit; }
   /* Touch has no hover: the delete affordance must be visible, not just tappable. */
   .g-tdel { opacity: 1; }
 }
-.g-addtask { display: flex; gap: 8px; margin: 10px 0 4px; }
-.g-addtask input { flex: 1; border: 1px dashed var(--border); border-radius: 10px; padding: 9px 12px; background: transparent; color: var(--text); font-size: 13.5px; }
-.g-addtask input:focus { border-color: var(--accent); border-style: solid; outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
 /* cards */
 .g-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; box-shadow: var(--shadow); }
 .g-card-t { font-weight: 700; font-size: 13.5px; margin-bottom: 6px; }
@@ -169,6 +166,12 @@ button { font-family: inherit; }
 .s-pal-item > span:nth-child(2), .s-pal-item > .muted { flex: 1; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .s-pal-item > .muted:empty { display: none; }
 .s-pal-item.active { background: var(--accent-soft); }
+/* HE-1 (Lab 7): no-result state with suggestions, create row and a hint. */
+.s-pal-miss { padding: 6px 12px 2px; }
+.s-pal-miss p { margin: 0; }
+.s-pal-miss-t { font-weight: 600; font-size: 14px; }
+.s-pal-miss .s-pal-miss-l { margin-top: 8px; color: var(--muted); font-size: 12.5px; }
+.s-pal-miss-h { margin: 6px 12px 4px; font-size: 12.5px; line-height: 1.45; }
 .g-kind { font-size: 11px; border: 1px solid var(--border); border-radius: 20px; padding: 2px 10px; color: var(--muted); flex-shrink: 0; }
 /* Centered by transform, so the stack sizes itself: without a width it would
  * shrink to the half viewport right of `left: 50%` and squeeze the text. */
@@ -202,10 +205,6 @@ button { font-family: inherit; }
   .s-header .g-kbd { display: none; }
   .s-searchbtn { min-width: 0; }
   .s-searchbtn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* Add-task rows (tasks, calendar): date input keeps an intrinsic width,
-     so let the row wrap instead of pushing the page sideways. */
-  .g-addtask { flex-wrap: wrap; }
-  .g-addtask input { min-width: 0; }
 }
 
 /* empty state & one-line hints */
@@ -290,7 +289,6 @@ button.g-noteopen::after { content: ""; position: absolute; inset: 0; }
 .g-canvas g[data-node]:focus-visible .g-vnode { stroke-width: 3.5; }
 
 
-.g-ops { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 /* [[Title]] in a note: a readable link, Ctrl+click opens it (wikiLinks.ts). */
 .n-wikilink { color: var(--accent); background: var(--accent-soft); border-radius: 4px; padding: 0 2px; }
 .g-field { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--muted); margin: 8px 0; }
@@ -398,6 +396,8 @@ button.g-noteopen::after { content: ""; position: absolute; inset: 0; }
 .t-add:disabled { opacity: .45; cursor: default; filter: none; }
 .t-qa-hint { flex: none; color: var(--u-muted); font-size: 12px; white-space: nowrap; }
 @media (max-width: 760px) { .t-qa-hint { display: none; } }
+/* HE-7 (Lab 7): the date read from the title is said in words, not only by the chip. */
+.t-qa-detected { flex-basis: 100%; margin: 2px 0 0; color: var(--u-accent); font-size: 12.5px; }
 /* Options unfold over the list, never pushing it: a blur that folds them
    must not move the row under the pointer (it ate the click before). */
 .t-qa-opts { position: absolute; left: -1px; right: -1px; top: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 12px 10px 44px; background: var(--u-card); border: 1px solid var(--u-focus); border-top: 1px solid var(--u-line); border-radius: 0 0 var(--u-r-md) var(--u-r-md); box-shadow: var(--u-shadow-pop); }
@@ -995,3 +995,25 @@ i.n-tb-glyph { font-style: italic; font-family: Georgia, serif; }
   .n-tb { min-width: 44px; height: 44px; }
   .n-swatch { width: 40px; height: 40px; }
 }
+/* Profile name form (create/rename; picker and Settings): label above the
+   field, one message line under it — hint, or the error tied to the field. */
+.g-pform { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; margin: 12px 0 4px; text-align: left; }
+.g-sugg > .g-pform { margin: 0; }
+.g-pform-l { font-size: 13px; font-weight: 600; color: var(--u-text); }
+.g-pform-row { display: flex; gap: 8px; align-items: center; }
+.g-pform-row .g-in { margin: 0; flex: 1; min-width: 0; }
+.g-pform-row .g-btn { flex: none; }
+.g-pname { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.g-pform-hint, .g-pform-err { margin: 0; font-size: 12.5px; line-height: 1.4; }
+.g-pform-hint { color: var(--u-muted); }
+.g-pform-err { color: var(--u-danger); font-weight: 600; }
+.g-pform-err::before { content: "! "; }
+.g-in[aria-invalid="true"] { border-color: var(--u-danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--u-danger) 18%, transparent); }
+@media (max-width: 760px) { .g-pform-row { flex-wrap: wrap; } .g-pform-row .g-btn { width: 100%; } }
+/* Context panel note picker (P3, Lab 7): links by id, never edits the text. */
+.ctx-dir { color: var(--u-muted); display: inline-block; width: 1.5em; }
+.ctx-linkfind { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 12px; }
+.ctx-linkfind .g-in { margin: 0; }
+.ctx-linkfind-list { list-style: none; margin: 0; padding: 0; }
+.ctx-linkfind-ok { margin: 0; color: var(--u-ok); background: var(--u-ok-soft); border-radius: var(--u-r-sm); padding: 6px 10px; font-size: 13px; font-weight: 600; }
+.ctx-linkfind > .g-btn { align-self: flex-start; }

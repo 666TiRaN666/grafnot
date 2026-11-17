@@ -4,7 +4,7 @@
 // No browser imports here: requiring it must stay cheap and side-effect free.
 
 // How many checks run in a full suite. Update together with GROUP_SIZES.
-const EXPECTED_CHECKS = 259;
+const EXPECTED_CHECKS = 269;
 
 // Per-group check counts. Update together with EXPECTED_CHECKS when adding checks.
 const GROUP_SIZES = {
@@ -16,6 +16,7 @@ const GROUP_SIZES = {
   'G35-rollout': 27,
   'G36-skills': 2,
   'G37-fg2': 10,
+  'G38-lab7': 10,
 };
 
 /** Parse a GROUPS value ("a,b" or "") into names; empty means a full run. */

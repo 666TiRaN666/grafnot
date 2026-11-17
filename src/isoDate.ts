@@ -28,3 +28,21 @@ export function fmtDue(due?: string): string {
   if (m) return `${m[3]}.${m[2]}`;
   return due;
 }
+
+/** Day words a task title may carry (RU/EN/KZ) and their offset from today. */
+const DUE_WORDS: ReadonlyArray<readonly [string, number]> = [
+  ['today', 0], ['сегодня', 0], ['бүгін', 0],
+  ['tomorrow', 1], ['завтра', 1], ['ертең', 1],
+  ['послезавтра', 2], ['бүрсігүні', 2],
+];
+
+/** HE-7 (Lab 7): a day word written in a task title ("… tomorrow") becomes its
+ * due date, so the intent is not silently lost in "No date". Whole words only
+ * (\b is ASCII-only in JS, so the edges are spaces/punctuation). */
+export function detectDueWord(text: string, today: string): { word: string; due: string } | null {
+  const words = text.toLowerCase().split(/[\s.,!?;:()«»"']+/).filter(Boolean);
+  for (const [w, add] of DUE_WORDS) {
+    if (words.includes(w)) return { word: w, due: addDaysISO(today, add) };
+  }
+  return null;
+}

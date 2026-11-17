@@ -18,6 +18,7 @@ import {
   PROFILES_KEY,
   updateProfiles,
   setActiveProfile,
+  profileLabel,
 } from "./profiles";
 import { parseTrashDays, prefKeyFor, readPref, writePref } from "./prefs";
 import type { TrashDays } from "./prefs";
@@ -524,7 +525,8 @@ export default function App() {
     if (!v) return undefined;
     const id = newId("t");
     setStore((s) => ops.addTask(s, { id, text: v, desc: opts?.desc || undefined, done: false, due: opts?.due, noteId: opts?.noteId }));
-    if (!opts?.quiet) notify(tr('toastTaskAdded', lang));
+    // HE-7 (Lab 7): the toast says where the task landed (date or "No date").
+    if (!opts?.quiet) notify(`${tr('toastTaskAdded', lang)} · ${opts?.due ? fmtDue(opts.due) : tr('undated', lang)}`);
     return id;
   };
 
@@ -690,10 +692,15 @@ export default function App() {
     resetSession();
     setProfileId(profile.id);
     navigate({ section: 'notes' });
+    // Success is said with the name actually stored (profiles.ts may add a suffix).
+    const made = next.profiles.find((p) => p.id === next.activeId)?.name ?? name;
+    notify(tr('toastProfileCreated', lang).replace('{name}', profileLabel(made, lang)));
   };
 
   const renameProfileById = async (id: string, name: string) => {
-    await persistRegistry(current => renameProfile(current, id, name));
+    const next = await persistRegistry(current => renameProfile(current, id, name));
+    const made = next?.profiles.find((p) => p.id === id)?.name;
+    if (made) notify(tr('toastProfileRenamed', lang).replace('{name}', profileLabel(made, lang)));
   };
 
   const deleteProfileById = async (id: string) => {
@@ -1095,7 +1102,8 @@ export default function App() {
   // unrelated renders (toasts, panels) do not rebuild the item list.
   const paletteNotes: PaletteEntry[] = useMemo(
     () =>
-      notes.map((n): PaletteEntry => ({
+      // Recent first: an empty palette lists the top ones under the commands (P4).
+      [...notes].sort((a, b) => b.updated - a.updated).map((n): PaletteEntry => ({
         id: `s-${n.id}`,
         group: 'notes',
         title: noteDisplayName(n, lang),
@@ -1162,6 +1170,14 @@ export default function App() {
     setPaletteOpen(false);
     if (e.cmd === 'new-note') {
       newBlank();
+      return;
+    }
+    if (e.cmd === 'new-note-named') {
+      // HE-1 (Lab 7): the palette's no-result row creates a note titled by the query.
+      const id = createNote(query.trim());
+      go('notes', id);
+      newNoteFocusRef.current = id;
+      notify(tr('toastNewNote', lang));
       return;
     }
     if (e.cmd === 'go-notes') return go('notes');
@@ -1624,11 +1640,6 @@ export default function App() {
           <ErrorBoundary key={section} lang={lang} profileId={profileId} onHome={() => go('notes')}>
           {section === 'notes' && (
             <>
-              {openNote && !isPhone && (
-                <button type="button" data-testid="notes-back" className="g-btn sm ghost" onClick={() => go('notes')}>
-                  ← {tr('goBack', lang)}
-                </button>
-              )}
               <Suspense fallback={lazyFallback}>
               <NotesView templates={store.customTpls} sessionEpoch={sessionEpochRef.current} sessions={noteSessionsRef.current} onShowMap={(id) => go("map", "note/" + id)} trashCount={trash.length + trashTasks.length} onOpenTrash={() => go('trash')} focusNoteId={newNoteFocusRef.current} onBodyFocused={() => { newNoteFocusRef.current = null; }} findRequest={findRef.current} onFindDone={() => { findRef.current = null; }} lang={lang} hintKey={prefKeyFor("hint", profileId)} notes={notes} openNote={openNote ?? null} tasks={tasks} graphs={graphs} onOpenNote={openNoteById} onNew={newBlank} onOpenPlan={(id) => go('plan', id ? 'list/' + id : 'list')} prompts={store.prompts} onOpenPrompt={(id) => go('prompts', id)} onUnbind={unbindPrompt} rightOpen={rightOpen} onToggleRight={() => setRightOpen((v) => !v)} actions={actions} notify={notify} profileId={profileId} />
               </Suspense>
@@ -1829,7 +1840,7 @@ export default function App() {
           )}
           {section === 'settings' && (
             <Suspense fallback={lazyFallback}>
-            <SettingsPage addMode={addMode} onAddMode={setAddMode} saveState={saveState}
+            <SettingsPage addMode={addMode} onAddMode={setAddMode} saveState={saveState} currentId={profileId ?? ''}
               lang={lang}
               section={settingsSection}
               onSection={(s) => go('settings', s)}

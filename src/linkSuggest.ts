@@ -21,3 +21,17 @@ export function parseBracketQuery(before: string): string | null {
 export function rankLinkSuggest<T extends LinkCandidate>(notes: T[], excludeId: string, q: string): T[] {
   return notes.filter((n) => matchLinkCandidate(n, excludeId, q)).sort((a, b) => b.updated - a.updated);
 }
+
+/** How `other` relates to `note` (P5, Lab 7): one row per related note, the
+ * direction said by a marker instead of listing a mutual link twice. */
+export function linkDirection(note: Pick<Note, "id" | "linkedIds">, other: Pick<Note, "id" | "linkedIds">): "out" | "in" | "both" {
+  const out = note.linkedIds.includes(other.id);
+  const inc = other.linkedIds.includes(note.id);
+  return out && inc ? "both" : out ? "out" : "in";
+}
+
+/** Notes the context panel can link `source` to (P3, Lab 7): not the source,
+ * not already linked from it, matching the query, recent first. */
+export function linkTargets<T extends LinkCandidate & Pick<Note, "linkedIds">>(notes: T[], source: Pick<Note, "id" | "linkedIds">, q: string): T[] {
+  return rankLinkSuggest(notes, source.id, q).filter((n) => !source.linkedIds.includes(n.id));
+}

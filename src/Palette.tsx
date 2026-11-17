@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { tr } from './i18n';
 import type { Lang } from './i18n';
-import { filterPalette } from './paletteModel';
+import { filterPalette, suggestNotes } from './paletteModel';
 import type { PaletteGroup, PaletteEntry } from './paletteModel';
 import { useListNav } from './useListNav';
 
@@ -32,10 +32,33 @@ export function Palette({
   const [limits, setLimits] = useState<Partial<Record<PaletteGroup, number>>>({});
   const rows = filterPalette(q, notes, tasks, prompts, commands, limits);
   const all = filterPalette(q, notes, tasks, prompts, commands, { notes: Infinity, tasks: Infinity, prompts: Infinity, commands: Infinity });
-  const nav = useListNav(rows.length, (i) => {
-    const r = rows[i];
+  // HE-1 (Lab 7): an empty result is not a dead end — close notes ("Did you
+  // mean") plus a create row for the typed text, all reachable by arrows/Enter.
+  const query = q.trim();
+  const miss = rows.length === 0 && query !== '';
+  const suggested = miss ? suggestNotes(query, notes) : [];
+  const createRow: PaletteEntry = { id: 'c-create-named', group: 'commands', title: tr('palCreateNamed', lang).replace('{q}', query), sub: '', cmd: 'new-note-named' };
+  const shown = miss ? [...suggested, createRow] : rows;
+  const nav = useListNav(shown.length, (i) => {
+    const r = shown[i];
     if (r) onPick(r, q);
   });
+  const item = (r: PaletteEntry, i: number) => (
+    <button
+      key={r.id}
+      type="button"
+      data-testid={`palette-item-${i}`}
+      title={r.accessibleName ?? r.title}
+      aria-label={r.accessibleName ? `${r.accessibleName} · ${r.sub}` : undefined}
+      className={`s-pal-item${i === nav.active ? ' active' : ''}`}
+      onMouseEnter={() => nav.setActive(i)}
+      onClick={() => onPick(r, q)}
+    >
+      <span className="g-kind">{groupName(r.group)}</span>
+      <span className={r.derived ? "g-note-derived" : undefined}>{r.title}</span>
+      <span className="muted">{r.sub}</span>
+    </button>
+  );
   return (
     <div className="s-pal-back" onClick={onClose}>
       <div
@@ -61,23 +84,15 @@ export function Palette({
           aria-label={tr('navSearch', lang)}
         />
         <div className="s-pal-list">
-          {rows.length === 0 && <div className="muted">{tr('noResults', lang)}</div>}
-          {rows.map((r, i) => (
-            <button
-              key={r.id}
-              type="button"
-              data-testid={`palette-item-${i}`}
-              title={r.accessibleName ?? r.title}
-              aria-label={r.accessibleName ? `${r.accessibleName} · ${r.sub}` : undefined}
-              className={`s-pal-item${i === nav.active ? ' active' : ''}`}
-              onMouseEnter={() => nav.setActive(i)}
-              onClick={() => onPick(r, q)}
-            >
-              <span className="g-kind">{groupName(r.group)}</span>
-              <span className={r.derived ? "g-note-derived" : undefined}>{r.title}</span>
-              <span className="muted">{r.sub}</span>
-            </button>
-          ))}
+          {rows.length === 0 && !miss && <div className="muted">{tr('noResults', lang)}</div>}
+          {miss && (
+            <div className="s-pal-miss" data-testid="palette-miss" role="status">
+              <p className="s-pal-miss-t">{tr('palNoResultsFor', lang).replace('{q}', query)}</p>
+              {suggested.length > 0 && <p className="s-pal-miss-l">{tr('palDidYouMean', lang)}</p>}
+            </div>
+          )}
+          {shown.map(item)}
+          {miss && <p className="s-pal-miss-h muted" data-testid="palette-miss-hint">{tr('palSearchHint', lang)}</p>}
           {(['notes', 'tasks', 'prompts', 'commands'] as const).map(group => {
             const remaining = all.filter(r => r.group === group).length - rows.filter(r => r.group === group).length;
             return remaining > 0 ? <button type="button" key={group} className="g-btn sm s-pal-more" data-testid={'palette-more-' + group} onClick={() => setLimits(l => ({ ...l, [group]: (l[group] ?? 4) + 50 }))}>{groupName(group)} · {tr('tplShowMore', lang).replace('{n}', String(Math.min(50, remaining)))}</button> : null;

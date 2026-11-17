@@ -20,6 +20,8 @@ export interface PaletteEntry {
 
 /** Max rows per group: the palette shows groups of 3-4, never a common top-7. */
 export const PALETTE_GROUP_CAP = 4;
+/** Recent notes under the commands of an empty palette. */
+export const PALETTE_RECENT = 3;
 
 const GROUP_ORDER: PaletteGroup[] = ['notes', 'tasks', 'prompts', 'commands'];
 
@@ -41,6 +43,44 @@ export function firstMatchPos(blocks: { pos: number; text: string }[], query: st
   return hit ? hit.pos + hit.first : null;
 }
 
+/** Optimal string alignment distance (Levenshtein + adjacent swap), capped:
+ * "nrom" -> "norm" is 1. Only short words are compared, so O(n·m) is fine. */
+function osaDistance(a: string, b: string): number {
+  const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) => [i, ...new Array<number>(b.length).fill(0)]);
+  for (let j = 0; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+    }
+  }
+  return d[a.length][b.length];
+}
+
+/** HE-1 (Lab 7): "Did you mean" for a query with no hits. A note is suggested
+ * when every query word is within 1 typo (2 for words of 6+ letters) of the
+ * start of some word in its title. Closest first, at most `max`. */
+export function suggestNotes(query: string, notes: PaletteEntry[], max = 3): PaletteEntry[] {
+  const words = queryWords(query);
+  if (words.length === 0) return [];
+  const scored: { e: PaletteEntry; score: number }[] = [];
+  for (const e of notes) {
+    const titleWords = e.title.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+    let score = 0;
+    let ok = true;
+    for (const w of words) {
+      const limit = w.length >= 6 ? 2 : 1;
+      let best = Infinity;
+      for (const t of titleWords) best = Math.min(best, osaDistance(w, t.slice(0, w.length)), osaDistance(w, t));
+      if (best > limit) { ok = false; break; }
+      score += best;
+    }
+    if (ok) scored.push({ e, score });
+  }
+  return scored.sort((a, b) => a.score - b.score).slice(0, max).map((s) => s.e);
+}
+
 export function filterPalette(
   query: string,
   notes: PaletteEntry[],
@@ -50,14 +90,16 @@ export function filterPalette(
   limits: Partial<Record<PaletteGroup, number>> = {},
 ): PaletteEntry[] {
   const words = queryWords(query);
+  // Empty query: the palette opens as Quick Add (commands first, so Enter still
+  // makes a note), then the most recent notes to recognise instead of recall
+  // (P4, Lab 7). The caller passes notes recent-first.
+  if (words.length === 0) {
+    return [...commands.slice(0, limits.commands ?? PALETTE_GROUP_CAP), ...notes.slice(0, PALETTE_RECENT)];
+  }
   const byGroup: Record<PaletteGroup, PaletteEntry[]> = { notes, tasks, prompts, commands };
   const out: PaletteEntry[] = [];
   for (const g of GROUP_ORDER) {
-    const hits = words.length === 0 && g === 'commands'
-      ? byGroup[g]
-      : byGroup[g].filter((e) => matchesQuery([e.title, e.sub, e.searchText], query));
-    // Empty query shows commands only: the palette opens as Quick Add.
-    if (words.length === 0 && g !== 'commands') continue;
+    const hits = byGroup[g].filter((e) => matchesQuery([e.title, e.sub, e.searchText], query));
     out.push(...hits.slice(0, limits[g] ?? PALETTE_GROUP_CAP));
   }
   return out;

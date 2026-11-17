@@ -6,7 +6,7 @@ import type { Note, TaskItem } from "./store";
 import { Hi, Icon, MenuButton } from "./widgets";
 import { noteAccessibleName, noteDisplayName } from "./noteName";
 import { groupTasks, pageTaskGroups } from "./taskGroups";
-import { addDaysISO, fmtDue, todayISO } from "./isoDate";
+import { addDaysISO, detectDueWord, fmtDue, todayISO } from "./isoDate";
 import type { TaskGroupKey } from "./taskGroups";
 import { pageShortcutAllowed } from "./ui/pageKeys";
 import { matchesQuery } from "./textMatch";
@@ -70,6 +70,14 @@ export function PlanList({
   const [cShowDesc, setCShowDesc] = useState(false);
   const [cDue, setCDue] = useState("");
   const [cShowDate, setCShowDate] = useState(false);
+  // HE-7 (Lab 7): a day word in the title sets the date until the user picks one by hand.
+  const [cDueTouched, setCDueTouched] = useState(false);
+  const cDetected = cDueTouched ? null : detectDueWord(cTitle, today);
+  const cDueEff = cDetected ? cDetected.due : cDue;
+  const pickCDue = (iso: string) => {
+    setCDue(iso);
+    setCDueTouched(true);
+  };
   const searchRef = useRef<HTMLInputElement | null>(null);
   const titleRef = useRef<HTMLInputElement | null>(null);
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
@@ -149,11 +157,12 @@ export function PlanList({
   const submitComposer = () => {
     const v = cTitle.trim();
     if (!v) return;
-    onAdd(v, { desc: cDesc.trim() || undefined, due: cDue || undefined });
+    onAdd(v, { desc: cDesc.trim() || undefined, due: cDueEff || undefined });
     setCTitle("");
     setCDesc("");
     // Each task starts without a due date: a kept one silently landed on the next task (focus group).
     setCDue("");
+    setCDueTouched(false);
     titleRef.current?.focus();
   };
 
@@ -407,9 +416,9 @@ export function PlanList({
           </div>
           {cOpen && (
             <div className="t-qa-opts">
-              {dueChips("task", cDue, (iso) => setCDue(iso))}
+              {dueChips("task", cDueEff, pickCDue)}
               {cShowDate && (
-                <input type="date" className="g-date" value={cDue} onChange={(e) => setCDue(e.target.value)} aria-label={tr("dueDateA", lang)} />
+                <input type="date" className="g-date" value={cDueEff} onChange={(e) => pickCDue(e.target.value)} aria-label={tr("dueDateA", lang)} />
               )}
               {!cShowDesc ? (
                 <button type="button" className="t-adddesc" onClick={() => setCShowDesc(true)}>
@@ -417,6 +426,11 @@ export function PlanList({
                 </button>
               ) : (
                 <textarea className="g-area" value={cDesc} onChange={(e) => setCDesc(e.target.value)} placeholder={tr("descPh", lang)} aria-label={tr("descPh", lang)} rows={2} />
+              )}
+              {cDetected && (
+                <p className="t-qa-detected" data-testid="task-due-detected" role="status">
+                  {tr("dueFromText", lang).replace("{w}", cDetected.word).replace("{d}", fmtDue(cDetected.due))}
+                </p>
               )}
             </div>
           )}

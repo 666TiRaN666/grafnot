@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchLinkCandidate, parseBracketQuery, rankLinkSuggest } from "./linkSuggest";
+import { linkDirection, linkTargets, matchLinkCandidate, parseBracketQuery, rankLinkSuggest } from "./linkSuggest";
 
 describe("matchLinkCandidate", () => {
   it("matches by title case insensitively", () => {
@@ -46,5 +46,28 @@ describe("rankLinkSuggest", () => {
   });
   it("returns recent notes first on an empty query", () => {
     expect(rankLinkSuggest(notes, "zzz", "").map((n) => n.id)).toEqual(["new", "mid", "old"]);
+  });
+});
+
+describe("linkDirection (P5: one row per related note)", () => {
+  const a = { id: "a", linkedIds: ["b", "c"] };
+  const notes = [a, { id: "b", linkedIds: ["a"] }, { id: "c", linkedIds: [] }, { id: "d", linkedIds: ["a"] }];
+  it("tells outgoing, incoming and mutual links apart", () => {
+    expect(linkDirection(a, notes[1]!)).toBe("both");
+    expect(linkDirection(a, notes[2]!)).toBe("out");
+    expect(linkDirection(a, notes[3]!)).toBe("in");
+  });
+});
+
+describe("linkTargets (P3: the context panel's own note picker)", () => {
+  const notes = [
+    { id: "a", title: "Alpha", updated: 1, linkedIds: ["b"] },
+    { id: "b", title: "Beta", updated: 2, linkedIds: [] },
+    { id: "c", title: "Gamma", updated: 3, linkedIds: [] },
+    { id: "d", title: "Alpha two", updated: 4, linkedIds: [] },
+  ];
+  it("offers notes not yet linked from the source, recent first, source excluded", () => {
+    expect(linkTargets(notes, notes[0]!, "").map((n) => n.id)).toEqual(["d", "c"]);
+    expect(linkTargets(notes, notes[0]!, "alp").map((n) => n.id)).toEqual(["d"]);
   });
 });

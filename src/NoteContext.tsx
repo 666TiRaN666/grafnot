@@ -5,20 +5,37 @@ import type { Graph, Note, PromptSave, TaskItem } from './store';
 import type { NotesActions } from './NotesView';
 import type { ContextTab } from './rolloutModel';
 import { noteAccessibleName, noteDisplayName } from './noteName';
+import { linkDirection, linkTargets } from './linkSuggest';
+import { useListNav } from './useListNav';
 import { useSheetSwipe } from './ui/useSheetSwipe';
 
-export function NoteContext({ lang, note, notes, graphs, tasks, prompts, actions, tab, onTab, pinned, canPin, onPin, onClose, onOpenNote, onOpenPlan, onOpenPrompt, onUnbind, onAddLink, onTask, onInsertPrompt, onShowMap, autoFocus }: {
+export function NoteContext({ lang, note, notes, graphs, tasks, prompts, actions, tab, onTab, pinned, canPin, onPin, onClose, onOpenNote, onOpenPlan, onOpenPrompt, onUnbind, onTask, onInsertPrompt, onShowMap, autoFocus }: {
   lang: Lang; note: Note; notes: Note[]; graphs: Graph[]; tasks: TaskItem[]; prompts: PromptSave[]; actions: NotesActions;
   tab: ContextTab; onTab: (tab: ContextTab) => void; pinned: boolean; canPin: boolean; onPin: () => void; onClose: () => void;
   onOpenNote: (id: string) => void; onOpenPlan: (id?: string) => void; onOpenPrompt: (id: string) => void; onUnbind: (id: string) => void;
-  onAddLink: () => void; onTask: () => void; onInsertPrompt: () => void; onShowMap: () => void; autoFocus: boolean;
+  onTask: () => void; onInsertPrompt: () => void; onShowMap: () => void; autoFocus: boolean;
 }) {
   const box = useRef<HTMLElement>(null);
   const swipe = useSheetSwipe(onClose);
   const [shown, setShown] = useState(6);
   const tabs: { id: ContextTab; label: string }[] = [{ id: 'links', label: tr('linkedT', lang) }, { id: 'tasks', label: tr('noteTasksT', lang) }, { id: 'prompts', label: tr('promptsT', lang) }];
-  const incoming = notes.filter(n => n.id !== note.id && n.linkedIds.includes(note.id));
+  // A mutual link is one row among outgoing ones (marked ↔); the incoming list
+  // keeps only one-way links to this note (P5, Lab 7).
+  const incoming = notes.filter(n => n.id !== note.id && n.linkedIds.includes(note.id) && !note.linkedIds.includes(n.id));
   const outgoing = note.linkedIds.map(id => notes.find(n => n.id === id)).filter((n): n is Note => !!n);
+  // P3 (Lab 7): "+ Link" picks a note right here and links by id; it never
+  // writes a [[marker]] into the text (that stays the editor's own `[[`).
+  const [finding, setFinding] = useState(false);
+  const [findQ, setFindQ] = useState('');
+  const [linked, setLinked] = useState<string | null>(null);
+  const targets = finding ? linkTargets(notes, note, findQ).slice(0, 6) : [];
+  const findNav = useListNav(targets.length, (i) => { const n = targets[i]; if (n) linkTo(n); });
+  function linkTo(n: Note) {
+    actions.addLink(note.id, n.id);
+    setLinked(noteDisplayName(n, lang));
+    setFindQ('');
+    findNav.reset();
+  }
   const broken = note.linkedIds.filter(id => !notes.some(n => n.id === id));
   const words = new Set(note.title.toLowerCase().split(/\s+/).filter(w => w.length > 3));
   const candidates = notes.filter(n => n.id !== note.id && !note.linkedIds.includes(n.id));
@@ -46,7 +63,10 @@ export function NoteContext({ lang, note, notes, graphs, tasks, prompts, actions
   const label = (n: Note) => <span className={!n.title.trim() ? 'g-note-derived' : undefined}>{noteDisplayName(n, lang)}</span>;
   const open = (n: Note) => <button type="button" className="g-linkbtn" aria-label={noteAccessibleName(n, lang)} onClick={() => onOpenNote(n.id)}>{label(n)}</button>;
   const links = (items: Note[], incomingLinks = false) => <ul className="ctx-links">{items.map(n => <li key={n.id}>
-    {incomingLinks && <span aria-label={tr('backlinksT', lang)}>← </span>}{open(n)}
+    {incomingLinks && <span className="ctx-dir" aria-label={tr('linkInA', lang)}>← </span>}
+    {!incomingLinks && (linkDirection(note, n) === 'both'
+      ? <span className="ctx-dir" aria-label={tr('linkBothA', lang)}>↔ </span>
+      : <span className="ctx-dir" aria-label={tr('linkOutA', lang)}>→ </span>)}{open(n)}
     {!incomingLinks && <button type="button" className="g-unlink" aria-label={tr('unlinkTitle', lang)} onClick={() => actions.removeLink(note.id, n.id)}>×</button>}
   </li>)}</ul>;
   return <>
@@ -74,12 +94,31 @@ export function NoteContext({ lang, note, notes, graphs, tasks, prompts, actions
             {graphs.map(g => <button type="button" key={g.id} className="g-btn sm" aria-pressed={g.noteIds.includes(note.id)} onClick={() => actions.toggleMember(note.id, g.id)}>{g.title}</button>)}
             <button type="button" className="g-linkbtn" data-testid="ctx-panel-map" onClick={onShowMap}>{tr('ctxShowMap', lang)}</button>
           </div>
-          <h3>{tr('linkedT', lang)} ({outgoing.length})</h3>
+          <h3>{tr('ctxLinksOut', lang)} ({outgoing.length})</h3>
           {!outgoing.length && !incoming.length && <p className="muted">{tr('ctxNoLinks', lang)}</p>}
           {links(outgoing)}
           {!!incoming.length && <><h3>{tr('backlinksT', lang)} ({incoming.length})</h3>{links(incoming, true)}</>}
+          {!!(outgoing.length || incoming.length) && <p className="muted small" data-testid="ctx-links-legend">{tr('linksLegend', lang)}</p>}
           {!!broken.length && <div className="muted small">{tr('brokenF', lang)}: {broken.map(id => <button key={id} type="button" className="g-linkbtn" onClick={() => actions.removeLink(note.id, id)}>× {id.slice(-4)}</button>)}</div>}
-          <button type="button" className="g-btn sm" onClick={onAddLink}>{tr('addLinkBtn', lang)}</button>
+          {!finding
+            ? <button type="button" className="g-btn sm" data-testid="ctx-link-add" onClick={() => { setFinding(true); setLinked(null); }}>{tr('addLinkBtn', lang)}</button>
+            : <div className="ctx-linkfind" data-testid="ctx-link-find">
+              <label className="g-pform-l" htmlFor="ctx-link-q">{tr('linkFindL', lang)}</label>
+              <input id="ctx-link-q" className="g-in" autoFocus autoComplete="off" data-testid="ctx-link-q" value={findQ}
+                placeholder={tr('linkFindPh', lang)}
+                onChange={e => { setFindQ(e.target.value); setLinked(null); findNav.reset(); }}
+                onKeyDown={e => {
+                  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setFinding(false); setFindQ(''); return; }
+                  findNav.onKeyDown(e);
+                }} />
+              {linked && <p className="ctx-linkfind-ok" role="status" data-testid="ctx-link-done">{tr('linkDone', lang).replace('{name}', linked)}</p>}
+              {!targets.length && <p className="muted small">{tr('linkFindEmpty', lang)}</p>}
+              <ul className="ctx-linkfind-list">{targets.map((n, i) => <li key={n.id}>
+                <button type="button" className={'n-suggestitem' + (i === findNav.active ? ' active' : '')} data-testid="ctx-link-target"
+                  onMouseEnter={() => findNav.setActive(i)} onClick={() => linkTo(n)}>{label(n)}</button>
+              </li>)}</ul>
+              <button type="button" className="g-btn sm ghost" onClick={() => { setFinding(false); setFindQ(''); }}>{tr('closeBtn', lang)}</button>
+            </div>}
           <h3>{tr('ctxSuggestions', lang)}</h3>
           <p className="muted small">{tr('similarT', lang)} · {tr('orphansT', lang)}</p>
           {proposals.length === 0 && <p className="muted small">{tr('similarEmpty', lang)}</p>}

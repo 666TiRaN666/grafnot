@@ -3,6 +3,8 @@ import type { Lang } from "./i18n";
 import { tr } from "./i18n";
 import type { Profile, ProfileRegistry } from "./profiles";
 import { profileLabel } from "./profiles";
+import { useProfileName } from "./profileForm";
+import { ProfileNameForm } from "./ProfileNameForm";
 import { useArmConfirm } from "./useArmConfirm";
 
 export interface ProfilePickerActions {
@@ -26,29 +28,27 @@ export function ProfilePicker({
   registry: ProfileRegistry;
   actions: ProfilePickerActions;
 }) {
-  const [draft, setDraft] = useState("");
   const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [renameDraft, setRenameDraft] = useState("");
+  const draft = useProfileName(registry.profiles, lang);
+  const rename = useProfileName(registry.profiles, lang, renamingId ?? undefined);
   const delConfirm = useArmConfirm();
 
-  const create = () => {
-    const name = draft.trim();
-    if (!name) return;
+  const create = (name: string) => {
     actions.onCreate(name);
-    setDraft("");
+    draft.reset();
   };
 
   const startRename = (p: Profile) => {
     delConfirm.resetAll();
     setRenamingId(p.id);
-    setRenameDraft(p.name);
+    rename.reset(p.name);
   };
 
-  const commitRename = () => {
-    if (!renamingId || !renameDraft.trim()) return;
-    actions.onRename(renamingId, renameDraft.trim());
+  const commitRename = (name: string) => {
+    if (!renamingId) return;
+    actions.onRename(renamingId, name);
     setRenamingId(null);
-    setRenameDraft("");
+    rename.reset();
   };
 
   const remove = (id: string) => {
@@ -64,32 +64,18 @@ export function ProfilePicker({
         return (
           <div className="g-sugg" key={p.id} data-testid={`profile-row-${p.id}`}>
             {renamingId === p.id ? (
-              <>
-                <input
-                  className="g-in"
-                  // Focused with the current name selected: typing renames,
-                  // never lands in the "new profile" field below (focus group).
-                  autoFocus
-                  onFocus={(e) => e.currentTarget.select()}
-                  value={renameDraft}
-                  onChange={(e) => setRenameDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") commitRename();
-                    else if (e.key === "Escape") setRenamingId(null);
-                  }}
-                  aria-label={tr("renameGo", lang)}
-                />
-                <span>
-                  <button
-                    type="button"
-                    className="g-btn sm"
-                    disabled={!renameDraft.trim()}
-                    onClick={commitRename}
-                  >
-                    {tr("saveBtn", lang)}
-                  </button>
-                </span>
-              </>
+              // Focused with the current name selected: typing renames,
+              // never lands in the "new profile" field below (focus group).
+              <ProfileNameForm
+                lang={lang}
+                field={rename}
+                label={tr("profileRenameL", lang).replace("{name}", profileLabel(p.name, lang))}
+                submitLabel={tr("saveBtn", lang)}
+                onSubmit={commitRename}
+                onCancel={() => setRenamingId(null)}
+                autoFocus
+                selectOnFocus
+              />
             ) : (
               <>
                 <button type="button" className="g-linkbtn" onClick={() => actions.onEnter(p.id)}>
@@ -117,22 +103,15 @@ export function ProfilePicker({
           </div>
         );
       })}
-      <div className="g-ops">
-        <input
-          className="g-in"
-          data-testid="profile-name-in"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") create();
-          }}
-          placeholder={tr("profileNamePh", lang)}
-          aria-label={tr("profileNamePh", lang)}
-        />
-        <button type="button" className="g-btn primary" disabled={!draft.trim()} onClick={create}>
-          {tr("profileNew", lang)}
-        </button>
-      </div>
+      <ProfileNameForm
+        lang={lang}
+        field={draft}
+        label={tr("profileNameL", lang)}
+        submitLabel={tr("profileNew", lang)}
+        onSubmit={create}
+        testid="profile-name-in"
+        primary
+      />
     </div>
   );
 }
